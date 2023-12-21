@@ -19,9 +19,9 @@ _This is an experiment to see if genetic algorithms can be used to evolve a neur
 ## Running brown against itself
 
 ```
-BLACK="./brown"
-WHITE="./brown"
+BLACK="./engine/evo"
+WHITE="./engine/evo"
 REFEREE="gnugo --mode gtp"
-TWOGTP="gogui-twogtp -black \"$BLACK\" -white \"$WHITE\" -referee \"$REFEREE\" -games 10 -size 9 -alternate -sgffile brown"
+TWOGTP="gogui-twogtp -black \"$BLACK\" -white \"$WHITE\" -referee \"$REFEREE\" -games 10 -size 9 -alternate -sgffile evo"
 gogui -size 9 -program "$TWOGTP" -computer-both -auto
 ```
