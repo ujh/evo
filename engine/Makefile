@@ -14,6 +14,7 @@ evo: $(OBJS) interface.o
 
 test: $(OBJS) test.o
 	$(CC) $(CFLAGS) $(LDLIBS) -o $@ $^
+	./$@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<

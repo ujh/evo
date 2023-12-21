@@ -3,6 +3,7 @@
 *.dep
 
 engine/evo
+engine/test
 
 # Object files
 *.o
