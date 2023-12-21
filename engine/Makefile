@@ -10,10 +10,10 @@ default: evo
 include $(OBJS:.o=.dep)
 
 evo: $(OBJS) interface.o
-	$(CC) $(CFLAGS) $(LDLIBS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 test: $(OBJS) test.o
-	$(CC) $(CFLAGS) $(LDLIBS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 	./$@
 
 %.o: %.c
