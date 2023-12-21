@@ -1,7 +1,7 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *\
  * This is Brown, a simple go program.                           *
  *                                                               *
- * Copyright 2003 and 2004 by Gunnar Farnebäck.                  *
+ * Copyright 2003 and 2004 by Gunnar Farnebï¿½ck.                  *
  *                                                               *
  * Permission is hereby granted, free of charge, to any person   *
  * obtaining a copy of this file gtp.c, to deal in the Software  *
@@ -34,6 +34,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>  /* for rand() and srand() */
+#include <string.h>
 
 #include "brown.h"
 #include "gtp.h"
@@ -89,10 +90,10 @@ main(int argc, char **argv)
   if (argc > 1)
     sscanf(argv[1], "%u", &random_seed);
   srand(random_seed);
-  
+
   /* Make sure that stdout is not block buffered. */
   setbuf(stdout, NULL);
-  
+
   /* Inform the GTP utility functions about the initial board size. */
   gtp_internal_set_boardsize(board_size);
 
@@ -135,11 +136,11 @@ gtp_known_command(char *s)
    */
   if (sscanf(s, "%s", command_name) < 1)
     return gtp_success("false");
-  
+
   for (i = 0; commands[i].name; i++)
     if (!strcmp(command_name, commands[i].name))
       return gtp_success("true");
-  
+
   return gtp_success("false");
 }
 
@@ -171,14 +172,14 @@ gtp_boardsize(char *s)
 
   if (sscanf(s, "%d", &boardsize) < 1)
     return gtp_failure("boardsize not an integer");
-  
+
   if (boardsize < MIN_BOARD || boardsize > MAX_BOARD)
     return gtp_failure("unacceptable size");
 
   board_size = boardsize;
   gtp_internal_set_boardsize(boardsize);
   init_brown();
-  
+
   return gtp_success("");
 }
 
@@ -194,7 +195,7 @@ gtp_komi(char *s)
 {
   if (sscanf(s, "%f", &komi) < 1)
     return gtp_failure("komi not a float");
-  
+
   return gtp_success("");
 }
 
@@ -211,7 +212,7 @@ place_handicap(char *s, int fixed)
 
   if (sscanf(s, "%d", &handicap) < 1)
     return gtp_failure("handicap not an integer");
-  
+
   if (handicap < 2)
     return gtp_failure("invalid handicap");
 
@@ -254,13 +255,13 @@ gtp_set_free_handicap(char *s)
   int i, j;
   int n;
   int handicap = 0;
-  
+
   if (!board_empty())
     return gtp_failure("board not empty");
 
   while ((n = gtp_decode_coord(s, &i, &j)) > 0) {
     s += n;
-    
+
     if (get_board(i, j) != EMPTY) {
       clear_board();
       return gtp_failure("repeated vertex");
@@ -382,12 +383,12 @@ gtp_final_status_list(char *s)
 	/* Clear the status so we don't find the string again. */
 	for (k = 0; k < num_stones; k++)
 	  set_final_status(stonei[k], stonej[k], UNKNOWN);
-	
+
 	if (first_string)
 	  first_string = 0;
 	else
 	  gtp_printf("\n");
-	
+
 	gtp_print_vertices(num_stones, stonei, stonej);
       }
 
@@ -399,7 +400,7 @@ static void
 letters(void)
 {
   int i;
-  
+
   printf("  ");
   for (i = 0; i < board_size; i++)
     printf(" %c", 'A' + i + (i >= 8));
@@ -410,21 +411,21 @@ gtp_showboard(char *s)
 {
   int i, j;
   int symbols[3] = {'.', 'O', 'X'};
-  
+
   gtp_start_response(GTP_SUCCESS);
   gtp_printf("\n");
 
   letters();
-  
+
   for (i = 0; i < board_size; i++) {
     printf("\n%2d", board_size - i);
-    
+
     for (j = 0; j < board_size; j++)
       printf(" %c", symbols[get_board(i, j)]);
 
     printf(" %d", board_size - i);
   }
-  
+
   printf("\n");
   letters();
   return gtp_finish_response();
