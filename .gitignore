@@ -4,6 +4,7 @@
 
 engine/evo
 engine/test
+engine/persist.txt
 
 # Object files
 *.o
