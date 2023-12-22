@@ -12,6 +12,9 @@ include $(OBJS:.o=.dep)
 evo: $(OBJS) interface.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+enginetest: evo
+	./evo < enginetest.gtp
+
 test: $(OBJS) test.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 	./$@
