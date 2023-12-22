@@ -48,6 +48,7 @@ int board_size = 6;
 float komi = -3.14;
 
 genann *ann = NULL;
+double *ann_inputs = NULL;
 
 /* Board represented by a 1D array. The first board_size*board_size
  * elements are used. Vertices are indexed row by row, starting with 0
@@ -72,7 +73,11 @@ void init_brown() {
 void clear_board() {
   if (ann != NULL) genann_free(ann);
   int layer_size = board_size * board_size;
-  ann = genann_init(layer_size, 1, layer_size, layer_size);
+  // Allow passing
+  ann = genann_init(layer_size, 1, layer_size, layer_size + 1);
+
+  if (ann_inputs != NULL) free(ann_inputs);
+  ann_inputs = malloc(layer_size * sizeof(double));
 
   memset(board, 0, sizeof(board));
 }
