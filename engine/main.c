@@ -33,8 +33,12 @@
  * without prior written authorization of the copyright holder.  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#include <stdlib.h>
+#include <time.h>
+
 #include "interface.h"
 
 int main(int argc, char **argv) {
+  srand(time(NULL));
   boot(argc, argv);
 }

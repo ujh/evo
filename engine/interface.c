@@ -84,13 +84,6 @@ static struct gtp_command commands[] = {
 
 
 int boot(int argc, char **argv) {
-  unsigned int random_seed = 1;
-
-  /* Optionally a random seed can be passed as an argument to the program. */
-  if (argc > 1)
-    sscanf(argv[1], "%u", &random_seed);
-  srand(random_seed);
-
   /* Make sure that stdout is not block buffered. */
   setbuf(stdout, NULL);
 
