@@ -83,9 +83,7 @@ static struct gtp_command commands[] = {
 };
 
 
-int
-main(int argc, char **argv)
-{
+int boot(int argc, char **argv) {
   unsigned int random_seed = 1;
 
   /* Optionally a random seed can be passed as an argument to the program. */
