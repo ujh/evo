@@ -1,7 +1,8 @@
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *\
- * This is Brown, a simple go program.                           *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * This is Evo, a simple go program.                             *
  *                                                               *
- * Copyright 2003 and 2004 by Gunnar Farneb�ck.                  *
+ * Copyright 2023 by Urban Hafner                                *
+ *           2003 and 2004 by Gunnar Farnebäck.                  *
  *                                                               *
  * Permission is hereby granted, free of charge, to any person   *
  * obtaining a copy of this file gtp.c, to deal in the Software  *
@@ -30,13 +31,14 @@
  * holder shall not be used in advertising or otherwise to       *
  * promote the sale, use or other dealings in this Software      *
  * without prior written authorization of the copyright holder.  *
-\* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include <stdio.h>
 #include <stdlib.h>  /* for rand() and srand() */
 #include <string.h>
 
 #include "brown.h"
+#include "generate_move.h"
 #include "gtp.h"
 
 /* Forward declarations. */
@@ -430,11 +432,3 @@ gtp_showboard(char *s)
   letters();
   return gtp_finish_response();
 }
-
-
-/*
- * Local Variables:
- * tab-width: 8
- * c-basic-offset: 2
- * End:
- */

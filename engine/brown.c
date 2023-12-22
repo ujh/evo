@@ -1,7 +1,8 @@
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *\
- * This is Brown, a simple go program.                           *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * This is Evo, a simple go program.                             *
  *                                                               *
- * Copyright 2003 and 2004 by Gunnar Farneb‰ck.                  *
+ * Copyright 2023 by Urban Hafner                                *
+ *           2003 and 2004 by Gunnar Farneb√§ck.                  *
  *                                                               *
  * Permission is hereby granted, free of charge, to any person   *
  * obtaining a copy of this file gtp.c, to deal in the Software  *
@@ -30,13 +31,14 @@
  * holder shall not be used in advertising or otherwise to       *
  * promote the sale, use or other dealings in this Software      *
  * without prior written authorization of the copyright holder.  *
-\* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "brown.h"
+#include "generate_move.h"
 
 /* The GTP specification leaves the initial board size and komi to the
  * discretion of the engine. We make the uncommon choices of 6x6 board
@@ -60,38 +62,9 @@ static int final_status[MAX_BOARD * MAX_BOARD];
 /* Point which would be an illegal ko recapture. */
 static int ko_i, ko_j;
 
-/* Offsets for the four directly adjacent neighbors. Used for looping. */
-static int deltai[4] = {-1, 1, 0, 0};
-static int deltaj[4] = {0, 0, -1, 1};
 
-/* Macros to convert between 1D and 2D coordinates. The 2D coordinate
- * (i, j) points to row i and column j, starting with (0,0) in the
- * upper left corner.
- */
-#define POS(i, j) ((i) * board_size + (j))
-#define I(pos) ((pos) / board_size)
-#define J(pos) ((pos) % board_size)
-
-/* Macro to find the opposite color. */
-#define OTHER_COLOR(color) (WHITE + BLACK - (color))
-
-void
-init_brown()
-{
-  int k;
-  int i, j;
-
-  /* The GTP specification leaves the initial board configuration as
-   * well as the board configuration after a boardsize command to the
-   * discretion of the engine. We choose to start with up to 20 random
-   * stones on the board.
-   */
+void init_brown() {
   clear_board();
-  for (k = 0; k < 20; k++) {
-    int color = rand() % 2 ? BLACK : WHITE;
-    generate_move(&i, &j, color);
-    play_move(i, j, color);
-  }
 }
 
 void
@@ -142,9 +115,7 @@ pass_move(int i, int j)
   return i == -1 && j == -1;
 }
 
-static int
-on_board(int i, int j)
-{
+int on_board(int i, int j) {
   return i >= 0 && i < board_size && j >= 0 && j < board_size;
 }
 
@@ -152,7 +123,7 @@ int
 legal_move(int i, int j, int color)
 {
   int other = OTHER_COLOR(color);
-  
+
   /* Pass is always legal. */
   if (pass_move(i, j))
     return 1;
@@ -221,10 +192,7 @@ provides_liberty(int ai, int aj, int i, int j, int color)
   return !has_additional_liberty(ai, aj, i, j);
 }
 
-/* Is a move at (i, j) suicide for color? */
-static int
-suicide(int i, int j, int color)
-{
+int suicide(int i, int j, int color) {
   int k;
   for (k = 0; k < 4; k++)
     if (provides_liberty(i + deltai[k], j + deltaj[k], i, j, color))
@@ -263,7 +231,7 @@ same_string(int pos1, int pos2)
       return 1;
     pos = next_stone[pos];
   } while (pos != pos1);
-  
+
   return 0;
 }
 
@@ -352,63 +320,11 @@ void play_move(int i, int j, int color)
       if (on_board(ai, aj) && get_board(ai, aj) == EMPTY)
 	break;
     }
-    
+
     if (!has_additional_liberty(i, j, ai, aj)) {
       ko_i = ai;
       ko_j = aj;
     }
-  }
-}
-
-/* Generate a move. */
-void generate_move(int *i, int *j, int color)
-{
-  int moves[MAX_BOARD * MAX_BOARD];
-  int num_moves = 0;
-  int move;
-  int ai, aj;
-  int k;
-
-  memset(moves, 0, sizeof(moves));
-  for (ai = 0; ai < board_size; ai++)
-    for (aj = 0; aj < board_size; aj++) {
-      /* Consider moving at (ai, aj) if it is legal and not suicide. */
-      if (legal_move(ai, aj, color)
-	  && !suicide(ai, aj, color)) {
-	/* Further require the move not to be suicide for the opponent... */
-	if (!suicide(ai, aj, OTHER_COLOR(color)))
-	  moves[num_moves++] = POS(ai, aj);
-	else {
-	  /* ...however, if the move captures at least one stone,
-           * consider it anyway.
-	   */
-	  for (k = 0; k < 4; k++) {
-	    int bi = ai + deltai[k];
-	    int bj = aj + deltaj[k];
-	    if (on_board(bi, bj) && get_board(bi, bj) == OTHER_COLOR(color)) {
-	      moves[num_moves++] = POS(ai, aj);
-	      break;
-	    }
-	  }
-	}
-      }
-    }
-
-  /* Choose one of the considered moves randomly with uniform
-   * distribution. (Strictly speaking the moves with smaller 1D
-   * coordinates tend to have a very slightly higher probability to be
-   * chosen, but for all practical purposes we get a uniform
-   * distribution.)
-   */
-  if (num_moves > 0) {
-    move = moves[rand() % num_moves];
-    *i = I(move);
-    *j = J(move);
-  }
-  else {
-    /* But pass if no move was considered. */
-    *i = -1;
-    *j = -1;
   }
 }
 
@@ -454,7 +370,7 @@ compute_final_status(void)
 
   for (pos = 0; pos < board_size * board_size; pos++)
     final_status[pos] = UNKNOWN;
-  
+
   for (i = 0; i < board_size; i++)
     for (j = 0; j < board_size; j++)
       if (get_board(i, j) == EMPTY)
@@ -520,7 +436,7 @@ valid_fixed_handicap(int handicap)
     return 0;
   if (board_size < 7 && handicap > 0)
     return 0;
-  
+
   return 1;
 }
 
@@ -533,26 +449,26 @@ place_fixed_handicap(int handicap)
   int low = board_size >= 13 ? 3 : 2;
   int mid = board_size / 2;
   int high = board_size - 1 - low;
-  
+
   if (handicap >= 2) {
     play_move(high, low, BLACK);   /* bottom left corner */
     play_move(low, high, BLACK);   /* top right corner */
   }
-  
+
   if (handicap >= 3)
     play_move(low, low, BLACK);    /* top left corner */
-  
+
   if (handicap >= 4)
     play_move(high, high, BLACK);  /* bottom right corner */
-  
+
   if (handicap >= 5 && handicap % 2 == 1)
     play_move(mid, mid, BLACK);    /* tengen */
-  
+
   if (handicap >= 6) {
     play_move(mid, low, BLACK);    /* left edge */
     play_move(mid, high, BLACK);   /* right edge */
   }
-  
+
   if (handicap >= 8) {
     play_move(low, mid, BLACK);    /* top edge */
     play_move(high, mid, BLACK);   /* bottom edge */
@@ -567,17 +483,9 @@ place_free_handicap(int handicap)
 {
   int k;
   int i, j;
-  
+
   for (k = 0; k < handicap; k++) {
     generate_move(&i, &j, BLACK);
     play_move(i, j, BLACK);
   }
 }
-
-
-/*
- * Local Variables:
- * tab-width: 8
- * c-basic-offset: 2
- * End:
- */

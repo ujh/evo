@@ -1,7 +1,7 @@
 CFLAGS = -Wall -Wshadow -O3 -g -march=native
 LDLIBS = -lm
 
-OBJS = brown.o gtp.o genann.o
+OBJS = brown.o gtp.o genann.o generate_move.o
 
 default: evo
 
