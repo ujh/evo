@@ -33,54 +33,12 @@
  * without prior written authorization of the copyright holder.  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#define VERSION_STRING "1.0"
+#include <stdlib.h>
+#include <time.h>
 
-#define MIN_BOARD 2
-#define MAX_BOARD 23
+#include "interface.h"
 
-/* These must agree with the corresponding defines in gtp.c. */
-#define EMPTY 0
-#define WHITE 1
-#define BLACK 2
-
-/* Used in the final_status[] array. */
-#define DEAD 0
-#define ALIVE 1
-#define SEKI 2
-#define WHITE_TERRITORY 3
-#define BLACK_TERRITORY 4
-#define UNKNOWN 5
-
-/* Macros to convert between 1D and 2D coordinates. The 2D coordinate
- * (i, j) points to row i and column j, starting with (0,0) in the
- * upper left corner.
- */
-#define POS(i, j) ((i) * board_size + (j))
-#define I(pos) ((pos) / board_size)
-#define J(pos) ((pos) % board_size)
-
-/* Macro to find the opposite color. */
-#define OTHER_COLOR(color) (WHITE + BLACK - (color))
-
-extern float komi;
-extern int board_size;
-
-/* Offsets for the four directly adjacent neighbors. Used for looping. */
-static int deltai[4] = {-1, 1, 0, 0};
-static int deltaj[4] = {0, 0, -1, 1};
-
-void init_brown(void);
-void clear_board(void);
-int board_empty(void);
-int get_board(int i, int j);
-int get_string(int i, int j, int *stonei, int *stonej);
-int legal_move(int i, int j, int color);
-void play_move(int i, int j, int color);
-void compute_final_status(void);
-int get_final_status(int i, int j);
-void set_final_status(int i, int j, int status);
-int valid_fixed_handicap(int handicap);
-void place_fixed_handicap(int handicap);
-void place_free_handicap(int handicap);
-int suicide(int i, int j, int color);
-int on_board(int i, int j);
+int main(int argc, char **argv) {
+  srand(time(NULL));
+  boot(argc, argv);
+}

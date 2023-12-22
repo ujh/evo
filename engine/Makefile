@@ -1,7 +1,7 @@
 CFLAGS = -Wall -Wshadow -O3 -g -march=native
 LDLIBS = -lm
 
-OBJS = brown.o gtp.o genann.o
+OBJS = brown.o gtp.o genann.o generate_move.o interface.o
 
 default: evo
 
@@ -9,7 +9,7 @@ default: evo
 	$(CC) -M $< > $@
 include $(OBJS:.o=.dep)
 
-evo: $(OBJS) interface.o
+evo: $(OBJS) main.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 enginetest: evo
