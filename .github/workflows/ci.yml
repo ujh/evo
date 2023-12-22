@@ -13,7 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: build
-      run: cd engine && make
+      run: cd engine && make enginetest
 
   test-engine:
     runs-on: ubuntu-latest

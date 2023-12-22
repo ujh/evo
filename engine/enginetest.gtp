@@ -1,0 +1,6 @@
+boardsize 9
+komi 6.5
+clear_board
+genmove b
+genmove w
+quit
