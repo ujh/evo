@@ -99,7 +99,22 @@ void find_and_set_best_move(int *i, int *j, int color, const double *prediction)
   }
 }
 
+void check_ann_size() {
+  int points = board_size * board_size;
+  // Komi as input
+  int input_size = points + 1;
+  // Allow pass move as output
+  int output_size = points + 1;
+
+  if (ann->inputs != input_size || ann->outputs != output_size) {
+    if(ann->inputs != input_size) printf("Expected %d inputs. Got %d instead!\n", input_size, ann->inputs);
+    if(ann->outputs != output_size) printf("Expected %d outputs. Got %d instead!\n", output_size, ann->outputs);
+    exit(1);
+  }
+}
+
 void generate_move(int *i, int *j, int color) {
+  check_ann_size();
   generate_ann_inputs(color);
   double const *prediction = genann_run(ann, ann_inputs);
   find_and_set_best_move(i, j, color, prediction);

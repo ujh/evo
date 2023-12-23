@@ -90,6 +90,9 @@ int boot(int argc, char **argv) {
   /* Inform the GTP utility functions about the initial board size. */
   gtp_internal_set_boardsize(board_size);
 
+  // Save ANN file name if there's one
+  if (argc > 1) ann_save_file = argv[1];
+
   /* Initialize the board. */
   init_brown();
 

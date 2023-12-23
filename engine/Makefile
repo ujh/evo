@@ -13,7 +13,7 @@ evo: $(OBJS) main.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 enginetest: evo
-	./evo < enginetest.gtp
+	./evo example.ann < enginetest.gtp
 
 test: $(OBJS) test.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
