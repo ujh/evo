@@ -41,8 +41,11 @@
 // Build input for the neural network. Use 1 for stone of own color, -1 for other color
 void generate_ann_inputs(int color) {
   int ai, aj;
-  int input_index = 0;
+  int input_index = 1;
 
+  // Set komi as the first input
+  ann_inputs[0] = komi * (color == WHITE ? 1.0 : -1.0);
+  // Set all stones as inputs
   for (ai = 0; ai < board_size; ai++)
     for (aj = 0; aj < board_size; aj++) {
       int v = get_board(ai, aj);

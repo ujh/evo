@@ -73,11 +73,14 @@ void init_brown() {
 void clear_board() {
   if (ann != NULL) genann_free(ann);
   int layer_size = board_size * board_size;
-  // Allow passing
-  ann = genann_init(layer_size, 1, layer_size, layer_size + 1);
+  // Komi as input
+  int input_size = layer_size + 1;
+  // Allow pass move as output
+  int output_size = layer_size + 1;
+  ann = genann_init(input_size, 1, layer_size, output_size);
 
   if (ann_inputs != NULL) free(ann_inputs);
-  ann_inputs = malloc(layer_size * sizeof(double));
+  ann_inputs = malloc(input_size * sizeof(double));
 
   memset(board, 0, sizeof(board));
 }
