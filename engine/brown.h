@@ -68,6 +68,7 @@ extern int board_size;
 #include "genann.h"
 extern genann *ann;
 extern double *ann_inputs;
+extern char *ann_save_file;
 
 /* Offsets for the four directly adjacent neighbors. Used for looping. */
 static int deltai[4] = {-1, 1, 0, 0};

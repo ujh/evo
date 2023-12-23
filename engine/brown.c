@@ -49,6 +49,7 @@ float komi = -3.14;
 
 genann *ann = NULL;
 double *ann_inputs = NULL;
+char *ann_save_file = NULL;
 
 /* Board represented by a 1D array. The first board_size*board_size
  * elements are used. Vertices are indexed row by row, starting with 0
@@ -70,17 +71,31 @@ void init_brown() {
   clear_board();
 }
 
-void clear_board() {
-  if (ann != NULL) genann_free(ann);
-  int layer_size = board_size * board_size;
+void allocate_ann() {
+  int points = board_size * board_size;
   // Komi as input
-  int input_size = layer_size + 1;
+  int input_size = points + 1;
   // Allow pass move as output
-  int output_size = layer_size + 1;
-  ann = genann_init(input_size, 1, layer_size, output_size);
+  int output_size = points + 1;
 
+  if (ann != NULL) genann_free(ann);
+  if (ann_save_file == NULL) {
+    ann = genann_init(input_size, 5, points * 10, output_size);
+  } else {
+    FILE *fd = fopen(ann_save_file, "r");
+    ann = genann_read(fd);
+    fclose(fd);
+  }
+}
+
+void allocate_ann_inputs() {
   if (ann_inputs != NULL) free(ann_inputs);
-  ann_inputs = malloc(input_size * sizeof(double));
+  ann_inputs = malloc(ann->inputs * sizeof(double));
+}
+
+void clear_board() {
+  allocate_ann();
+  allocate_ann_inputs();
 
   memset(board, 0, sizeof(board));
 }
