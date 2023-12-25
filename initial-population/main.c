@@ -25,10 +25,13 @@ SOFTWARE.
 */
 
 #include <stdlib.h>
+#include <time.h>
 
 #include "genann.h"
 
 int main(int argc, char **argv) {
+  srand(time(NULL));
+
   // Do not buffer stdout
   setbuf(stdout, NULL);
 
