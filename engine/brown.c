@@ -78,6 +78,8 @@ void allocate_ann() {
   // Allow pass move as output
   int output_size = points + 1;
 
+  fprintf(stderr, "Loading NN ...");
+
   if (ann != NULL) genann_free(ann);
   if (ann_save_file == NULL) {
     ann = genann_init(input_size, 5, points * 10, output_size);
@@ -86,6 +88,16 @@ void allocate_ann() {
     ann = genann_read(fd);
     fclose(fd);
   }
+
+  fprintf(
+    stderr,
+    "\rLoaded NN with %d inputs, %d outputs, %d layers, %d neurons per layer, %d total neurons\n",
+    ann->inputs,
+    ann->outputs,
+    ann->hidden_layers,
+    ann->hidden,
+    ann->total_weights
+  );
 }
 
 void allocate_ann_inputs() {
