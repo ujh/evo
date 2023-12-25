@@ -47,10 +47,6 @@
 int board_size = 6;
 float komi = -3.14;
 
-genann *ann = NULL;
-double *ann_inputs = NULL;
-char *ann_save_file = NULL;
-
 /* Board represented by a 1D array. The first board_size*board_size
  * elements are used. Vertices are indexed row by row, starting with 0
  * in the upper left corner.
@@ -71,44 +67,7 @@ void init_brown() {
   clear_board();
 }
 
-void allocate_ann() {
-  int points = board_size * board_size;
-  // Komi as input
-  int input_size = points + 1;
-  // Allow pass move as output
-  int output_size = points + 1;
-
-  fprintf(stderr, "Loading NN ...");
-
-  if (ann != NULL) genann_free(ann);
-  if (ann_save_file == NULL) {
-    ann = genann_init(input_size, 5, points * 10, output_size);
-  } else {
-    FILE *fd = fopen(ann_save_file, "r");
-    ann = genann_read(fd);
-    fclose(fd);
-  }
-
-  fprintf(
-    stderr,
-    "\rLoaded NN with %d inputs, %d outputs, %d layers, %d neurons per layer, %d total neurons\n",
-    ann->inputs,
-    ann->outputs,
-    ann->hidden_layers,
-    ann->hidden,
-    ann->total_weights
-  );
-}
-
-void allocate_ann_inputs() {
-  if (ann_inputs != NULL) free(ann_inputs);
-  ann_inputs = malloc(ann->inputs * sizeof(double));
-}
-
 void clear_board() {
-  allocate_ann();
-  allocate_ann_inputs();
-
   memset(board, 0, sizeof(board));
 }
 

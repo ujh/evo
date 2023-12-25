@@ -40,6 +40,7 @@
 #include "brown.h"
 #include "generate_move.h"
 #include "gtp.h"
+#include "interface.h"
 
 /* Forward declarations. */
 static int gtp_protocol_version(char *s);
@@ -82,6 +83,42 @@ static struct gtp_command commands[] = {
   {NULL,                  NULL}
 };
 
+genann *ann = NULL;
+double *ann_inputs = NULL;
+
+void allocate_ann(char *ann_save_file) {
+  int points = board_size * board_size;
+  // Komi as input
+  int input_size = points + 1;
+  // Allow pass move as output
+  int output_size = points + 1;
+
+  fprintf(stderr, "Loading NN ...");
+
+  if (ann != NULL) genann_free(ann);
+  if (ann_save_file == NULL) {
+    ann = genann_init(input_size, 5, points * 10, output_size);
+  } else {
+    FILE *fd = fopen(ann_save_file, "r");
+    ann = genann_read(fd);
+    fclose(fd);
+  }
+
+  fprintf(
+    stderr,
+    "\rLoaded NN with %d inputs, %d outputs, %d layers, %d neurons per layer, %d total neurons\n",
+    ann->inputs,
+    ann->outputs,
+    ann->hidden_layers,
+    ann->hidden,
+    ann->total_weights
+  );
+}
+
+void allocate_ann_inputs() {
+  if (ann_inputs != NULL) free(ann_inputs);
+  ann_inputs = malloc(ann->inputs * sizeof(double));
+}
 
 int boot(int argc, char **argv) {
   /* Make sure that stdout is not block buffered. */
@@ -90,8 +127,9 @@ int boot(int argc, char **argv) {
   /* Inform the GTP utility functions about the initial board size. */
   gtp_internal_set_boardsize(board_size);
 
-  // Save ANN file name if there's one
-  if (argc > 1) ann_save_file = argv[1];
+  // Initialize the NN
+  allocate_ann(argc > 1 ? argv[1] : NULL);
+  allocate_ann_inputs();
 
   /* Initialize the board. */
   init_brown();
