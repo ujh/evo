@@ -33,4 +33,8 @@
  * without prior written authorization of the copyright holder.  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#include "genann.h"
+
 int boot(int argc, char **argv);
+extern genann *ann;
+extern double *ann_inputs;

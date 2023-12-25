@@ -37,6 +37,8 @@
 #include <stdlib.h>
 
 #include "brown.h"
+#include "genann.h"
+#include "interface.h"
 
 // Build input for the neural network. Use 1 for stone of own color, -1 for other color
 void generate_ann_inputs(int color) {
