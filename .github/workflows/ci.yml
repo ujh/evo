@@ -22,3 +22,11 @@ jobs:
     - uses: actions/checkout@v4
     - name: build
       run: cd engine && make test
+
+  build-initial-population:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: build
+      run: cd initial-population && make
