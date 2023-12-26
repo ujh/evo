@@ -24,6 +24,7 @@ SOFTWARE.
 
 */
 
+#include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -84,14 +85,38 @@ void check_nns(genann **nns) {
 
 genann *child_from_cross_over(genann **nns) {
   printf("Cross over\n");
-  genann *ann = genann_copy(nns[0]);
-
-  return ann;
+  // Pick order in which to use the NNs
+  int i = (GENANN_RANDOM() > 0.5 ? 0 : 1);
+  genann *first_parent = nns[i];
+  genann *second_parent = nns[(i+1) % 2];
+  genann *child = genann_copy(first_parent);
+  // Find weight at which to cross over
+  // Exclude first and last position
+  int cross_over_point;
+  do {
+    cross_over_point = rintf(GENANN_RANDOM() * first_parent->total_weights);
+  }
+  while (cross_over_point > 0 && cross_over_point < first_parent->total_weights);
+  // Do the cross over
+  for (int ci = cross_over_point; i < first_parent->total_weights; i++) {
+    child->weight[ci] = second_parent->weight[ci];
+  }
+  return child;
 }
 
 genann *child_from_mutation(genann **nns) {
   printf("Mutation\n");
-  genann *ann = genann_copy(nns[0]);
-
-  return ann;
+  // Pick a NN to use
+  genann *parent = nns[GENANN_RANDOM() > 0.5 ? 0 : 1];
+  genann *child = genann_copy(parent);
+  // Find weight to mutate
+  // Exclude first and last position
+  int mutation_point;
+  do {
+    mutation_point = rintf(GENANN_RANDOM() * parent->total_weights);
+  }
+  while (mutation_point > 0 && mutation_point < parent->total_weights);
+  // Mutate the weight
+  child->weight[mutation_point] += (GENANN_RANDOM() - 0.5);
+  return child;
 }

@@ -24,7 +24,7 @@ SOFTWARE.
 
 */
 
-#include "genann.h"
+#include "evolve.h"
 #include "minctest.h"
 
 int main(int argc, char **argv) {
