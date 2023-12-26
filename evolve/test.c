@@ -27,5 +27,47 @@ SOFTWARE.
 #include "evolve.h"
 #include "minctest.h"
 
+double returns_point_three() { return 0.3; }
+double returns_point_one() { return 0.1; }
+double returns_point_nine_nine() { return 0.99; }
+double returns_point_seven() { return 0.7; }
+
+void test_pick_point() {
+  genann *nn = genann_init(1, 1, 1, 1);
+  lequal(nn->total_weights, 4);
+  // Allowed values: 0 1 2 3
+
+  lequal(pick_point(nn, returns_point_one), 0);
+  lequal(pick_point(nn, returns_point_three), 1);
+  lequal(pick_point(nn, returns_point_seven), 2);
+  lequal(pick_point(nn, returns_point_nine_nine), 3);
+}
+
+void test_cross_over() {
+  genann *nn1 = genann_init(1, 1, 1, 1);
+  genann *nn2 = genann_init(1, 1, 1, 1);
+  genann *child = cross_over(nn1, nn2, 2);
+
+  lfequal(nn1->weight[0], child->weight[0]);
+  lfequal(nn1->weight[1], child->weight[1]);
+  lfequal(nn2->weight[2], child->weight[2]);
+  lfequal(nn2->weight[3], child->weight[3]);
+}
+
+void test_mutate() {
+  genann *nn = genann_init(1, 1, 1, 1);
+  genann *child = mutate(nn, 0);
+
+  lok(nn->weight[0] != child->weight[0]);
+  lfequal(nn->weight[1], child->weight[1]);
+  lfequal(nn->weight[2], child->weight[2]);
+  lfequal(nn->weight[3], child->weight[3]);
+}
+
 int main(int argc, char **argv) {
+  printf("Evolve test suite\n");
+
+  lrun("pick_point", test_pick_point);
+  lrun("cross_over", test_cross_over);
+  lrun("mutate", test_mutate);
 }

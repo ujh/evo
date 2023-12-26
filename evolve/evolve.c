@@ -83,22 +83,29 @@ void check_nns(genann **nns) {
   printf("Sanity check passed\n");
 }
 
+double prng() {
+  return GENANN_RANDOM();
+}
+
 genann *child_from_cross_over(genann **nns) {
   printf("Cross over\n");
   // Pick order in which to use the NNs
   int i = (GENANN_RANDOM() > 0.5 ? 0 : 1);
   genann *first_parent = nns[i];
   genann *second_parent = nns[(i+1) % 2];
-  genann *child = genann_copy(first_parent);
   // Find weight at which to cross over
-  // Exclude first and last position
-  int cross_over_point;
-  do {
-    cross_over_point = rintf(GENANN_RANDOM() * first_parent->total_weights);
-  }
-  while (cross_over_point > 0 && cross_over_point < first_parent->total_weights);
+  int cross_over_point = pick_point(first_parent, prng);
   // Do the cross over
-  for (int ci = cross_over_point; i < first_parent->total_weights; i++) {
+  return cross_over(first_parent, second_parent, cross_over_point);
+}
+
+int pick_point(genann *nn, double (*prng)()) {
+  return rintf(floor(prng() * nn->total_weights));
+}
+
+genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_point) {
+  genann *child = genann_copy(first_parent);
+  for (int ci = cross_over_point; ci < first_parent->total_weights; ci++) {
     child->weight[ci] = second_parent->weight[ci];
   }
   return child;
@@ -108,15 +115,14 @@ genann *child_from_mutation(genann **nns) {
   printf("Mutation\n");
   // Pick a NN to use
   genann *parent = nns[GENANN_RANDOM() > 0.5 ? 0 : 1];
-  genann *child = genann_copy(parent);
   // Find weight to mutate
-  // Exclude first and last position
-  int mutation_point;
-  do {
-    mutation_point = rintf(GENANN_RANDOM() * parent->total_weights);
-  }
-  while (mutation_point > 0 && mutation_point < parent->total_weights);
+  int mutation_point = pick_point(parent, prng);
   // Mutate the weight
+  return mutate(parent, mutation_point);
+}
+
+genann *mutate(genann *parent, int mutation_point) {
+  genann *child = genann_copy(parent);
   child->weight[mutation_point] += (GENANN_RANDOM() - 0.5);
   return child;
 }
