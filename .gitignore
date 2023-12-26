@@ -6,6 +6,8 @@ engine/evo
 engine/test
 engine/persist.txt
 
+.vscode
+
 # Object files
 *.o
 *.ko

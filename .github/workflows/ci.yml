@@ -30,3 +30,19 @@ jobs:
     - uses: actions/checkout@v4
     - name: build
       run: cd initial-population && make
+
+  build-evolve:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: build
+      run: cd evolve && make
+
+  test-evolve:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: build
+      run: cd evolve && make test
