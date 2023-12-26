@@ -21,5 +21,5 @@ test: $(OBJS) test.o
 
 clean:
 	$(RM) *.o
-	$(RM) evo test
+	$(RM) evolve test
 
