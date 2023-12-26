@@ -24,45 +24,10 @@ SOFTWARE.
 
 */
 
-#include <stdlib.h>
+#include "genann.h"
 
-#include "evolve.h"
-
-int main(int argc, char **argv) {
-  // Do not buffer stdout
-  setbuf(stdout, NULL);
-  seed();
-
-  if (argc != 4) {
-    fprintf(stderr, "3 arguments required: cross_over_rate, ann1, ann2!\n");
-    exit(1);
-  }
-
-  double cross_over_rate = atof(argv[1]);
-  char *ann1_name = argv[2];
-  char *ann2_name = argv[3];
-
-  printf(
-    "cross_over_rate = %f, ann1_name = %s, ann2_name = %s\n",
-    cross_over_rate,
-    ann1_name,
-    ann2_name
-  );
-
-  genann **anns = load_nns(ann1_name, ann2_name);
-  check_nns(anns);
-
-  genann *child = NULL;
-
-  if (GENANN_RANDOM() < cross_over_rate) {
-    child = child_from_cross_over(anns);
-  } else {
-    child = child_from_mutation(anns);
-  }
-
-  printf("Saving output to child.ann ...");
-  FILE *fd = fopen("child.ann", "w");
-  genann_write(child, fd);
-  fclose(fd);
-  printf("\n");
-}
+void seed();
+genann **load_nns(char *ann1_name, char *ann2_name);
+void check_nns(genann **nns);
+genann *child_from_cross_over(genann **nns);
+genann *child_from_mutation(genann **nns);

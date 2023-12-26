@@ -1,7 +1,7 @@
 CFLAGS = -Wall -Wshadow -O3 -g -march=native
 LDLIBS = -lm
 
-OBJS = genann.o
+OBJS = genann.o evolve.o
 
 default: evolve
 
