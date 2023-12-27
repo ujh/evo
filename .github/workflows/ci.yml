@@ -7,42 +7,22 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-engine:
+  build:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: true
     - name: build
-      run: cd engine && make enginetest
+      run: make
 
-  test-engine:
+  test:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
-    - name: build
-      run: cd engine && make test
-
-  build-initial-population:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: build
-      run: cd initial-population && make
-
-  build-evolve:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: build
-      run: cd evolve && make
-
-  test-evolve:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: build
-      run: cd evolve && make test
+      with:
+        submodules: true
+    - name: test
+      run: make test

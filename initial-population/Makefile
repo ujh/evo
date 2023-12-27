@@ -1,5 +1,5 @@
-CFLAGS = -Wall -Wshadow -O3 -g -march=native
-LDLIBS = -lm -lpcg_random
+CFLAGS = -Wall -Wshadow -O3 -g -march=native -I../pcg-c/include
+LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
 OBJS = genann.o
 

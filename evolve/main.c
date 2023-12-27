@@ -24,6 +24,7 @@ SOFTWARE.
 
 */
 
+#include <math.h>
 #include <stdlib.h>
 
 #include "evolve.h"
