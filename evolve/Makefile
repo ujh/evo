@@ -6,7 +6,7 @@ OBJS = genann.o evolve.o
 default: evolve
 
 %.dep : %.c
-	$(CC) -M $< > $@
+	$(CC) -M $(CFLAGS) $< > $@
 include $(OBJS:.o=.dep)
 
 evolve: $(OBJS) main.o
@@ -20,6 +20,6 @@ test: $(OBJS) test.o
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 clean:
-	$(RM) *.o
+	$(RM) *.o *.dep
 	$(RM) evolve test
 

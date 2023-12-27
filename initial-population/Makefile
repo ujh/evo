@@ -6,7 +6,7 @@ OBJS = genann.o
 default: initial-population
 
 %.dep : %.c
-	$(CC) -M $< > $@
+	$(CC) -M $(CFLAGS) $< > $@
 include $(OBJS:.o=.dep)
 
 initial-population: $(OBJS) main.o
@@ -16,6 +16,6 @@ initial-population: $(OBJS) main.o
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 clean:
-	$(RM) *.o *.ann
+	$(RM) *.o *.ann *.dep
 	$(RM) initial-population
 
