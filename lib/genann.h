@@ -28,16 +28,15 @@
 #define GENANN_H
 
 #include <stdio.h>
+#include <pcg_variants.h>
+
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifndef GENANN_RANDOM
-/* We use the following for uniform random numbers between 0 and 1.
- * If you have a better function, redefine this macro. */
-#define GENANN_RANDOM() (((double)rand())/RAND_MAX)
-#endif
+// As suggested by the pcg-random library
+#define GENANN_RANDOM() (ldexp(pcg32_random(), -32))
 
 struct genann;
 

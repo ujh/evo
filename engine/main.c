@@ -38,7 +38,9 @@
 
 #include "interface.h"
 
+pcg32_random_t rng;
+
 int main(int argc, char **argv) {
-  srand(time(NULL));
+  pcg32_srandom(time(NULL), (intptr_t)&rng);
   boot(argc, argv);
 }
