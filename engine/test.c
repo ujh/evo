@@ -258,8 +258,6 @@ int main(int argc, char *argv[])
 {
     printf("GENANN TEST SUITE\n");
 
-    srand(100); //Repeatable test results.
-
     lrun("basic", basic);
     lrun("xor", xor);
     lrun("backprop", backprop);

@@ -24,18 +24,18 @@ SOFTWARE.
 
 */
 
+#include <pcg_variants.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
-#include <sys/time.h>
+#include <time.h>
 
 #include "evolve.h"
 
+pcg32_random_t rng;
+
 void seed() {
-  struct timeval tp;
-  gettimeofday(&tp, NULL);
-  unsigned seed = (unsigned)tp.tv_usec;
-  srand(seed);
+  pcg32_srandom(time(NULL), (intptr_t)&rng);
 }
 
 genann **load_nns(char *ann1_name, char *ann2_name) {
@@ -83,24 +83,16 @@ void check_nns(genann **nns) {
   printf("Sanity check passed\n");
 }
 
-double prng() {
-  return GENANN_RANDOM();
-}
-
 genann *child_from_cross_over(genann **nns) {
   printf("Cross over\n");
   // Pick order in which to use the NNs
-  int i = (GENANN_RANDOM() > 0.5 ? 0 : 1);
+  int i = pcg32_boundedrand(2);
   genann *first_parent = nns[i];
   genann *second_parent = nns[(i+1) % 2];
   // Find weight at which to cross over
-  int cross_over_point = pick_point(first_parent, prng);
+  int cross_over_point = pcg32_boundedrand(first_parent->total_weights);
   // Do the cross over
   return cross_over(first_parent, second_parent, cross_over_point);
-}
-
-int pick_point(genann *nn, double (*prng)()) {
-  return rintf(floor(prng() * nn->total_weights));
 }
 
 genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_point) {
@@ -114,9 +106,9 @@ genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_p
 genann *child_from_mutation(genann **nns) {
   printf("Mutation\n");
   // Pick a NN to use
-  genann *parent = nns[GENANN_RANDOM() > 0.5 ? 0 : 1];
+  genann *parent = nns[pcg32_boundedrand(2)];
   // Find weight to mutate
-  int mutation_point = pick_point(parent, prng);
+  int mutation_point = pcg32_boundedrand(parent->total_weights);
   // Mutate the weight
   return mutate(parent, mutation_point);
 }

@@ -9,6 +9,9 @@ _This is an experiment to see if genetic algorithms can be used to evolve a neur
 * [GoGui](https://github.com/Remi-Coulom/gogui)
 * gcc
 * make
+* [pcg-random](https://www.pcg-random.org/using-pcg-c.html)
+  * Add path for the library to `LIBRARY_PATH`
+  * Add path to header file to `CPATH`
 
 ## TODO
 
