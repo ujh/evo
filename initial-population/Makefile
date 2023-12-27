@@ -12,6 +12,9 @@ include $(OBJS:.o=.dep)
 initial-population: $(OBJS) main.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+test: initial-population
+	./initial-population 10 9 2 2
+
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
 

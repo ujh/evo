@@ -12,6 +12,9 @@ include $(OBJS:.o=.dep)
 evolve: $(OBJS) main.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+evolvetest: evolve
+	./evolve 0.9 ../engine/example.ann ../engine/example.ann
+
 test: $(OBJS) test.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 	./$@

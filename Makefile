@@ -12,7 +12,9 @@ clean:
 test: pcg
 	cd engine; $(MAKE) enginetest
 	cd engine; $(MAKE) test
+	cd initial-population; $(MAKE) test
 	cd evolve; $(MAKE) test
+	cd evolve; $(MAKE) evolvetest
 
 pcg:
 	cd pcg-c/src; $(MAKE)
