@@ -173,6 +173,12 @@ class RunGeneration
       "completed_games" => [],
       "setup_complete" => true
     )
+    Dir.chdir("../#{previous_generation}") do
+      FileUtils.rm Dir["*.dat"]
+      FileUtils.rm Dir[".sgf"]
+      # Keep the best player NN around
+      FileUtils.rm Dir["*.ann"].reject {|f| previous_data["stats"]["best_player"]["player"] }
+    end
   end
 
   def games_from_files
