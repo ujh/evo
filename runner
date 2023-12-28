@@ -10,6 +10,11 @@ end
 
 exit(1) unless BuildDependencies.call
 
+$stop_now = false
+trap "SIGINT" do
+  puts "Stopping ..."
+  $stop_now = true
+end
 
 experiment_dir = "experiments/#{experiment_name}"
 

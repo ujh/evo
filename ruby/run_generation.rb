@@ -12,6 +12,7 @@ class RunGeneration
     puts "\n*** GENERATION #{generation} ***\n\n"
     setup do
       play_games
+      analyze_games
       play_external_bots
     end
   end
@@ -32,10 +33,40 @@ class RunGeneration
     end
   end
 
-  def play_games
-    puts "Playing games ..."
-    puts data["games"].length
+  def analyze_games
+    return if data["stats"]
+
+    print "Analyzing games ..."
     sleep(5)
+    print "\n"
+  end
+
+  def play_games
+    return if data["games"].empty?
+
+    total = data["games"].length + data["completed_games"].length
+
+    while data["games"].length > 0
+      n = data["completed_games"].length + 1
+      print "\rPlaying game #{n} of #{total} ..."
+      game = data["games"].first
+      play_game(game)
+      new_data = data.merge(
+        "games" => data["games"][1..-1],
+        "completed_games" => data["completed_games"] + [game]
+      )
+      save_data(new_data)
+    end
+  end
+
+  def play_game(game)
+    black = "../evo #{game["black"]}"
+    white = "../evo #{game["white"]}"
+    size = settings["board_size"]
+    prefix = "#{File.basename(game["black"], ".*")}x#{File.basename(game["white"], ".*")}"
+    time = settings["game_length"]
+    cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force|
+    system(cmd)
   end
 
   def play_external_bots
@@ -44,15 +75,17 @@ class RunGeneration
   end
 
   def data
-    return JSON.load_file("data.json") if File.exist?("data.json")
+    return {} unless File.exist?("data.json")
 
-    {}
+    @data ||=JSON.load_file("data.json")
   end
 
   def save_data(hash)
     File.open("data.json", "w") do |f|
       f.puts JSON.pretty_generate(hash)
     end
+    @data = nil
+    exit if $stop_now
   end
 
   def setup_initial_population
@@ -62,6 +95,7 @@ class RunGeneration
     system("../initial-population #{settings['population_size']} #{settings['board_size']} #{settings['hidden_layers']} #{settings['layer_size']}")
     save_data(
       "games" => games_from_files,
+      "completed_games" => [],
       "setup_complete" => true
     )
   end
