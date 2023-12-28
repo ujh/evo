@@ -119,7 +119,7 @@ class RunGeneration
       size = settings["board_size"]
       time = settings["game_length"]
       prefix = opponent[:name]
-      cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games #{games} -sgffile #{prefix} -time #{time} -alternate|
+      cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games #{games} -sgffile #{prefix} -time #{time} -alternate -threads 2|
       system(cmd)
       wins = File.readlines("#{opponent[:name]}.dat").reject {|l| l.start_with?('#') }.map {|l| l.split[3]}.find_all {|r| r.start_with?('B') }.length
       opponent_stats << { opponent:, wins:, games: }
