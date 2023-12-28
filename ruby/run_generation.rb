@@ -36,10 +36,33 @@ class RunGeneration
   def analyze_games
     return if data["stats"]
 
-    print "Analyzing games ..."
-    sleep(5)
-    print "\n"
-    exit
+    print "Analyzing games ... "
+    stats = {
+      "game_results" => [],
+      "wins_per_player" => Hash.new {|h,k| h[k] = 0},
+      "games_per_player" => Hash.new {|h,k| h[k] = 0}
+    }
+    Dir["*.dat"].each do |file_name|
+      contents = File.read(file_name)
+      file_name =~ /(\d+)x(\d+)/
+      black = "#$1.ann"
+      white = "#$2.ann"
+      result = File.readlines(file_name).last.split[3]
+      winner = result.start_with?('B') ? black : white
+      stats["game_results"] << {black: black, white: white, result: result, winner: winner}
+      stats["wins_per_player"][winner] += 1
+      stats["games_per_player"][black] += 1
+      stats["games_per_player"][white] += 1
+    end
+
+    player, wins = stats["wins_per_player"].sort_by {|k,v| -v}.first
+    games = stats["games_per_player"][player]
+    percentage = (wins.to_f/games).round(2)
+    stats["best_player"] = {player:, wins:, games:, percentage:}
+
+    new_data = data.merge("stats" => stats)
+    save_data(new_data)
+    puts "\nBest player #{player} with #{percentage} wins"
   end
 
   def play_games
@@ -84,8 +107,28 @@ class RunGeneration
   end
 
   def play_external_bots
-    puts "Playing external bots ..."
-    sleep(5)
+    best_player = data["stats"]["best_player"]
+    opponents = [
+      {name: 'brown', command: 'brown'},
+      {name: 'gnugoL0', command: 'gnugo --level 0 --mode gtp'}
+    ]
+    games = 100
+    opponent_stats = []
+    opponents.each do |opponent|
+      print "Playing against #{opponent[:name]} ..."
+      black = "../evo #{best_player["player"]}"
+      white = opponent[:command]
+      size = settings["board_size"]
+      time = settings["game_length"]
+      prefix = opponent[:name]
+      cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games #{games} -sgffile #{prefix} -time #{time} -alternate|
+      system(cmd)
+      wins = File.readlines("#{opponent[:name]}.dat").reject {|l| l.start_with?('#') }.map {|l| l.split[3]}.find_all {|r| r.start_with?('B') }.length
+      opponent_stats << { opponent:, wins:, games: }
+      puts " #{(wins.to_f/games).round(2)} wins"
+      new_data = data.merge('opponent_stats' => opponent_stats)
+      save_data(new_data)
+    end
   end
 
   def data
@@ -118,6 +161,7 @@ class RunGeneration
     return if data["setup_complete"]
 
     puts "Generating population ..."
+    raise "Implement!"
   end
 
   def games_from_files
