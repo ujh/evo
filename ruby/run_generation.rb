@@ -39,9 +39,11 @@ class RunGeneration
     print "Analyzing games ..."
     sleep(5)
     print "\n"
+    exit
   end
 
   def play_games
+    find_missing_games
     return if data["games"].empty?
 
     total = data["games"].length + data["completed_games"].length
@@ -57,6 +59,18 @@ class RunGeneration
       )
       save_data(new_data)
     end
+    print "\n"
+  end
+
+  def find_missing_games
+    missing = data["completed_games"].find_all do |g|
+      !File.exist?("#{File.basename(g["black"], ".*")}x#{File.basename(g["white"], ".*")}.dat")
+    end
+    new_data = data.merge(
+      "games" => data["games"] + missing,
+      "completed_games" => data["completed_games"].find_all {|g| !missing.include?(g)}
+    )
+    save_data(new_data)
   end
 
   def play_game(game)
