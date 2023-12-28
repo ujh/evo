@@ -1,0 +1,21 @@
+#!/usr/bin/env ruby
+require 'fileutils'
+
+require_relative "ruby/all"
+
+experiment_name = ARGV.first
+
+if experiment_name.nil?
+  puts "Name of experiment required as argument!"
+  exit 1
+end
+
+exit(1) unless BuildDependencies.call
+
+experiment_dir = "experiments/#{experiment_name}"
+FileUtils.mkdir_p(experiment_dir)
+Dir.chdir(experiment_dir)
+
+settings = SetupExperiment.call
+
+pp settings
