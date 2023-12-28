@@ -1,7 +1,22 @@
+require 'fileutils'
 require 'json'
 
 class SetupExperiment
-  def self.call
+  def self.call(experiment_dir)
+    puts "Setting up ... ✔"
+    setup_directory(experiment_dir)
+    Dir.chdir(experiment_dir) do
+      yield settings
+    end
+  end
+
+  def self.setup_directory(experiment_dir)
+    FileUtils.mkdir_p(experiment_dir)
+    executables = ["engine/evo", "initial-population/initial-population", "evolve/evolve"].map {|e| File.expand_path(e)}
+    FileUtils.ln_s(executables, experiment_dir, force: true)
+  end
+
+  def self.settings
     if File.exist?("settings.json")
       JSON.load_file("settings.json")
     else

@@ -1,6 +1,4 @@
 #!/usr/bin/env ruby
-require 'fileutils'
-
 require_relative "ruby/all"
 
 experiment_name = ARGV.first
@@ -12,10 +10,10 @@ end
 
 exit(1) unless BuildDependencies.call
 
+
 experiment_dir = "experiments/#{experiment_name}"
-FileUtils.mkdir_p(experiment_dir)
-Dir.chdir(experiment_dir)
 
-settings = SetupExperiment.call
+SetupExperiment.call(experiment_dir) do |settings|
+  RunExperiment.call(settings)
+end
 
-pp settings
