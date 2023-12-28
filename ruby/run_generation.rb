@@ -34,8 +34,6 @@ class RunGeneration
   end
 
   def analyze_games
-    return if data["stats"]
-
     print "Analyzing games ... "
     stats = {
       "game_results" => [],
@@ -44,7 +42,7 @@ class RunGeneration
     }
     Dir["*.dat"].each do |file_name|
       contents = File.read(file_name)
-      file_name =~ /(\d+)x(\d+)/
+      next unless file_name =~ /(\d+)x(\d+)/
       black = "#$1.ann"
       white = "#$2.ann"
       result = File.readlines(file_name).last.split[3]
@@ -62,7 +60,7 @@ class RunGeneration
 
     new_data = data.merge("stats" => stats)
     save_data(new_data)
-    puts "\nBest player #{player} with #{percentage} wins"
+    puts "\rBest player #{player} with #{percentage} wins"
   end
 
   def play_games
@@ -161,7 +159,20 @@ class RunGeneration
     return if data["setup_complete"]
 
     puts "Generating population ..."
-    raise "Implement!"
+    previous_generation = generation.to_i - 1
+    previous_data = JSON.load_file("../#{previous_generation}/data.json")
+    # The more wins the more often in array to pick from
+    picks = previous_data['stats']['wins_per_player'].flat_map {|k,v| [k]*v }
+    # Generate the new population
+    settings['population_size'].to_i.times do |i|
+      `../evolve #{settings["cross_over_rate"]} ../#{previous_generation}/#{picks.sample} ../#{previous_generation}/#{picks.sample}`
+      FileUtils.mv("child.ann", "#{i}.ann")
+    end
+    save_data(
+      "games" => games_from_files,
+      "completed_games" => [],
+      "setup_complete" => true
+    )
   end
 
   def games_from_files
