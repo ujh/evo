@@ -71,7 +71,8 @@ class RunGeneration
 
     while data["games"].length > 0
       n = data["completed_games"].length + 1
-      print "\rPlaying game #{n} of #{total} ..."
+      percentage = ((n.to_f/total)*100).round(2)
+      print "\rPlaying game #{n} of #{total} [#{percentage}%] ..."
       game = data["games"].first
       play_game(game)
       new_data = data.merge(
