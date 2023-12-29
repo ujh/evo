@@ -98,9 +98,10 @@ class RunGeneration
     black = "../evo #{game["black"]}"
     white = "../evo #{game["white"]}"
     size = settings["board_size"]
+    maxmoves = settings["board_size"].to_i > 9 ? 1000 : 500
     prefix = "#{File.basename(game["black"], ".*")}x#{File.basename(game["white"], ".*")}"
     time = settings["game_length"]
-    cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force|
+    cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves}|
     system(cmd)
   end
 
@@ -110,6 +111,7 @@ class RunGeneration
       {name: 'brown', command: 'brown'},
       {name: 'gnugoL0', command: 'gnugo --level 0 --mode gtp'}
     ]
+    maxmoves = settings["board_size"].to_i > 9 ? 1000 : 500
     games = 100
     opponent_stats = []
     opponents.each do |opponent|
@@ -119,7 +121,7 @@ class RunGeneration
       size = settings["board_size"]
       time = settings["game_length"]
       prefix = opponent[:name]
-      cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games #{games} -sgffile #{prefix} -time #{time} -alternate -threads 2|
+      cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games #{games} -sgffile #{prefix} -time #{time} -alternate -threads 2 -maxmoves #{maxmoves}|
       system(cmd)
       wins = File.readlines("#{opponent[:name]}.dat").reject {|l| l.start_with?('#') }.map {|l| l.split[3]}.find_all {|r| r.start_with?('B') }.length
       opponent_stats << { opponent:, wins:, games: }
