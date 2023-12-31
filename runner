@@ -1,0 +1,24 @@
+#!/usr/bin/env ruby
+require_relative "ruby/all"
+
+experiment_name = ARGV.first
+
+if experiment_name.nil?
+  puts "Name of experiment required as argument!"
+  exit 1
+end
+
+exit(1) unless BuildDependencies.call
+
+$stop_now = false
+trap "SIGINT" do
+  puts "Stopping ..."
+  $stop_now = true
+end
+
+experiment_dir = "experiments/#{experiment_name}"
+
+SetupExperiment.call(experiment_dir) do |settings|
+  RunExperiment.call(settings)
+end
+

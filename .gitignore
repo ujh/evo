@@ -2,10 +2,7 @@
 *.d
 *.dep
 
-engine/evo
-engine/test
-engine/persist.txt
-
+experiments
 .vscode
 
 # Object files

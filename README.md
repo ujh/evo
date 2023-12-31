@@ -18,6 +18,12 @@ _This is an experiment to see if genetic algorithms can be used to evolve a neur
 3. Build everything using `make`
 4. Run the tests using `make test`
 
+## Running the evolution of the neural net
+
+1. Ensure that you have the Ruby version installed as specified in `.ruby-version` (or use rvm or similar to do it automatically).
+2. Execute `./runner EXPERIMENT_NAME` and answer the setup questions
+3. If you quit you can just restart the experiment with the same command
+
 ## Running brown against itself
 
 ```
