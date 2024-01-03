@@ -31,8 +31,12 @@ class SetupExperiment
       settings["layer_size"] = STDIN.gets.chomp
       print "Cross over rate: "
       settings["cross_over_rate"] = STDIN.gets.chomp
-      print "Game length: "
+      print "Game length (time): "
       settings["game_length"] = STDIN.gets.chomp
+      print "Max moves: "
+      settings["max_moves"] = STDIN.gets.chomp
+      print "Rounds (tournament): "
+      settings["tournament_rounds"] = STDIN.gets.chomp
       File.open("settings.json", "w") do |f|
         f.puts JSON.pretty_generate(settings)
       end

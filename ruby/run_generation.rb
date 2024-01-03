@@ -11,9 +11,13 @@ class RunGeneration
   def call
     puts "\n*** GENERATION #{generation} ***\n\n"
     setup do
+
+
+      exit
+
+
       play_games
       analyze_games
-      play_external_bots
     end
   end
 
@@ -106,33 +110,6 @@ class RunGeneration
     system(cmd)
   end
 
-  def play_external_bots
-    best_player = data["stats"]["best_player"]
-    opponents = [
-      {name: 'brown', command: 'brown'},
-      {name: 'amigo', command: 'amigogtp'},
-      {name: 'gnugoL0', command: 'gnugo --level 0 --mode gtp'}
-    ]
-    maxmoves = settings["board_size"].to_i > 9 ? 1000 : 500
-    games = 100
-    opponent_stats = []
-    opponents.each do |opponent|
-      print "Playing against #{opponent[:name]} ..."
-      black = "../evo #{best_player["player"]}"
-      white = opponent[:command]
-      size = settings["board_size"]
-      time = settings["game_length"]
-      prefix = opponent[:name]
-      cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games #{games} -sgffile #{prefix} -time #{time} -alternate -threads 2 -maxmoves #{maxmoves}|
-      system(cmd)
-      wins = File.readlines("#{opponent[:name]}.dat").reject {|l| l.start_with?('#') }.map {|l| l.split[3]}.find_all {|r| r.start_with?('B') }.length
-      opponent_stats << { opponent:, wins:, games: }
-      puts " #{(wins.to_f/games).round(2)} wins"
-      new_data = data.merge('opponent_stats' => opponent_stats)
-      save_data(new_data)
-    end
-  end
-
   def data
     return {} unless File.exist?("data.json")
 
@@ -152,11 +129,7 @@ class RunGeneration
 
     puts "Generating initial population ..."
     system("../initial-population #{settings['population_size']} #{settings['board_size']} #{settings['hidden_layers']} #{settings['layer_size']}")
-    save_data(
-      "games" => games_from_files,
-      "completed_games" => [],
-      "setup_complete" => true
-    )
+    save_data(setup_tournament)
   end
 
   def evolve_from_previous_population
@@ -172,15 +145,42 @@ class RunGeneration
       `../evolve #{settings["cross_over_rate"]} ../#{previous_generation}/#{picks.sample} ../#{previous_generation}/#{picks.sample}`
       FileUtils.mv("child.ann", "#{i}.ann")
     end
-    save_data(
-      "games" => games_from_files,
-      "completed_games" => [],
-      "setup_complete" => true
-    )
+    save_data(setup_tournament)
   end
 
-  def games_from_files
-    nns = Dir["*.ann"]
-    nns.flat_map {|nb| nns.find_all {|nw| nw != nb }.map {|nw| {black: nb, white: nw} } }
+  EXTERNAL_PLAYERS = [
+    {'name' => 'Brown', 'command' => 'brown'},
+    {'name' => 'AmiGo', 'command' => 'amigogtp'},
+    {'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp'}
+  ]
+
+  def setup_tournament
+    data = {
+      'round' => 0,
+      'players' => setup_players,
+      'setup_complete' => true,
+    }
+    data['ranking'] = data['players'].keys.map {|player| {'name' => player, 'score' => 0} }.shuffle
+    data['games'] = games_from_ranking(data['ranking'])
+    data['game_count'] = data['games'].length
+    data
+  end
+
+  def games_from_ranking(ranking)
+    games = []
+    ranked_players = ranking.map {|r| r['name'] }
+    loop do
+      players = ranked_players.shift(2).shuffle
+      break if players.empty?
+      players << nil if players.length == 1
+      games << {black: players.first, white: players.last}
+    end
+    games
+  end
+
+  def setup_players
+    players = EXTERNAL_PLAYERS.each_with_object({}) {|player, hash| hash[player['name']] = {'command' => player['command'], 'external' => true} }
+    players.merge!(Dir["*.ann"].each_with_object({}) {|player,hash | hash[player] = { 'command' => "../evo #{player}" } })
+    players
   end
 end
