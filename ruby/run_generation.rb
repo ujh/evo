@@ -11,11 +11,6 @@ class RunGeneration
   def call
     puts "\n*** GENERATION #{generation} ***\n\n"
     setup do
-
-
-      exit
-
-
       play_games
       analyze_games
     end
@@ -46,12 +41,18 @@ class RunGeneration
     }
     Dir["*.dat"].each do |file_name|
       contents = File.read(file_name)
-      next unless file_name =~ /(\d+)x(\d+)/
+      next unless file_name =~ /(\d+)x(\d+)R(\d+)/
       black = "#$1.ann"
       white = "#$2.ann"
-      result = File.readlines(file_name).last.split[3]
+      # Exclude games against external engines
+      break unless File.exist?(black)
+      break unless File.exist?(white)
+
+      data_row = File.readlines(file_name).last.split
+      result = data_row[3]
+      length = data_row[6].to_i
       winner = result.start_with?('B') ? black : white
-      stats["game_results"] << {black: black, white: white, result: result, winner: winner}
+      stats["game_results"] << {black:, white:, result:, winner:, length:}
       stats["wins_per_player"][winner] += 1
       stats["games_per_player"][black] += 1
       stats["games_per_player"][white] += 1
@@ -64,50 +65,84 @@ class RunGeneration
 
     new_data = data.merge("stats" => stats)
     save_data(new_data)
-    puts "\rBest player #{player} with #{percentage} wins"
+    puts "\rBest player #{player} with #{percentage} wins (#{wins} wins in #{games} games)                "
   end
 
   def play_games
-    find_missing_games
-    return if data["games"].empty?
+    return if data["round"] >= settings["tournament_rounds"].to_i
 
-    total = data["games"].length + data["completed_games"].length
+    loop do
+      play_round
+      setup_next_round
 
-    while data["games"].length > 0
-      n = data["completed_games"].length + 1
-      percentage = ((n.to_f/total)*100).round(2)
-      print "\rPlaying game #{n} of #{total} [#{percentage}%] ..."
-      game = data["games"].first
-      play_game(game)
-      new_data = data.merge(
-        "games" => data["games"][1..-1],
-        "completed_games" => data["completed_games"] + [game]
-      )
-      save_data(new_data)
+      break if data["round"] >= settings["tournament_rounds"].to_i
     end
-    print "\n"
   end
 
-  def find_missing_games
-    missing = data["completed_games"].find_all do |g|
-      !File.exist?("#{File.basename(g["black"], ".*")}x#{File.basename(g["white"], ".*")}.dat")
+  def setup_next_round
+    games = if data["round"].succ >= settings["tournament_rounds"].to_i
+      []
+    else
+      games_from_ranking(data['ranking'])
     end
+
     new_data = data.merge(
-      "games" => data["games"] + missing,
-      "completed_games" => data["completed_games"].find_all {|g| !missing.include?(g)}
+      'round' => data['round'] + 1,
+      'completed_games' => [],
+      'games' => games
     )
     save_data(new_data)
   end
 
+  def play_round
+    puts "\rPlaying round #{data['round'] + 1} of #{settings['tournament_rounds']} ...              "
+    total = data["games"].length + data["completed_games"].length
+
+    loop do
+      game = data["games"].first
+      break unless game
+
+      n = data["completed_games"].length + 1
+      percentage = ((n.to_f/total)*100).round(2)
+      print "\rPlaying game #{n} of #{total} [#{percentage}%] ..."
+
+      result = play_game(game)
+      new_ranking = data['ranking'].map do |s|
+        if s['name'] == result['winner']
+          s.merge('score' => s['score'] + 1)
+        else
+          s
+        end
+      end.sort_by {|s| -s['score'] }
+      new_data = data.merge(
+        "games" => data["games"][1..-1],
+        "completed_games" => data["completed_games"] + [game.merge(result)],
+        "ranking" => new_ranking
+      )
+      save_data(new_data)
+    end
+  end
+
   def play_game(game)
-    black = "../evo #{game["black"]}"
-    white = "../evo #{game["white"]}"
+    # Odd number of players. Received a bye
+    return { 'winner' => game['black']} unless game['white']
+
+    black = data['players'][game["black"]]['command']
+    white = data['players'][game["white"]]['command']
     size = settings["board_size"]
-    maxmoves = settings["board_size"].to_i > 9 ? 1000 : 500
-    prefix = "#{File.basename(game["black"], ".*")}x#{File.basename(game["white"], ".*")}"
+    maxmoves = settings["max_moves"]
+    prefix = prefix_from(game)
     time = settings["game_length"]
     cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves}|
     system(cmd)
+    result = File.readlines("#{prefix}.dat").last.split
+    winner = result[3].start_with?('B') ? game['black'] : game['white']
+    # game_length = result[]
+    { 'winner' => winner }
+  end
+
+  def prefix_from(game)
+    "#{File.basename(game["black"], ".*")}x#{File.basename(game["white"], ".*")}R#{data['round']}"
   end
 
   def data
@@ -139,6 +174,7 @@ class RunGeneration
     previous_generation = generation.to_i - 1
     previous_data = JSON.load_file("../#{previous_generation}/data.json")
     # The more wins the more often in array to pick from
+    # TODO: Check if that's even a correct way to calculate this with the new tournament style
     picks = previous_data['stats']['wins_per_player'].flat_map {|k,v| [k]*v }
     # Generate the new population
     settings['population_size'].to_i.times do |i|
@@ -159,10 +195,10 @@ class RunGeneration
       'round' => 0,
       'players' => setup_players,
       'setup_complete' => true,
+      'completed_games' => [],
     }
     data['ranking'] = data['players'].keys.map {|player| {'name' => player, 'score' => 0} }.shuffle
     data['games'] = games_from_ranking(data['ranking'])
-    data['game_count'] = data['games'].length
     data
   end
 
