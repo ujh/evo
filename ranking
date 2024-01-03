@@ -1,0 +1,70 @@
+#!/usr/bin/env ruby
+require 'json'
+
+experiment_name = ARGV.first
+
+if experiment_name.nil?
+  puts "Name of experiment required as argument!"
+  exit 1
+end
+
+def latest_generation
+  generations = Dir["*"].find_all {|f| File.directory?(f)}
+  generations.uniq.sort_by {|d| d.to_i }.last
+end
+
+experiment_dir = "experiments/#{experiment_name}"
+
+MAX = 10
+
+def median(array)
+  return nil if array.empty?
+  sorted = array.sort
+  len = sorted.length
+  n = (sorted[(len - 1) / 2] + sorted[len / 2]) / 2.0
+  n.round(0) == n ? n.to_i : n
+end
+
+def average(array)
+  total = array.sum
+  total / array.length
+end
+
+Dir.chdir(experiment_dir) do
+  loop do
+    Dir.chdir(latest_generation) do
+      data = JSON.load_file("data.json")
+      rankings = data["ranking"]
+
+      scores = rankings.map {|player| player['score'] }
+      min_score = scores.min
+      max_score = scores.max
+      median_score = median(scores)
+      average_score = average(scores)
+
+      skipped = false
+      rankings.each_with_index do |player, i|
+        external = data['players'][player['name']]['external']
+        if (i >= MAX) && !external
+          skipped = true
+          next
+        end
+        num = "#{i+1}.".rjust(4)
+        str = "#{num} #{player["name"].rjust(13)} Score: #{player["score"]}"
+        if skipped
+          str = "               ...\n#{str}"
+          skipped = false
+        end
+        if external
+          puts "\033[1m#{str}\033[0m"
+        else
+          puts str
+        end
+      end
+
+      puts "\n\033[3mRound: #{data['round']+1}\nMin: #{min_score} Max: #{max_score} Median: #{median_score} Average: #{average_score}\033[0m"
+    end
+    puts "\n\n"
+    sleep 10
+  end
+end
