@@ -32,6 +32,7 @@ end
 
 Dir.chdir(experiment_dir) do
   loop do
+    puts "\033[2J\033[H"
     generation = latest_generation
     Dir.chdir(generation) do
       data = JSON.load_file("data.json")
@@ -42,6 +43,8 @@ Dir.chdir(experiment_dir) do
       max_score = scores.max
       median_score = median(scores)
       average_score = average(scores)
+
+      puts "\033[3mGeneration: #{generation} Round: #{data['round']+1}\nMin: #{min_score} Max: #{max_score} Median: #{median_score} Average: #{average_score}\033[0m\n\n"
 
       skipped = false
       rankings.each_with_index do |player, i|
@@ -63,9 +66,7 @@ Dir.chdir(experiment_dir) do
         end
       end
 
-      puts "\n\033[3mGeneration: #{generation} Round: #{data['round']+1}\nMin: #{min_score} Max: #{max_score} Median: #{median_score} Average: #{average_score}\033[0m"
     end
-    puts "\n\n"
     sleep 10
   end
 end
