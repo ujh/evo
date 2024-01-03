@@ -8,8 +8,10 @@ _This is an experiment to see if genetic algorithms can be used to evolve a neur
 * [GnuGo](https://www.gnu.org/software/gnugo/)
 * [GoGui](https://github.com/Remi-Coulom/gogui)
 * [brown](http://www.lysator.liu.se/%7Egunnar/gtp/brown-1.0.tar.gz)
+* [AmiGoGtp](https://amigogtp.sourceforge.net/)
 * gcc (or compatible, like clang)
 * make
+* ruby
 
 ## Installation
 
