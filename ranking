@@ -32,7 +32,8 @@ end
 
 Dir.chdir(experiment_dir) do
   loop do
-    Dir.chdir(latest_generation) do
+    generation = latest_generation
+    Dir.chdir(generation) do
       data = JSON.load_file("data.json")
       rankings = data["ranking"]
 
@@ -62,7 +63,7 @@ Dir.chdir(experiment_dir) do
         end
       end
 
-      puts "\n\033[3mRound: #{data['round']+1}\nMin: #{min_score} Max: #{max_score} Median: #{median_score} Average: #{average_score}\033[0m"
+      puts "\n\033[3mGeneration: #{generation} Round: #{data['round']+1}\nMin: #{min_score} Max: #{max_score} Median: #{median_score} Average: #{average_score}\033[0m"
     end
     puts "\n\n"
     sleep 10
