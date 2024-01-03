@@ -21,7 +21,13 @@ def median(array)
   return nil if array.empty?
   sorted = array.sort
   len = sorted.length
-  (sorted[(len - 1) / 2] + sorted[len / 2]) / 2.0
+  n = (sorted[(len - 1) / 2] + sorted[len / 2]) / 2.0
+  n.round(0) == n ? n.to_i : n
+end
+
+def average(array)
+  total = array.sum
+  total / array.length
 end
 
 Dir.chdir(experiment_dir) do
@@ -34,12 +40,21 @@ Dir.chdir(experiment_dir) do
       min_score = scores.min
       max_score = scores.max
       median_score = median(scores)
+      average_score = average(scores)
 
+      skipped = false
       rankings.each_with_index do |player, i|
         external = data['players'][player['name']]['external']
-        next if (i >= MAX) && !external
+        if (i >= MAX) && !external
+          skipped = true
+          next
+        end
         num = "#{i+1}.".rjust(4)
         str = "#{num} #{player["name"].rjust(13)} Score: #{player["score"]}"
+        if skipped
+          str = "               ...\n#{str}"
+          skipped = false
+        end
         if external
           puts "\033[1m#{str}\033[0m"
         else
@@ -47,7 +62,7 @@ Dir.chdir(experiment_dir) do
         end
       end
 
-      puts "\n\033[3mMin: #{min_score} Max: #{max_score} Median: #{median_score}\033[0m"
+      puts "\n\033[3mRound: #{data['round']+1}\nMin: #{min_score} Max: #{max_score} Median: #{median_score} Average: #{average_score}\033[0m"
     end
     puts "\n\n"
     sleep 10
