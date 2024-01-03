@@ -110,6 +110,7 @@ class RunGeneration
     best_player = data["stats"]["best_player"]
     opponents = [
       {name: 'brown', command: 'brown'},
+      {name: 'amigo', command: 'amigogtp'},
       {name: 'gnugoL0', command: 'gnugo --level 0 --mode gtp'}
     ]
     maxmoves = settings["board_size"].to_i > 9 ? 1000 : 500
