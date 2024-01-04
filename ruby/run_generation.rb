@@ -154,7 +154,17 @@ class RunGeneration
       FileUtils.mv("child.ann", "#{i}.ann")
     end
     puts "\rGenerating population ... done         "
+    clean_up_generation(previous_generation)
     save_data(setup_tournament)
+  end
+
+  def clean_up_generation(g)
+    Dir.chdir("../#{g}") do
+      previous_data = JSON.load_file("data.json")
+      best_player = previous_data["ranking"].find {|player| !previous_data["players"][player["name"]]["external"]}
+      best_player_name = best_player["name"]
+      FileUtils.rm(Dir["*.ann"].reject {|nn| nn == best_player_name })
+    end
   end
 
   EXTERNAL_PLAYERS = [
