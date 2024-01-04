@@ -40,7 +40,7 @@ class RunGeneration
 
       break if data["round"] >= settings["tournament_rounds"].to_i
     end
-    puts "\rPlaying ... done".ljust(60)
+    puts "\rPlaying ... done".ljust(70)
   end
 
   def setup_next_round
@@ -71,7 +71,7 @@ class RunGeneration
       current_game = data["completed_games"].length + 1
       overall_current_game = (total_games * data['round']) + current_game
       overall_percentage = (overall_current_game.to_f/overall_total*100).round(2)
-      print "\rPlaying ... Game: #{current_game}/#{total_games} Round: #{current_round}/#{total_rounds} Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]"
+      print "\rPlaying ... Game: #{current_game}/#{total_games} Round: #{current_round}/#{total_rounds} Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]".ljust(70)
 
       result = play_game(game)
       new_ranking = data['ranking'].map do |s|
