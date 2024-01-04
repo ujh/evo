@@ -43,9 +43,15 @@ Dir.chdir(experiment_dir) do
     generation = latest_generation
     Dir.chdir(generation) do
       break unless File.exist?("data.json")
+      # Reading while file is being written
+      data = begin
+        JSON.load_file("data.json")
+      rescue
+        nil
+      end
+      break unless data
 
       puts "\033[2J\033[H"
-      data = JSON.load_file("data.json")
       rankings = data["ranking"]
 
       scores = rankings.map {|player| player['score'] }
