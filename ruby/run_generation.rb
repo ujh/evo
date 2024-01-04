@@ -12,7 +12,6 @@ class RunGeneration
     puts "\n*** GENERATION #{generation} ***\n\n"
     setup do
       play_games
-      analyze_games
     end
   end
 
@@ -32,42 +31,6 @@ class RunGeneration
     end
   end
 
-  def analyze_games
-    print "Analyzing games ... "
-    stats = {
-      "game_results" => [],
-      "wins_per_player" => Hash.new {|h,k| h[k] = 0},
-      "games_per_player" => Hash.new {|h,k| h[k] = 0}
-    }
-    Dir["*.dat"].each do |file_name|
-      contents = File.read(file_name)
-      next unless file_name =~ /(\d+)x(\d+)R(\d+)/
-      black = "#$1.ann"
-      white = "#$2.ann"
-      # Exclude games against external engines
-      break unless File.exist?(black)
-      break unless File.exist?(white)
-
-      data_row = File.readlines(file_name).last.split
-      result = data_row[3]
-      length = data_row[6].to_i
-      winner = result.start_with?('B') ? black : white
-      stats["game_results"] << {black:, white:, result:, winner:, length:}
-      stats["wins_per_player"][winner] += 1
-      stats["games_per_player"][black] += 1
-      stats["games_per_player"][white] += 1
-    end
-
-    player, wins = stats["wins_per_player"].sort_by {|k,v| -v}.first
-    games = stats["games_per_player"][player]
-    percentage = (wins.to_f/games).round(2)
-    stats["best_player"] = {player:, wins:, games:, percentage:}
-
-    new_data = data.merge("stats" => stats)
-    save_data(new_data)
-    puts "\rBest player #{player} with #{percentage} wins (#{wins} wins in #{games} games)                "
-  end
-
   def play_games
     return if data["round"] >= settings["tournament_rounds"].to_i
 
@@ -77,6 +40,7 @@ class RunGeneration
 
       break if data["round"] >= settings["tournament_rounds"].to_i
     end
+    puts "\rPlaying ... done".ljust(60)
   end
 
   def setup_next_round
@@ -95,16 +59,19 @@ class RunGeneration
   end
 
   def play_round
-    puts "\rPlaying round #{data['round'] + 1} of #{settings['tournament_rounds']} ...              "
-    total = data["games"].length + data["completed_games"].length
+    current_round = data['round'] + 1
+    total_rounds = settings['tournament_rounds'].to_i
+    total_games = data["games"].length + data["completed_games"].length
+    overall_total = total_games * total_rounds
 
     loop do
       game = data["games"].first
       break unless game
 
-      n = data["completed_games"].length + 1
-      percentage = ((n.to_f/total)*100).round(2)
-      print "\rPlaying game #{n} of #{total} [#{percentage}%] ..."
+      current_game = data["completed_games"].length + 1
+      overall_current_game = (total_games * data['round']) + current_game
+      overall_percentage = (overall_current_game.to_f/overall_total*100).round(2)
+      print "\rPlaying ... Game: #{current_game}/#{total_games} Round: #{current_round}/#{total_rounds} Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]"
 
       result = play_game(game)
       new_ranking = data['ranking'].map do |s|
@@ -170,17 +137,23 @@ class RunGeneration
   def evolve_from_previous_population
     return if data["setup_complete"]
 
-    puts "Generating population ..."
     previous_generation = generation.to_i - 1
     previous_data = JSON.load_file("../#{previous_generation}/data.json")
-    # The more wins the more often in array to pick from
-    # TODO: Check if that's even a correct way to calculate this with the new tournament style
-    picks = previous_data['stats']['wins_per_player'].flat_map {|k,v| [k]*v }
+    # Use the score to determine how "good" the individual is
+    picks = previous_data['ranking'].reject do |player|
+      previous_data['players'][player['name']]['external']
+    end.flat_map do |player|
+      player_name = player['name']
+      [player_name] * player['score']
+    end.compact
     # Generate the new population
-    settings['population_size'].to_i.times do |i|
+    total = settings['population_size'].to_i
+    total.times do |i|
+      print "\rGenerating population ... #{i+1}/#{total}"
       `../evolve #{settings["cross_over_rate"]} ../#{previous_generation}/#{picks.sample} ../#{previous_generation}/#{picks.sample}`
       FileUtils.mv("child.ann", "#{i}.ann")
     end
+    puts "\rGenerating population ... done         "
     save_data(setup_tournament)
   end
 
