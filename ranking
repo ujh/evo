@@ -27,7 +27,15 @@ end
 
 def average(array)
   total = array.sum
-  total / array.length
+  (total.to_f / array.length).round
+end
+
+def compute_game_lengths
+  Dir["*.dat"].map do |file_name|
+    result = File.readlines(file_name).last.split
+    game_length = result[6]
+    game_length.to_i
+  end
 end
 
 Dir.chdir(experiment_dir) do
@@ -46,7 +54,11 @@ Dir.chdir(experiment_dir) do
       median_score = median(scores)
       average_score = average(scores)
 
-      puts "\033[3mGeneration: #{generation} Round: #{data['round']+1}\nMin: #{min_score} Max: #{max_score} Median: #{median_score} Average: #{average_score}\033[0m\n\n"
+      game_lengths = compute_game_lengths
+
+      puts "\033[3mGeneration: #{generation} Round: #{data['round']+1}"
+      puts "Score: min = #{min_score} max = #{max_score} median = #{median_score} average = #{average_score}"
+      puts "Game length: min = #{game_lengths.min} max = #{game_lengths.max} median = #{median(game_lengths)} average = #{average(game_lengths)}\033[0m\n\n"
 
       skipped = false
       rankings.each_with_index do |player, i|
