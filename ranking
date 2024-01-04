@@ -35,6 +35,7 @@ Dir.chdir(experiment_dir) do
     puts "\033[2J\033[H"
     generation = latest_generation
     Dir.chdir(generation) do
+      break unless File.exist?("data.json")
       data = JSON.load_file("data.json")
       rankings = data["ranking"]
 
