@@ -6,10 +6,18 @@ class RunGeneration
   def initialize(generation, settings)
     self.generation = generation
     self.settings = settings
+    self.pipe = initialize_pipe
+    self.ractors = initialize_ractors
+
+    trap "SIGINT" do
+      puts "Stopping ..."
+      stop_ractors
+      $stop_now = true
+    end
   end
 
   def call
-    puts "\n*** GENERATION #{generation} ***\n\n"
+    puts "\n*** GENERATION #{generation} [#{Time.now}] ***\n\n"
     setup do
       play_games
     end
@@ -17,7 +25,42 @@ class RunGeneration
 
   private
 
-  attr_accessor :generation, :settings
+  attr_accessor :generation, :settings, :ractors, :pipe
+
+  def stop_ractors
+    ractors.each {|r| r.send(:stop)}
+    pipe.send(:stop)
+  end
+
+  def initialize_ractors
+    settings['concurrency'].to_i.times.map do
+      Ractor.new(pipe) do |pipe|
+        while msg = pipe.take
+          if msg == :stop
+            puts "[#{Ractor.current}]\tStopping"
+            break
+          end
+
+          system(msg['command'])
+          Ractor.yield msg['identifier']
+        end
+      end
+    end
+  end
+
+  def initialize_pipe
+    Ractor.new do
+      loop do
+        msg = receive
+        if msg == :stop
+          puts "[#{Ractor.current}]\tStopping"
+          break
+        end
+
+        Ractor.yield msg
+      end
+    end
+  end
 
   def setup
     FileUtils.mkdir(generation) unless File.exist?(generation)
@@ -52,45 +95,61 @@ class RunGeneration
 
     new_data = data.merge(
       'round' => data['round'] + 1,
-      'completed_games' => [],
       'games' => games
     )
     save_data(new_data)
   end
 
   def play_round
-    current_round = data['round'] + 1
-    total_rounds = settings['tournament_rounds'].to_i
-    total_games = data["games"].length + data["completed_games"].length
-    overall_total = total_games * total_rounds
+    # Put all games into the pipe
+    data['games'].each do |game|
+      game_data = prepare_game(game)
+      if game_data['winner']
+        update_data(game, game_data['winner'])
+        refresh_progress
+      else
+        pipe << game_data
+      end
+    end
 
     loop do
-      game = data["games"].first
-      break unless game
+      break if data["games"].empty?
 
-      current_game = data["completed_games"].length + 1
-      overall_current_game = (total_games * data['round']) + current_game
-      overall_percentage = (overall_current_game.to_f/overall_total*100).round(2)
-      print "\rPlaying ... Game: #{current_game}/#{total_games} Round: #{current_round}/#{total_rounds} Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]".ljust(70)
-
-      result = play_game(game)
-      new_ranking = data['ranking'].map do |s|
-        if s['name'] == result['winner']
-          s.merge('score' => s['score'] + 1)
-        else
-          s
-        end
-      end.sort_by {|s| -s['score'] }
-      new_data = data.merge(
-        "games" => data["games"][1..-1],
-        "completed_games" => data["completed_games"] + [game.merge(result)],
-        "ranking" => new_ranking
-      )
-      save_data(new_data)
+      _r, completed_game = Ractor.select(*ractors)
+      result = score_game(completed_game)
+      update_data(completed_game, result['winner'])
+      refresh_progress
     end
   end
 
-  def play_game(game)
+  def update_data(game, winner)
+    new_ranking = data['ranking'].map do |s|
+      if s['name'] == winner
+        s.merge('score' => s['score'] + 1)
+      else
+        s
+      end
+    end.sort_by {|s| -s['score'] }
+    new_data = data.merge(
+      "games" => data["games"].reject {|g| g == game},
+      "ranking" => new_ranking
+    )
+    save_data(new_data)
+  end
+
+  def refresh_progress
+    current_round = data['round'] + 1
+    total_rounds = settings['tournament_rounds'].to_i
+    total_games_in_round = (data['players'].length/2.0).ceil
+    current_game_in_round = total_games_in_round - data['games'].length
+    overall_total = total_games_in_round * total_rounds
+    overall_current_game = (total_games_in_round * data['round']) + current_game_in_round
+    overall_percentage = (overall_current_game.to_f/overall_total*100).round(2)
+
+    print "\rPlaying ... Game: #{current_game_in_round}/#{total_games_in_round} Round: #{current_round}/#{total_rounds} Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]".ljust(70)
+  end
+
+  def prepare_game(game)
     # Odd number of players. Received a bye
     return { 'winner' => game['black']} unless game['white']
 
@@ -101,10 +160,17 @@ class RunGeneration
     prefix = prefix_from(game)
     time = settings["game_length"]
     cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves}|
-    system(cmd)
+
+    {'command' => cmd, 'identifier' => game}
+  end
+
+  def score_game(game)
+    # Odd number of players. Received a bye
+    return { 'winner' => game['black']} unless game['white']
+
+    prefix = prefix_from(game)
     result = File.readlines("#{prefix}.dat").last.split
     winner = result[3].start_with?('B') ? game['black'] : game['white']
-    # game_length = result[]
     { 'winner' => winner }
   end
 
@@ -177,8 +243,7 @@ class RunGeneration
     data = {
       'round' => 0,
       'players' => setup_players,
-      'setup_complete' => true,
-      'completed_games' => [],
+      'setup_complete' => true
     }
     data['ranking'] = data['players'].keys.map {|player| {'name' => player, 'score' => 0} }.shuffle
     data['games'] = games_from_ranking(data['ranking'])
