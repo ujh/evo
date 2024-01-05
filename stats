@@ -1,0 +1,99 @@
+#!/usr/bin/env ruby
+require 'bundler/setup'
+Bundler.require(:default)
+
+experiment_name = ARGV.first
+
+if experiment_name.nil?
+  puts "Name of experiment required as argument!"
+  exit 1
+end
+
+Dir.chdir("experiments/#{experiment_name}")
+
+def median(array)
+  return nil if array.empty?
+  sorted = array.sort
+  len = sorted.length
+  n = (sorted[(len - 1) / 2] + sorted[len / 2]) / 2.0
+  n.round(0) == n ? n.to_i : n
+end
+
+def average(array)
+  total = array.sum
+  (total.to_f / array.length).round
+end
+
+$stats = {}
+
+def stats_for(generation)
+  return $stats[generation] if $stats[generation]
+
+  Dir.chdir(generation) do
+    data = JSON.load_file("data.json")
+    external_engines = data['players'].keys.find_all {|p| data['players'][p]['external'] }
+    game_lengths = []
+    wins = external_engines.each_with_object({}) {|player, hash| hash[player] = Hash.new {|h,k| h[k] = 0 }}
+
+    Dir["*.dat"].each do |file_name|
+      file_name =~ /(\w+)x(\w+)R/
+      black = $1
+      black += ".ann" unless data['players'][black]
+      white = $2
+      white += ".ann" unless data['players'][white]
+      result = File.readlines(file_name).last.split
+      winner = result[3].start_with?('B') ? black : white
+      opponent = winner == black ? white : black
+      game_length = result[6].to_i
+      if !data['players'][winner]['external'] && data['players'][opponent]['external']
+        wins[opponent][winner] += 1
+      end
+      game_lengths << game_length
+    end
+
+    game_length_stats = {
+      min: game_lengths.min,
+      max: game_lengths.max,
+      median: median(game_lengths),
+      average: average(game_lengths)
+    }
+
+    win_stats = wins.keys.each_with_object({}) do |external_engine, hash|
+      hash[external_engine] = {
+        total: wins[external_engine].values.sum,
+        max: wins[external_engine].values.max,
+        median: median(wins[external_engine].values),
+        average: median(wins[external_engine].values)
+      }
+    end
+
+    $stats[generation] = {generation:, game_length_stats:, win_stats:}
+  end
+end
+
+previous_generations = nil
+
+loop do
+  generations = Dir["*"].find_all {|f| File.directory?(f)}.uniq.sort_by {|d| d.to_i }
+  break if previous_generations == generations
+
+  stats = generations[0..-2].map do |generation|
+    stats_for(generation)
+  end
+
+  headings = ['Generation'] + stats.first[:win_stats].keys.map {|n| "#{n} (total wins)"}
+  rows = stats.map do |s|
+    [s[:generation]] + s[:win_stats].values.map {|v| v[:total] }
+  end
+
+  table = Terminal::Table.new(headings: headings, rows: rows)
+  table.align_column(0, :right)
+  table.align_column(1, :right)
+  table.align_column(2, :right)
+  table.align_column(3, :right)
+
+  puts "\033[2J\033[H"
+  puts table
+
+  sleep(60*5)
+end
