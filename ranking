@@ -26,6 +26,8 @@ def median(array)
 end
 
 def average(array)
+  return nil if array.empty?
+
   total = array.sum
   (total.to_f / array.length).round
 end
