@@ -13,6 +13,7 @@ Dir.chdir("experiments/#{experiment_name}")
 
 def median(array)
   return nil if array.empty?
+
   sorted = array.sort
   len = sorted.length
   n = (sorted[(len - 1) / 2] + sorted[len / 2]) / 2.0
@@ -20,6 +21,8 @@ def median(array)
 end
 
 def average(array)
+  return nil if array.empty?
+
   total = array.sum
   (total.to_f / array.length).round
 end
