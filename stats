@@ -28,6 +28,7 @@ def average(array)
 end
 
 $stats = {}
+$starting = true
 
 def stats_for(generation)
   return $stats[generation] if $stats[generation]
@@ -70,6 +71,11 @@ def stats_for(generation)
       }
     end
 
+    if ENV['NTFY_EVO_STATS'] && !$starting
+      msg = ["Gen: #{generation}"] + win_stats.map {|name, data| "#{name}: #{data[:total]} wins"}
+      msg = msg.join(" ")
+      `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
+    end
     $stats[generation] = {generation:, game_length_stats:, win_stats:}
   end
 end
@@ -99,4 +105,5 @@ loop do
   puts table
 
   sleep(60*5)
+  $starting = false
 end
