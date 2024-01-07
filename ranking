@@ -53,7 +53,6 @@ Dir.chdir(experiment_dir) do
       end
       break unless data
 
-      puts "\033[2J\033[H"
       rankings = data["ranking"]
 
       scores = rankings.map {|player| player['score'] }
@@ -64,6 +63,7 @@ Dir.chdir(experiment_dir) do
 
       game_lengths = compute_game_lengths
 
+      puts "\033[2J\033[H"
       puts "\033[3mGeneration: #{generation} Round: #{data['round']+1}"
       puts "Score: min = #{min_score} max = #{max_score} median = #{median_score} average = #{average_score}"
       puts "Game length: min = #{game_lengths.min} max = #{game_lengths.max} median = #{median(game_lengths)} average = #{average(game_lengths)}\033[0m\n\n"
