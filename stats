@@ -27,7 +27,7 @@ def average(array)
   (total.to_f / array.length).round
 end
 
-$stats = {}
+$stats = File.exist?("stats.json") ? JSON.load_file("stats.json") : {}
 $starting = true
 
 def stats_for(generation)
@@ -56,28 +56,39 @@ def stats_for(generation)
     end
 
     game_length_stats = {
-      min: game_lengths.min,
-      max: game_lengths.max,
-      median: median(game_lengths),
-      average: average(game_lengths)
+      'min' => game_lengths.min,
+      'max' => game_lengths.max,
+      'median' => median(game_lengths),
+      'average' => average(game_lengths)
     }
 
     win_stats = wins.keys.each_with_object({}) do |external_engine, hash|
       hash[external_engine] = {
-        total: wins[external_engine].values.sum,
-        max: wins[external_engine].values.max,
-        median: median(wins[external_engine].values),
-        average: median(wins[external_engine].values)
+        'total' => wins[external_engine].values.sum,
+        'max' => wins[external_engine].values.max,
+        'median' => median(wins[external_engine].values),
+        'average' => median(wins[external_engine].values)
       }
     end
 
-    if ENV['NTFY_EVO_STATS'] && !$starting
-      msg = ["Gen: #{generation}"] + win_stats.map {|name, data| "#{name}: #{data[:total]} wins"}
-      msg = msg.join(" ")
-      `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
-    end
-    $stats[generation] = {generation:, game_length_stats:, win_stats:}
+    $stats[generation] = {
+      'generation' => generation,
+      'game_length_stats' => game_length_stats,
+      'win_stats' => win_stats,
+      'rounds' => data['round']
+    }
   end
+
+  File.open("stats.json", "w") {|f| f.puts JSON.pretty_generate($stats)}
+
+  if ENV['NTFY_EVO_STATS'] && !$starting
+    win_stats = $stats[generation]['win_stats']
+    msg = ["Gen: #{generation}"] + win_stats.map {|name, data| "#{name}: #{data['total']} wins"}
+    msg = msg.join(" ")
+    `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
+  end
+
+  $stats[generation]
 end
 
 previous_generations = nil
@@ -86,20 +97,19 @@ loop do
   generations = Dir["*"].find_all {|f| File.directory?(f)}.uniq.sort_by {|d| d.to_i }
   break if previous_generations == generations
 
-  stats = generations[0..-2].map do |generation|
+  stats = generations[-30..-2].map do |generation|
     stats_for(generation)
   end
 
-  headings = ['Generation'] + stats.first[:win_stats].keys.map {|n| "#{n} (total wins)"}
+  headings = ['Generation'] + stats.first['win_stats'].keys.flat_map {|n| [n, n]}
   rows = stats.map do |s|
-    [s[:generation]] + s[:win_stats].values.map {|v| v[:total] }
+    [s['generation']] + s['win_stats'].values.flat_map {|v| [v['total'], (v['total'].to_f/s['rounds']).round(2)] }
   end
 
   table = Terminal::Table.new(headings: headings, rows: rows)
-  table.align_column(0, :right)
-  table.align_column(1, :right)
-  table.align_column(2, :right)
-  table.align_column(3, :right)
+  headings.each_with_index do |_h, i|
+    table.align_column(i, :right)
+  end
 
   puts "\033[2J\033[H"
   puts table
