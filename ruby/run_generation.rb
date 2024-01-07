@@ -210,7 +210,8 @@ class RunGeneration
       previous_data['players'][player['name']]['external']
     end.flat_map do |player|
       player_name = player['name']
-      [player_name] * player['score']
+      # Make better score _much_ more likely to be picked.
+      [player_name] * (player['score']**3)
     end.compact
     # Generate the new population
     total = settings['population_size'].to_i
