@@ -123,13 +123,18 @@ class RunGeneration
   end
 
   def update_data(game, winner)
+    # Update score
     new_ranking = data['ranking'].map do |s|
       if s['name'] == winner
         s.merge('score' => s['score'] + 1)
       else
         s
       end
-    end.sort_by {|s| -s['score'] }
+    end #.sort_by {|s| -s['score'] }
+    # Group by same score
+    new_ranking = new_ranking.group_by {|s| s['score'] }
+    # Randomize within the same score and flatten again
+    new_ranking = new_ranking.keys.sort.reverse.flat_map {|s| new_ranking[s].shuffle }
     new_data = data.merge(
       "games" => data["games"].reject {|g| g == game},
       "ranking" => new_ranking
