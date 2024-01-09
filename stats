@@ -101,7 +101,7 @@ loop do
     stats_for(generation)
   end
 
-  headings = ['Generation'] + stats.first['win_stats'].keys.flat_map {|n| [n, n]}
+  headings = ['Generation'] + stats.last['win_stats'].keys.flat_map {|n| [n, n]}
   rows = stats.map do |s|
     [s['generation']] + s['win_stats'].values.flat_map {|v| [v['total'], (v['total'].to_f/s['rounds']).round(2)] }
   end
