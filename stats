@@ -83,7 +83,7 @@ def stats_for(generation)
 
   if ENV['NTFY_EVO_STATS'] && !$starting
     win_stats = $stats[generation]['win_stats']
-    msg = ["Gen: #{generation}"] + win_stats.map {|name, data| "#{name}: #{(data['total'].to_f/data['rounds']).round(2)}%"}
+    msg = ["Gen: #{generation}"] + win_stats.map {|name, data| "#{name}: #{(data['total'].to_f/data['round']).round(2)}%"}
     msg = msg.join(" ")
     `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
   end
