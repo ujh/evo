@@ -242,7 +242,8 @@ class RunGeneration
   EXTERNAL_PLAYERS = [
     {'name' => 'Brown', 'command' => 'brown'},
     {'name' => 'AmiGo', 'command' => 'amigogtp'},
-    {'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp'}
+    {'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp'},
+    {'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp'},
   ]
 
   def setup_tournament
