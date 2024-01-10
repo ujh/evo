@@ -82,8 +82,11 @@ def stats_for(generation)
   File.open("stats.json", "w") {|f| f.puts JSON.pretty_generate($stats)}
 
   if ENV['NTFY_EVO_STATS'] && !$starting
-    win_stats = $stats[generation]['win_stats']
-    msg = ["Gen: #{generation}"] + win_stats.map {|name, data| "#{name}: #{(data['total'].to_f/data['round']).round(2)}%"}
+    gen_stats = $stats[generation]
+    win_stats = gen_stats['win_stats']
+    msg = ["Gen: #{generation}"] + win_stats.map do |name, data|
+      "#{name}: #{(data['total'].to_f/gen_stats['rounds']).round(2)*100}%"
+    end
     msg = msg.join(" ")
     `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
   end
