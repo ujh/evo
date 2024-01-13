@@ -43,16 +43,6 @@ void test_cross_over() {
   lfequal(nn2->weight[3], child->weight[3]);
 }
 
-void test_mutate() {
-  genann *nn = genann_init(1, 1, 1, 1);
-  genann *child = mutate(nn, 0);
-
-  lok(nn->weight[0] != child->weight[0]);
-  lfequal(nn->weight[1], child->weight[1]);
-  lfequal(nn->weight[2], child->weight[2]);
-  lfequal(nn->weight[3], child->weight[3]);
-}
-
 int main(int argc, char **argv) {
   printf("Evolve test suite\n");
 

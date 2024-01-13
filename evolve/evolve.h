@@ -36,4 +36,4 @@ void check_nns(genann **nns);
 genann *child_from_cross_over(genann **nns);
 genann *child_from_mutation(genann **nns);
 genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_point);
-genann *mutate(genann *parent, int mutation_point);
+genann *mutate(genann *parent);
