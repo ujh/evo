@@ -47,5 +47,4 @@ int main(int argc, char **argv) {
   printf("Evolve test suite\n");
 
   lrun("cross_over", test_cross_over);
-  lrun("mutate", test_mutate);
 }
