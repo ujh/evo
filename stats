@@ -100,7 +100,8 @@ loop do
   generations = Dir["*"].find_all {|f| File.directory?(f)}.uniq.sort_by {|d| d.to_i }
   break if previous_generations == generations
 
-  stats = generations[-30..-2].map do |generation|
+  gens = generations[0..-2].reverse.take(40).reverse
+  stats = gens.map do |generation|
     stats_for(generation)
   end
 
