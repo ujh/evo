@@ -236,6 +236,7 @@ class RunGeneration
       best_player = previous_data["ranking"].find {|player| !previous_data["players"][player["name"]]["external"]}
       best_player_name = best_player["name"]
       FileUtils.rm(Dir["*.ann"].reject {|nn| nn == best_player_name })
+      FileUtils.rm(Dir["*.sgf"])
     end
   end
 
