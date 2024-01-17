@@ -67,7 +67,9 @@ def stats_for(generation)
         'total' => wins[external_engine].values.sum,
         'max' => wins[external_engine].values.max,
         'median' => median(wins[external_engine].values),
-        'average' => median(wins[external_engine].values)
+        'average' => median(wins[external_engine].values),
+        'rank' => data['ranking'].index {|e| e['name'] == external_engine},
+        'all_ranks' => data['ranking'].length
       }
     end
 
@@ -85,7 +87,7 @@ def stats_for(generation)
     gen_stats = $stats[generation]
     win_stats = gen_stats['win_stats']
     msg = ["Gen: #{generation}"] + win_stats.map do |name, data|
-      "#{name}: #{(data['total'].to_f/gen_stats['rounds']).round(2)*100}%"
+      "#{name}: #{(data['total'].to_f/gen_stats['rounds']*100).round}% (#{data['rank']})"
     end
     msg = msg.join(" ")
     `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
@@ -105,9 +107,12 @@ loop do
     stats_for(generation)
   end
 
-  headings = ['Generation'] + stats.last['win_stats'].keys.flat_map {|n| [n, n]}
+  headings = ['Generation'] + stats.last['win_stats'].keys.flat_map {|n| [n, n, n]}
   rows = stats.map do |s|
-    [s['generation']] + s['win_stats'].values.flat_map {|v| [v['total'], (v['total'].to_f/s['rounds']).round(2)] }
+    [s['generation']] + s['win_stats'].values.flat_map do |v|
+      percentage = (v['total'].to_f/s['rounds']*100).round
+      [v['total'], "#{percentage}%", "#{v['rank']}/#{v['all_ranks']}"]
+    end
   end
 
   table = Terminal::Table.new(headings: headings, rows: rows)
@@ -118,6 +123,6 @@ loop do
   puts "\033[2J\033[H"
   puts table
 
-  sleep(60)
+  sleep(30)
   $starting = false
 end
