@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 require 'bundler/setup'
+require 'open3'
 Bundler.require(:default)
 
 experiment_name = ARGV.first
@@ -53,6 +54,16 @@ def stats_for(generation)
         wins[opponent][winner] += 1
       end
       game_lengths << game_length
+    end
+
+    stdout, stderr, status = Open3.capture3('tar cvfj data.tar.bz2 *.dat')
+    if status.success?
+      FileUtils.rm(Dir["*.dat"])
+    else
+      puts "Failed to tar *.dat files"
+      puts stdout
+      puts stderr
+      exit(1)
     end
 
     game_length_stats = {
