@@ -98,7 +98,7 @@ def stats_for(generation)
     gen_stats = $stats[generation]
     win_stats = gen_stats['win_stats']
     msg = ["Gen: #{generation}"] + win_stats.map do |name, data|
-      "#{name}: #{(data['total'].to_f/gen_stats['rounds']*100).round}% (#{data['rank']})"
+      "#{name}: #{(data['total'].to_f/gen_stats['rounds']*100).round}% (#{data['rank']+1})"
     end
     msg = msg.join(" ")
     `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
@@ -122,7 +122,7 @@ loop do
   rows = stats.map do |s|
     [s['generation']] + s['win_stats'].values.flat_map do |v|
       percentage = (v['total'].to_f/s['rounds']*100).round
-      [v['total'], "#{percentage}%", "#{v['rank']}/#{v['all_ranks']}"]
+      [v['total'], "#{percentage}%", "#{v['rank']+1}/#{v['all_ranks']}"]
     end
   end
 
