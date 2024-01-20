@@ -1,7 +1,17 @@
 #!/usr/bin/env ruby
 require 'bundler/setup'
 require 'open3'
+require 'optparse'
 Bundler.require(:default)
+
+options = {}
+OptionParser.new do |parser|
+  parser.banner = "Usage: ./stats [options] experiment-name"
+
+  parser.on("--csv", "Return CSV to stdout instead of table") do |v|
+    options[:csv] = true
+  end
+end.parse!
 
 experiment_name = ARGV.first
 
@@ -109,31 +119,55 @@ end
 
 previous_generations = nil
 
+def flatten_hash(param, prefix=nil)
+  param.each_pair.reduce({}) do |a, (k, v)|
+    v.is_a?(Hash) ? a.merge(flatten_hash(v, "#{prefix}#{k}.")) : a.merge("#{prefix}#{k}".to_sym => v)
+  end
+end
+
 loop do
   generations = Dir["*"].find_all {|f| File.directory?(f)}.uniq.sort_by {|d| d.to_i }
-  break if previous_generations == generations
 
-  gens = generations[0..-2].reverse.take(40).reverse
+  gens = if options[:csv]
+    generations[0..-2]
+  else
+    generations[0..-2].reverse.take(40).reverse
+  end
+
   stats = gens.map do |generation|
     stats_for(generation)
   end
 
-  headings = ['Generation'] + stats.last['win_stats'].keys.flat_map {|n| [n, n, n]}
-  rows = stats.map do |s|
-    [s['generation']] + s['win_stats'].values.flat_map do |v|
-      percentage = (v['total'].to_f/s['rounds']*100).round
-      [v['total'], "#{percentage}%", "#{v['rank']+1}/#{v['all_ranks']}"]
+  if options[:csv]
+    headings = flatten_hash(stats.last).keys
+    output_string =  CSV.generate do |csv|
+      csv << headings
+      stats.each do |s|
+        flattened = flatten_hash(s)
+        csv << headings.map {|k| flattened[k] }
+      end
     end
+
+    puts output_string
+    break
+  else
+    headings = ['Generation'] + stats.last['win_stats'].keys.flat_map {|n| [n, n, n]}
+    rows = stats.map do |s|
+      [s['generation']] + s['win_stats'].values.flat_map do |v|
+        percentage = (v['total'].to_f/s['rounds']*100).round
+        [v['total'], "#{percentage}%", "#{v['rank']+1}/#{v['all_ranks']}"]
+      end
+    end
+
+    table = Terminal::Table.new(headings: headings, rows: rows)
+    headings.each_with_index do |_h, i|
+      table.align_column(i, :right)
+    end
+
+    puts "\033[2J\033[H"
+    puts table
+
+    sleep(30)
+    $starting = false
   end
-
-  table = Terminal::Table.new(headings: headings, rows: rows)
-  headings.each_with_index do |_h, i|
-    table.align_column(i, :right)
-  end
-
-  puts "\033[2J\033[H"
-  puts table
-
-  sleep(30)
-  $starting = false
 end
