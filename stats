@@ -127,6 +127,10 @@ end
 
 loop do
   generations = Dir["*"].find_all {|f| File.directory?(f)}.uniq.sort_by {|d| d.to_i }
+  if generations == previous_generations
+    sleep(5)
+    next
+  end
 
   gens = if options[:csv]
     generations[0..-2]
@@ -167,7 +171,8 @@ loop do
     puts "\033[2J\033[H"
     puts table
 
-    sleep(30)
+    sleep(5)
     $starting = false
+    previous_generations = generations
   end
 end
