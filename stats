@@ -56,7 +56,7 @@ def stats_for(generation)
       game_lengths << game_length
     end
 
-    stdout, stderr, status = Open3.capture3('tar cvfj data.tar.bz2 *.dat')
+    stdout, stderr, status = Open3.capture3('find . -name "*.dat" -print | tar cvfj data.tar.bz2 -T -')
     if status.success?
       FileUtils.rm(Dir["*.dat"])
     else
