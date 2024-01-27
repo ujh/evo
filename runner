@@ -3,6 +3,7 @@ require_relative "ruby/all"
 
 experiment_name = ARGV[0]
 concurrency = ARGV[1] || 2
+one_generation = ARGV[2] == "one-generation"
 
 if experiment_name.nil?
   puts "Name of experiment required as argument!"
@@ -16,6 +17,5 @@ $stop_now = false
 experiment_dir = "experiments/#{experiment_name}"
 
 SetupExperiment.call(experiment_dir) do |settings|
-  RunExperiment.call(settings.merge('concurrency' => concurrency))
+  RunExperiment.call(settings.merge('concurrency' => concurrency, 'one_generation' => one_generation))
 end
-

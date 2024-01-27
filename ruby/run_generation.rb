@@ -75,7 +75,7 @@ class RunGeneration
   end
 
   def play_games
-    return if data["round"] >= settings["tournament_rounds"].to_i
+    return :already_done if data["round"] >= settings["tournament_rounds"].to_i
 
     loop do
       play_round

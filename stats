@@ -13,14 +13,14 @@ OptionParser.new do |parser|
   end
 end.parse!
 
-experiment_name = ARGV.first
+$experiment_name = ARGV.first
 
-if experiment_name.nil?
+if $experiment_name.nil?
   puts "Name of experiment required as argument!"
   exit 1
 end
 
-Dir.chdir("experiments/#{experiment_name}")
+Dir.chdir("experiments/#{$experiment_name}")
 
 def median(array)
   return nil if array.empty?
@@ -111,6 +111,7 @@ def stats_for(generation)
       "#{name}: #{(data['total'].to_f/gen_stats['rounds']*100).round}% (#{data['rank']+1})"
     end
     msg = msg.join(" ")
+    msg = "#{$experiment_name}\n#{msg}"
     `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
   end
 
@@ -136,6 +137,11 @@ loop do
     generations[0..-2]
   else
     generations[0..-2].reverse.take(40).reverse
+  end
+
+  if gens.empty?
+    sleep(5)
+    next
   end
 
   stats = gens.map do |generation|

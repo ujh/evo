@@ -1,0 +1,34 @@
+#!/usr/bin/env ruby
+
+concurrency = ARGV[0]
+
+if concurrency.nil?
+  puts "Concurrency as argument required!"
+  exit(1)
+end
+
+experiments = ARGV[1..-1]
+
+if experiments.length < 2
+  puts "Specify at least two experiments!"
+  exit(1)
+end
+
+experiments.each do |e|
+  unless File.exist?("experiments/#{e}")
+    puts "#{next_input} is no experiment!"
+    exit(1)
+  end
+end
+
+pp experiments
+
+current_index = 0
+loop do
+  current_experiment = experiments[current_index]
+  cmd = "./runner #{current_experiment} #{concurrency} one-generation"
+  puts "\n\n#{cmd} \n\n"
+  system(cmd)
+
+  current_index = (current_index + 1) % experiments.length
+end

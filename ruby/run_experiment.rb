@@ -15,8 +15,9 @@ class RunExperiment
 
     generation = start_generation
     loop do
-      RunGeneration.call(generation.to_s, settings)
+      r = RunGeneration.call(generation.to_s, settings)
       generation += 1
+      break if settings['one_generation'] && (r != :already_done)
     end
   end
 
