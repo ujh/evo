@@ -113,10 +113,13 @@ genann *child_from_mutation(genann **nns) {
 
 genann *mutate(genann *parent) {
   genann *child = genann_copy(parent);
-  // TODO: Make it configurable
-  for (int i = 0; i < 10; i++) {
-    int mutation_point = pcg32_boundedrand(parent->total_weights);
-    child->weight[mutation_point] += (GENANN_RANDOM() - 0.5);
+  float mutation_rate = 0.0004; // 1/2500
+  for (int i = 0; i < child->total_weights; i++)
+  {
+    if (GENANN_RANDOM() < mutation_rate) {
+      child->weight[i] += (GENANN_RANDOM() - 0.5);
+    }
   }
+
   return child;
 }
