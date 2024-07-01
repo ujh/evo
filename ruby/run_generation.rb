@@ -9,8 +9,8 @@ class RunGeneration
     self.pipe = initialize_pipe
     self.ractors = initialize_ractors
 
-    trap "SIGINT" do
-      puts "Stopping ..."
+    trap 'SIGINT' do
+      puts 'Stopping ...'
       stop_ractors
       $stop_now = true
     end
@@ -28,7 +28,7 @@ class RunGeneration
   attr_accessor :generation, :settings, :ractors, :pipe
 
   def stop_ractors
-    ractors.each {|r| r.send(:stop)}
+    ractors.each { |r| r.send(:stop) }
     pipe.send(:stop)
   end
 
@@ -65,7 +65,7 @@ class RunGeneration
   def setup
     FileUtils.mkdir(generation) unless File.exist?(generation)
     Dir.chdir(generation) do
-      if generation == "0"
+      if generation == '0'
         setup_initial_population
       else
         evolve_from_previous_population
@@ -75,23 +75,23 @@ class RunGeneration
   end
 
   def play_games
-    return :already_done if data["round"] >= settings["tournament_rounds"].to_i
+    return :already_done if data['round'] >= settings['tournament_rounds'].to_i
 
     loop do
       play_round
       setup_next_round
 
-      break if data["round"] >= settings["tournament_rounds"].to_i
+      break if data['round'] >= settings['tournament_rounds'].to_i
     end
     puts "\rPlaying ... done".ljust(70)
   end
 
   def setup_next_round
-    games = if data["round"].succ >= settings["tournament_rounds"].to_i
-      []
-    else
-      games_from_ranking(data['ranking'])
-    end
+    games = if data['round'].succ >= settings['tournament_rounds'].to_i
+              []
+            else
+              games_from_ranking(data['ranking'])
+            end
 
     new_data = data.merge(
       'round' => data['round'] + 1,
@@ -113,7 +113,7 @@ class RunGeneration
     end
 
     loop do
-      break if data["games"].empty?
+      break if data['games'].empty?
 
       _r, completed_game = Ractor.select(*ractors)
       result = score_game(completed_game)
@@ -130,14 +130,14 @@ class RunGeneration
       else
         s
       end
-    end #.sort_by {|s| -s['score'] }
+    end # .sort_by {|s| -s['score'] }
     # Group by same score
-    new_ranking = new_ranking.group_by {|s| s['score'] }
+    new_ranking = new_ranking.group_by { |s| s['score'] }
     # Randomize within the same score and flatten again
-    new_ranking = new_ranking.keys.sort.reverse.flat_map {|s| new_ranking[s].shuffle }
+    new_ranking = new_ranking.keys.sort.reverse.flat_map { |s| new_ranking[s].shuffle }
     new_data = data.merge(
-      "games" => data["games"].reject {|g| g == game},
-      "ranking" => new_ranking
+      'games' => data['games'].reject { |g| g == game },
+      'ranking' => new_ranking
     )
     save_data(new_data)
   end
@@ -145,33 +145,33 @@ class RunGeneration
   def refresh_progress
     current_round = data['round'] + 1
     total_rounds = settings['tournament_rounds'].to_i
-    total_games_in_round = (data['players'].length/2.0).ceil
+    total_games_in_round = (data['players'].length / 2.0).ceil
     current_game_in_round = total_games_in_round - data['games'].length
     overall_total = total_games_in_round * total_rounds
     overall_current_game = (total_games_in_round * data['round']) + current_game_in_round
-    overall_percentage = (overall_current_game.to_f/overall_total*100).round(2)
+    overall_percentage = (overall_current_game.to_f / overall_total * 100).round(2)
 
     print "\rPlaying ... Game: #{current_game_in_round}/#{total_games_in_round} Round: #{current_round}/#{total_rounds} Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]".ljust(70)
   end
 
   def prepare_game(game)
     # Odd number of players. Received a bye
-    return { 'winner' => game['black']} unless game['white']
+    return { 'winner' => game['black'] } unless game['white']
 
-    black = data['players'][game["black"]]['command']
-    white = data['players'][game["white"]]['command']
-    size = settings["board_size"]
-    maxmoves = settings["max_moves"]
+    black = data['players'][game['black']]['command']
+    white = data['players'][game['white']]['command']
+    size = settings['board_size']
+    maxmoves = settings['max_moves']
     prefix = prefix_from(game)
-    time = settings["game_length"]
-    cmd = %|gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves}|
+    time = settings['game_length']
+    cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves})
 
-    {'command' => cmd, 'identifier' => game}
+    { 'command' => cmd, 'identifier' => game }
   end
 
   def score_game(game)
     # Odd number of players. Received a bye
-    return { 'winner' => game['black']} unless game['white']
+    return { 'winner' => game['black'] } unless game['white']
 
     prefix = prefix_from(game)
     result = File.readlines("#{prefix}.dat").last.split
@@ -180,17 +180,17 @@ class RunGeneration
   end
 
   def prefix_from(game)
-    "#{File.basename(game["black"], ".*")}x#{File.basename(game["white"], ".*")}R#{data['round']}"
+    "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R#{data['round']}"
   end
 
   def data
-    return {} unless File.exist?("data.json")
+    return {} unless File.exist?('data.json')
 
-    @data ||=JSON.load_file("data.json")
+    @data ||= JSON.load_file('data.json')
   end
 
   def save_data(hash)
-    File.open("data.json", "w") do |f|
+    File.open('data.json', 'w') do |f|
       f.puts JSON.pretty_generate(hash)
     end
     @data = nil
@@ -198,15 +198,15 @@ class RunGeneration
   end
 
   def setup_initial_population
-    return if data["setup_complete"]
+    return if data['setup_complete']
 
-    puts "Generating initial population ..."
+    puts 'Generating initial population ...'
     system("../initial-population #{settings['population_size']} #{settings['board_size']} #{settings['hidden_layers']} #{settings['layer_size']}")
     save_data(setup_tournament)
   end
 
   def evolve_from_previous_population
-    return if data["setup_complete"]
+    return if data['setup_complete']
 
     previous_generation = generation.to_i - 1
     previous_data = JSON.load_file("../#{previous_generation}/data.json")
@@ -221,9 +221,9 @@ class RunGeneration
     # Generate the new population
     total = settings['population_size'].to_i
     total.times do |i|
-      print "\rGenerating population ... #{i+1}/#{total}"
-      `../evolve #{settings["cross_over_rate"]} ../#{previous_generation}/#{picks.sample} ../#{previous_generation}/#{picks.sample}`
-      FileUtils.mv("child.ann", "#{i}.ann")
+      print "\rGenerating population ... #{i + 1}/#{total}"
+      `../evolve #{settings['cross_over_rate']} ../#{previous_generation}/#{picks.sample} ../#{previous_generation}/#{picks.sample}`
+      FileUtils.mv('child.ann', "#{i}.ann")
     end
     puts "\rGenerating population ... done         "
     clean_up_generation(previous_generation)
@@ -232,19 +232,28 @@ class RunGeneration
 
   def clean_up_generation(g)
     Dir.chdir("../#{g}") do
-      previous_data = JSON.load_file("data.json")
-      best_player = previous_data["ranking"].find {|player| !previous_data["players"][player["name"]]["external"]}
-      best_player_name = best_player["name"]
-      FileUtils.rm(Dir["*.ann"].reject {|nn| nn == best_player_name })
-      FileUtils.rm(Dir["*.sgf"])
+      stdout, stderr, status = Open3.capture3('find . -name "*.ann" -print | tar cvfj anns.tar.bz2 -T -')
+      if status.success?
+        FileUtils.rm(Dir['*.ann'])
+      else
+        puts 'Failed to tar *.ann files'
+        puts stdout
+        puts stderr
+        exit(1)
+      end
+      FileUtils.rm(Dir['*.sgf'])
     end
   end
 
+  AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp' }
+  BROWN = { 'name' => 'Brown', 'command' => 'brown' }
+  GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp' }
+  GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp' }
   EXTERNAL_PLAYERS = [
-    {'name' => 'Brown', 'command' => 'brown'},
-    {'name' => 'AmiGo', 'command' => 'amigogtp'},
-    {'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp'},
-    {'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp'},
+    *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
+    *(1..5).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) },
+    GNUGO0,
+    GNUGO10
   ]
 
   def setup_tournament
@@ -253,26 +262,31 @@ class RunGeneration
       'players' => setup_players,
       'setup_complete' => true
     }
-    data['ranking'] = data['players'].keys.map {|player| {'name' => player, 'score' => 0} }.shuffle
+    data['ranking'] = data['players'].keys.map { |player| { 'name' => player, 'score' => 0 } }.shuffle
     data['games'] = games_from_ranking(data['ranking'])
     data
   end
 
   def games_from_ranking(ranking)
     games = []
-    ranked_players = ranking.map {|r| r['name'] }
+    ranked_players = ranking.map { |r| r['name'] }
     loop do
       players = ranked_players.shift(2).shuffle
       break if players.empty?
+
       players << nil if players.length == 1
-      games << {black: players.first, white: players.last}
+      games << { black: players.first, white: players.last }
     end
     games
   end
 
   def setup_players
-    players = EXTERNAL_PLAYERS.each_with_object({}) {|player, hash| hash[player['name']] = {'command' => player['command'], 'external' => true} }
-    players.merge!(Dir["*.ann"].each_with_object({}) {|player,hash | hash[player] = { 'command' => "../evo #{player}" } })
+    players = EXTERNAL_PLAYERS.each_with_object({}) do |player, hash|
+      hash[player['name']] = { 'command' => player['command'], 'external' => true }
+    end
+    players.merge!(Dir['*.ann'].each_with_object({}) do |player, hash|
+                     hash[player] = { 'command' => "../evo #{player}" }
+                   end)
     players
   end
 end

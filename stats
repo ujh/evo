@@ -6,17 +6,21 @@ Bundler.require(:default)
 
 options = {}
 OptionParser.new do |parser|
-  parser.banner = "Usage: ./stats [options] experiment-name"
+  parser.banner = 'Usage: ./stats [options] experiment-name'
 
-  parser.on("--csv", "Return CSV to stdout instead of table") do |v|
+  parser.on('--csv', 'Return CSV to stdout instead of table') do |_v|
     options[:csv] = true
+  end
+
+  parser.on('--quiet', 'Do not print out table of results') do |_v|
+    options[:quiet] = true
   end
 end.parse!
 
 $experiment_name = ARGV.first
 
 if $experiment_name.nil?
-  puts "Name of experiment required as argument!"
+  puts 'Name of experiment required as argument!'
   exit 1
 end
 
@@ -38,39 +42,39 @@ def average(array)
   (total.to_f / array.length).round
 end
 
-$stats = File.exist?("stats.json") ? JSON.load_file("stats.json") : {}
+$stats = File.exist?('stats.json') ? JSON.load_file('stats.json') : {}
 $starting = true
+
+TO_COMBINE = %w[Brown AmiGo]
 
 def stats_for(generation)
   return $stats[generation] if $stats[generation]
 
   Dir.chdir(generation) do
-    data = JSON.load_file("data.json")
-    external_engines = data['players'].keys.find_all {|p| data['players'][p]['external'] }
+    data = JSON.load_file('data.json')
+    external_engines = data['players'].keys.find_all { |p| data['players'][p]['external'] }
     game_lengths = []
-    wins = external_engines.each_with_object({}) {|player, hash| hash[player] = Hash.new {|h,k| h[k] = 0 }}
+    wins = external_engines.each_with_object({}) { |player, hash| hash[player] = Hash.new { |h, k| h[k] = 0 } }
 
-    Dir["*.dat"].each do |file_name|
+    Dir['*.dat'].each do |file_name|
       file_name =~ /(\w+)x(\w+)R/
-      black = $1
-      black += ".ann" unless data['players'][black]
-      white = $2
-      white += ".ann" unless data['players'][white]
+      black = Regexp.last_match(1)
+      black += '.ann' unless data['players'][black]
+      white = Regexp.last_match(2)
+      white += '.ann' unless data['players'][white]
       result = File.readlines(file_name).last.split
       winner = result[3].start_with?('B') ? black : white
       opponent = winner == black ? white : black
       game_length = result[6].to_i
-      if !data['players'][winner]['external'] && data['players'][opponent]['external']
-        wins[opponent][winner] += 1
-      end
+      wins[opponent][winner] += 1 if !data['players'][winner]['external'] && data['players'][opponent]['external']
       game_lengths << game_length
     end
 
     stdout, stderr, status = Open3.capture3('find . -name "*.dat" -print | tar cvfj data.tar.bz2 -T -')
     if status.success?
-      FileUtils.rm(Dir["*.dat"])
+      FileUtils.rm(Dir['*.dat'])
     else
-      puts "Failed to tar *.dat files"
+      puts 'Failed to tar *.dat files'
       puts stdout
       puts stderr
       exit(1)
@@ -89,7 +93,7 @@ def stats_for(generation)
         'max' => wins[external_engine].values.max,
         'median' => median(wins[external_engine].values),
         'average' => median(wins[external_engine].values),
-        'rank' => data['ranking'].index {|e| e['name'] == external_engine},
+        'rank' => data['ranking'].index { |e| e['name'] == external_engine },
         'all_ranks' => data['ranking'].length
       }
     end
@@ -102,15 +106,17 @@ def stats_for(generation)
     }
   end
 
-  File.open("stats.json", "w") {|f| f.puts JSON.pretty_generate($stats)}
+  File.open('stats.json', 'w') { |f| f.puts JSON.pretty_generate($stats) }
 
   if ENV['NTFY_EVO_STATS'] && !$starting
     gen_stats = $stats[generation]
     win_stats = gen_stats['win_stats']
     msg = ["Gen: #{generation}"] + win_stats.map do |name, data|
-      "#{name}: #{(data['total'].to_f/gen_stats['rounds']*100).round}% (#{data['rank']+1})"
+      next if data['total'].zero?
+
+      "#{name}: #{data['total']}"
     end
-    msg = msg.join(" ")
+    msg = msg.compact.join(' ')
     msg = "#{$experiment_name}\n#{msg}"
     `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
   end
@@ -120,24 +126,24 @@ end
 
 previous_generations = nil
 
-def flatten_hash(param, prefix=nil)
+def flatten_hash(param, prefix = nil)
   param.each_pair.reduce({}) do |a, (k, v)|
     v.is_a?(Hash) ? a.merge(flatten_hash(v, "#{prefix}#{k}.")) : a.merge("#{prefix}#{k}".to_sym => v)
   end
 end
 
 loop do
-  generations = Dir["*"].find_all {|f| File.directory?(f)}.uniq.sort_by {|d| d.to_i }
+  generations = Dir['*'].find_all { |f| File.directory?(f) }.uniq.sort_by { |d| d.to_i }
   if generations == previous_generations
     sleep(5)
     next
   end
 
   gens = if options[:csv]
-    generations[0..-2]
-  else
-    generations[0..-2].reverse.take(40).reverse
-  end
+           generations[0..-2]
+         else
+           generations[0..-2].reverse.take(40).reverse
+         end
 
   if gens.empty?
     sleep(5)
@@ -150,26 +156,46 @@ loop do
 
   if options[:csv]
     headings = flatten_hash(stats.last).keys
-    output_string =  CSV.generate do |csv|
+    output_string = CSV.generate do |csv|
       csv << headings
       stats.each do |s|
         flattened = flatten_hash(s)
-        csv << headings.map {|k| flattened[k] }
+        csv << headings.map { |k| flattened[k] }
       end
     end
 
     puts output_string
     break
+  elsif options[:quiet]
+    if $starting
+      puts 'Starting to monitor data'
+    else
+      puts "Analysed generation #{stats.last['generation']}"
+    end
+
+    $starting = false
+    previous_generations = generations
   else
-    headings = ['Generation'] + stats.last['win_stats'].keys.flat_map {|n| [n, n, n]}
+    headings = ['Generation'] + stats.last['win_stats'].keys.map do |n|
+      prefix = TO_COMBINE.find { |engine| n.start_with?(engine) }
+      prefix || n
+    end.uniq
     rows = stats.map do |s|
-      [s['generation']] + s['win_stats'].values.flat_map do |v|
-        percentage = (v['total'].to_f/s['rounds']*100).round
-        [v['total'], "#{percentage}%", "#{v['rank']+1}/#{v['all_ranks']}"]
+      combined_stats = {}
+      s['win_stats'].each do |instance_name, instance_stats|
+        engine_name = TO_COMBINE.find { |engine| instance_name.start_with?(engine) } || instance_name
+        combined_stats[engine_name] ||= Hash.new { |h, k| h[k] = 0 }
+        combined_stats[engine_name]['total'] += instance_stats['total']
+        combined_stats[engine_name]['rounds'] += s['rounds']
+      end
+      [s['generation']] + headings[1..].map do |engine|
+        data = combined_stats[engine]
+        percentage = (data['total'].to_f / data['rounds'] * 100).round
+        "#{percentage}%"
       end
     end
 
-    table = Terminal::Table.new(headings: headings, rows: rows)
+    table = Terminal::Table.new(headings:, rows:)
     headings.each_with_index do |_h, i|
       table.align_column(i, :right)
     end
