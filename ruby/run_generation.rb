@@ -251,9 +251,9 @@ class RunGeneration
   GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp' }
   EXTERNAL_PLAYERS = [
     *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
-    *(1..5).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) },
-    GNUGO0,
-    GNUGO10
+    *(1..10).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) },
+    *(1..2).map { |i| GNUGO0.merge('name' => GNUGO0['name'] + i.to_s) },
+    *(1..2).map { |i| GNUGO10.merge('name' => GNUGO10['name'] + i.to_s) }
   ]
 
   def setup_tournament

@@ -45,7 +45,7 @@ end
 $stats = File.exist?('stats.json') ? JSON.load_file('stats.json') : {}
 $starting = true
 
-TO_COMBINE = %w[Brown AmiGo]
+TO_COMBINE = %w[Brown AmiGo GnuGoLevel0 GnuGoLevel10]
 
 def stats_for(generation)
   return $stats[generation] if $stats[generation]
@@ -142,7 +142,7 @@ loop do
   gens = if options[:csv]
            generations[0..-2]
          else
-           generations[0..-2].reverse.take(40).reverse
+           generations[0..-2].reverse.take(50).reverse
          end
 
   if gens.empty?

@@ -31,6 +31,7 @@ SOFTWARE.
 #include <time.h>
 
 #include "evolve.h"
+#include "genann.h"
 
 pcg32_random_t rng;
 
@@ -113,6 +114,9 @@ genann *child_from_mutation(genann **nns) {
 
 genann *mutate(genann *parent) {
   genann *child = genann_copy(parent);
+  // Hacky way to also have a slight chance of no mutation at all.
+  if (GENANN_RANDOM() < 0.01) return child;
+
   float mutation_rate = 0.0004; // 1/2500
   for (int i = 0; i < child->total_weights; i++)
   {
