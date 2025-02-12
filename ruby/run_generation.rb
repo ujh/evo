@@ -105,7 +105,7 @@ class RunGeneration
     data['games'].each do |game|
       game_data = prepare_game(game)
       if game_data['winner']
-        update_data(game, game_data['winner'])
+        update_data(game, game_data)
         refresh_progress
       else
         pipe << game_data
@@ -117,16 +117,18 @@ class RunGeneration
 
       _r, completed_game = Ractor.select(*ractors)
       result = score_game(completed_game)
-      update_data(completed_game, result['winner'])
+      update_data(completed_game, result)
       refresh_progress
     end
   end
 
-  def update_data(game, winner)
+  def update_data(game, result)
+    winner = result['winner']
+    points = result['points'] || 1
     # Update score
     new_ranking = data['ranking'].map do |s|
       if s['name'] == winner
-        s.merge('score' => s['score'] + 1)
+        s.merge('score' => s['score'] + points)
       else
         s
       end
@@ -156,7 +158,7 @@ class RunGeneration
 
   def prepare_game(game)
     # Odd number of players. Received a bye
-    return { 'winner' => game['black'] } unless game['white']
+    return { 'winner' => game['black'], 'points' => 1 } unless game['white']
 
     black = data['players'][game['black']]['command']
     white = data['players'][game['white']]['command']
@@ -175,8 +177,9 @@ class RunGeneration
 
     prefix = prefix_from(game)
     result = File.readlines("#{prefix}.dat").last.split
-    winner = result[3].start_with?('B') ? game['black'] : game['white']
-    { 'winner' => winner }
+    winner, loser = result[3].start_with?('B') ? [game['black'], game['white']] : [game['white'], game['black']]
+    points = data['players'][loser]['points']
+    { 'winner' => winner, 'points' => points }
   end
 
   def prefix_from(game)
@@ -232,23 +235,23 @@ class RunGeneration
 
   def clean_up_generation(g)
     Dir.chdir("../#{g}") do
-      stdout, stderr, status = Open3.capture3('find . -name "*.ann" -print | tar cvfj anns.tar.bz2 -T -')
-      if status.success?
-        FileUtils.rm(Dir['*.ann'])
-      else
-        puts 'Failed to tar *.ann files'
-        puts stdout
-        puts stderr
-        exit(1)
-      end
+      # stdout, stderr, status = Open3.capture3('find . -name "*.ann" -print | tar cvfj anns.tar.bz2 -T -')
+      # if status.success?
+      FileUtils.rm(Dir['*.ann'])
+      # else
+      #   puts 'Failed to tar *.ann files'
+      #   puts stdout
+      #   puts stderr
+      #   exit(1)
+      # end
       FileUtils.rm(Dir['*.sgf'])
     end
   end
 
-  AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp' }
-  BROWN = { 'name' => 'Brown', 'command' => 'brown' }
-  GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp' }
-  GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp' }
+  AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp', 'points' => 4 }
+  BROWN = { 'name' => 'Brown', 'command' => 'brown', 'points' => 2 }
+  GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp', 'points' => 10 }
+  GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp', 'points' => 20 }
   EXTERNAL_PLAYERS = [
     *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
     *(1..10).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) },
@@ -282,10 +285,10 @@ class RunGeneration
 
   def setup_players
     players = EXTERNAL_PLAYERS.each_with_object({}) do |player, hash|
-      hash[player['name']] = { 'command' => player['command'], 'external' => true }
+      hash[player['name']] = { 'command' => player['command'], 'points' => player['points'], 'external' => true }
     end
     players.merge!(Dir['*.ann'].each_with_object({}) do |player, hash|
-                     hash[player] = { 'command' => "../evo #{player}" }
+                     hash[player] = { 'command' => "../evo #{player}", 'points' => 1 }
                    end)
     players
   end
