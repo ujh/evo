@@ -67,9 +67,9 @@ int main(int argc, char **argv) {
     printf("\r%d/%d", i, population_size);
     sprintf(buffer, "%04d.ann", i);
 
-    FILE *fd = fopen(buffer, "w");
+    FILE *fd = fopen(buffer, "wb");
     genann *ann = genann_init(inputs, hidden_layers, hidden, outputs);
-    genann_write(ann, fd);
+    genann_binary_write(ann, fd);
     genann_free(ann);
     fclose(fd);
   }

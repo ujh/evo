@@ -75,6 +75,9 @@ genann *genann_init(int inputs, int hidden_layers, int hidden, int outputs);
 /* Creates ANN from file saved with genann_write. */
 genann *genann_read(FILE *in);
 
+/* Creates ANN from file saved with genann_binary_write. */
+genann *genann_binary_read(FILE *in);
+
 /* Sets weights randomly. Called by init. */
 void genann_randomize(genann *ann);
 
@@ -92,6 +95,8 @@ void genann_train(genann const *ann, double const *inputs, double const *desired
 
 /* Saves the ann. */
 void genann_write(genann const *ann, FILE *out);
+/* Saves the ann in a binary format. */
+void genann_binary_write(genann const *ann, FILE *out);
 
 void genann_init_sigmoid_lookup(const genann *ann);
 double genann_act_sigmoid(const genann *ann, double a);

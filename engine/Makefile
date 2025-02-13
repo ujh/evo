@@ -23,6 +23,5 @@ test: $(OBJS) test.o
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 clean:
-	$(RM) *.o *.dep
+	$(RM) *.o *.dep persist.*
 	$(RM) evo test
-

@@ -62,8 +62,8 @@ int main(int argc, char **argv) {
   }
 
   printf("Saving output to child.ann ...");
-  FILE *fd = fopen("child.ann", "w");
-  genann_write(child, fd);
+  FILE *fd = fopen("child.ann", "wb");
+  genann_binary_write(child, fd);
   fclose(fd);
   printf("\n");
 }

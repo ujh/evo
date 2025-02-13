@@ -175,6 +175,32 @@ genann *genann_read(FILE *in) {
     return ann;
 }
 
+genann *genann_binary_read(FILE *in) {
+    int config[4];
+    int rc;
+
+    rc = fread(config, sizeof(int), 4, in);
+    if (rc < 4) {
+        perror("fread");
+        return NULL;
+    }
+
+    genann *ann = genann_init(config[0], config[1], config[2], config[3]);
+
+    int i;
+    for (i = 0; i < ann->total_weights; ++i) {
+        rc = fread(ann->weight + i, sizeof(double), 1, in);
+        if (rc < 1) {
+            perror("fscanf");
+            genann_free(ann);
+
+            return NULL;
+        }
+    }
+
+    return ann;
+}
+
 
 genann *genann_copy(genann const *ann) {
     const int size = sizeof(genann) + sizeof(double) * (ann->total_weights + ann->total_neurons + (ann->total_neurons - ann->inputs));
@@ -402,4 +428,12 @@ void genann_write(genann const *ann, FILE *out) {
     }
 }
 
-
+void genann_binary_write(const genann *ann, FILE *out) {
+    int config[4];
+    config[0] = ann->inputs;
+    config[1] = ann->hidden_layers;
+    config[2] = ann->hidden;
+    config[3] = ann->outputs;
+    fwrite(config, sizeof(int), 4, out);
+    fwrite(ann->weight, sizeof(double), ann->total_weights, out);
+}
