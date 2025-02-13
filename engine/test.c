@@ -220,6 +220,32 @@ void persist() {
     genann_free(second);
 }
 
+void binary_persist() {
+    genann *first = genann_init(1000, 5, 50, 10);
+
+    FILE *out = fopen("persist.bin", "wb");
+    genann_binary_write(first, out);
+    fclose(out);
+
+
+    FILE *in = fopen("persist.bin", "rb");
+    genann *second = genann_binary_read(in);
+    fclose(in);
+
+    lequal(first->inputs, second->inputs);
+    lequal(first->hidden_layers, second->hidden_layers);
+    lequal(first->hidden, second->hidden);
+    lequal(first->outputs, second->outputs);
+    lequal(first->total_weights, second->total_weights);
+
+    int i;
+    for (i = 0; i < first->total_weights; ++i) {
+        lok(first->weight[i] == second->weight[i]);
+    }
+
+    genann_free(first);
+    genann_free(second);
+}
 
 void copy() {
     genann *first = genann_init(1000, 5, 50, 10);
@@ -265,6 +291,7 @@ int main(int argc, char *argv[])
     lrun("train or", train_or);
     lrun("train xor", train_xor);
     lrun("persist", persist);
+    lrun("binary_persist", binary_persist);
     lrun("copy", copy);
     lrun("sigmoid", sigmoid);
 

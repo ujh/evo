@@ -43,12 +43,12 @@ genann **load_nns(char *ann1_name, char *ann2_name) {
   genann **anns = malloc(2 * sizeof(genann *));
 
   printf("Loading %s ...", ann1_name);
-  FILE *fd = fopen(ann1_name, "r");
-  anns[0] = genann_read(fd);
+  FILE *fd = fopen(ann1_name, "rb");
+  anns[0] = genann_binary_read(fd);
   fclose(fd);
   printf("\nLoading %s ...", ann2_name);
-  fd = fopen(ann2_name, "r");
-  anns[1] = genann_read(fd);
+  fd = fopen(ann2_name, "rb");
+  anns[1] = genann_binary_read(fd);
   fclose(fd);
   printf("\n");
 
