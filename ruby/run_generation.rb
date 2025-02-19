@@ -248,10 +248,10 @@ class RunGeneration
     end
   end
 
-  AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp', 'points' => 4 }
-  BROWN = { 'name' => 'Brown', 'command' => 'brown', 'points' => 2 }
-  GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp', 'points' => 10 }
-  GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp', 'points' => 20 }
+  AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp', 'points' => 10 }
+  BROWN = { 'name' => 'Brown', 'command' => 'brown', 'points' => 1 }
+  GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp', 'points' => 50 }
+  GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp', 'points' => 100 }
   EXTERNAL_PLAYERS = [
     *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
     *(1..10).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) },
