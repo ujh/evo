@@ -213,14 +213,7 @@ class RunGeneration
 
     previous_generation = generation.to_i - 1
     previous_data = JSON.load_file("../#{previous_generation}/data.json")
-    # Use the score to determine how "good" the individual is
-    picks = previous_data['ranking'].reject do |player|
-      previous_data['players'][player['name']]['external']
-    end.flat_map do |player|
-      player_name = player['name']
-      # Make better score _much_ more likely to be picked.
-      [player_name] * (player['score']**3)
-    end.compact
+    picks = parent_pool(previous_data)
     # Generate the new population
     total = settings['population_size'].to_i
     total.times do |i|
@@ -231,6 +224,17 @@ class RunGeneration
     puts "\rGenerating population ... done         "
     clean_up_generation(previous_generation)
     save_data(setup_tournament)
+  end
+
+  def parent_pool(previous_data)
+    # Use the score to determine how "good" the individual is
+    previous_data['ranking'].reject do |player|
+      previous_data['players'][player['name']]['external']
+    end.flat_map do |player|
+      player_name = player['name']
+      # Make better score _much_ more likely to be picked.
+      [player_name] * (player['score']**3)
+    end.compact
   end
 
   def clean_up_generation(g)

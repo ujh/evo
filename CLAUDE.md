@@ -13,13 +13,13 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 | First setup (submodule, gems, build) | `mise run setup` |
 | Install external Go programs | `mise run setup-experiments` (downloads with pinned checksums and builds under `.local/evo-tools/`) |
 | Build | `mise run build` (root `make`; builds `pcg-c` first) |
-| C tests | `mise run test` |
+| Tests (C and Ruby) | `mise run test` (or `test-c`, `test-ruby` alone) |
 | Full check, same as CI | `mise run verify` (tests, `doctor`, and refereed GoGui matches with every bot and Evo) |
 | Run/resume experiment | `mise run run NAME [CONCURRENCY [one-generation]]` |
 
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
 - `mise run example` opens the GoGui window. Do not use it headless. `gogui-twogtp` runs without a display.
-- There are no Ruby tests or linters yet.
+- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` because `new` starts Ractors, and they stub `../evolve` by overriding the backtick method. There is no Ruby linter yet.
 
 ## Layout
 
@@ -62,7 +62,7 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
   {"board_size": "9", "population_size": "4", "hidden_layers": "1", "layer_size": "10",
    "cross_over_rate": "0.5", "game_length": "10", "max_moves": "200", "tournament_rounds": "1"}
   ```
-  With `4 one-generation`, that runs one generation of 12 pairings (11 games plus a bye for the odd player out) in a few seconds, which makes it a good smoke run. Delete `experiments/NAME` afterwards. `experiments/` is gitignored.
+  With `4 one-generation`, that runs one generation of 12 pairings (11 games plus a bye for the odd player out) in a few seconds, which makes it a good smoke run. Delete `experiments/NAME` afterwards. Running it a second time breeds generation 1, which usually crashes: random networks rarely win a game, so every score is 0, the parent pool is empty, and `evolve` gets a directory instead of a file (`fread: Is a directory`, then `Errno::ENOENT` on `child.ann`). This is a listed defect, not a setup problem. `experiments/` is gitignored.
 - The runner works inside `experiments/NAME/GEN/` and calls `../evo`, `../evolve`, and `../initial-population`. Those are **symlinks** to the build output, so rebuilding changes a running experiment.
 - State lives in `GEN/data.json`. It is rewritten after every game and not atomically. On resume, `setup_complete` skips creating or breeding the population. The generation's games are skipped only once `round` reaches `tournament_rounds`. Game hashes are built with symbol keys and read back with string keys after the JSON round trip.
 - Generation 0 names networks `0001.ann`, `0002.ann`, and so on. Later generations use `0.ann`, `1.ann`, and so on.

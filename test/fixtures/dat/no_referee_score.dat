@@ -1,0 +1,20 @@
+# Black: Brown
+# BlackCommand: brown
+# BlackLabel: Brown
+# BlackVersion: 1.0
+# Date: September 24, 2026, 8:31:46 PM CEST
+# Host: Mac
+# Komi: 6.5
+# Referee: GNU Go
+# RefereeCommand: gnugo --mode gtp
+# RefereeLabel: GNU Go
+# RefereeVersion: 3.8
+# Size: 9
+# White: AmiGo
+# WhiteCommand: amigogtp
+# WhiteLabel: AmiGo
+# WhiteVersion: 1.8
+# Xml: 0
+#
+#GAME	RES_B	RES_W	RES_R	ALT	DUP	LEN	TIME_B	TIME_W	CPU_B	CPU_W	ERR	ERR_MSG
+0	W+15.5	?	?	0	-	93	0	0	0	0	0	

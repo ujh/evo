@@ -1,0 +1,50 @@
+require 'minitest/autorun'
+require 'fileutils'
+require 'json'
+require 'tmpdir'
+require_relative '../ruby/run_generation'
+
+$stop_now = false
+
+module RunGenerationHelpers
+  FIXTURES = File.expand_path('fixtures', __dir__)
+
+  SETTINGS = {
+    'board_size' => '9',
+    'population_size' => '2',
+    'hidden_layers' => '1',
+    'layer_size' => '10',
+    'cross_over_rate' => '0.5',
+    'game_length' => '10',
+    'max_moves' => '200',
+    'tournament_rounds' => '1',
+    'concurrency' => 1
+  }.freeze
+
+  # RunGeneration.new starts Ractors and traps SIGINT, so tests build the object
+  # without calling initialize.
+  def build_generation(generation: '1', settings: {})
+    gen = RunGeneration.allocate
+    gen.instance_variable_set(:@generation, generation)
+    gen.instance_variable_set(:@settings, SETTINGS.merge(settings))
+    gen
+  end
+
+  # Runs the block inside a fresh experiment directory, chdir'd into the given
+  # generation directory, the way RunGeneration#setup does.
+  def in_experiment(generation: '1')
+    Dir.mktmpdir('evo-test') do |dir|
+      path = File.join(dir, generation)
+      FileUtils.mkdir_p(path)
+      Dir.chdir(path) { yield dir }
+    end
+  end
+
+  def write_data(hash, path = 'data.json')
+    File.write(path, JSON.pretty_generate(hash))
+  end
+
+  def copy_dat(fixture, prefix)
+    FileUtils.cp(File.join(FIXTURES, 'dat', "#{fixture}.dat"), "#{prefix}.dat")
+  end
+end

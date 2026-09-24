@@ -18,8 +18,16 @@ description = "Build the C programs"
 run = "make"
 
 [tasks.test]
+description = "Run the C and Ruby test suites"
+depends = ["test-c", "test-ruby"]
+
+[tasks.test-c]
 description = "Run the C test suite"
 run = "make test"
+
+[tasks.test-ruby]
+description = "Run the Ruby tests for the tournament runner"
+run = "bundle exec ruby -e 'Dir[\"test/**/*_test.rb\"].sort.each { |f| require File.expand_path(f) }'"
 
 [tasks.verify]
 description = "Run tests and check the programs needed for experiments"
