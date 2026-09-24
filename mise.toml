@@ -2,9 +2,16 @@
 ruby = "3.3.0"
 java = "temurin-21.0.11+10.0.LTS"
 
+[env]
+_.path = ".local/evo-tools/current/bin"
+
 [tasks.setup]
 description = "Initialize submodules, install pinned tools and Ruby gems, then build"
 run = ["sh scripts/ensure-submodules.sh", "bundle install", { task = "build" }]
+
+[tasks.setup-experiments]
+description = "Install the pinned external Go programs and GoGui locally"
+run = [{ task = "setup" }, "sh scripts/install-external-tools.sh"]
 
 [tasks.build]
 description = "Build the C programs"
@@ -16,7 +23,7 @@ run = "make test"
 
 [tasks.verify]
 description = "Run tests and check the programs needed for experiments"
-run = [{ task = "test" }, { task = "doctor" }]
+run = [{ task = "test" }, { task = "doctor" }, "sh scripts/smoke-external-tools.sh"]
 
 [tasks.clean]
 description = "Remove generated C build and test files"
