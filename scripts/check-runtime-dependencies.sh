@@ -12,6 +12,6 @@ for program in gnugo gogui gogui-twogtp brown amigogtp java; do
 done
 
 if [ "$missing" -ne 0 ]; then
-  printf 'Install the missing Go programs listed in README.md before running an experiment.\n' >&2
+  printf 'Run mise run setup-experiments to install the missing Go programs.\n' >&2
   exit 1
 fi

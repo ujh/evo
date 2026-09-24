@@ -6,24 +6,24 @@ _This is an experiment to see if genetic algorithms can be used to evolve a neur
 ## Requirements
 
 Install [mise](https://mise.jdx.dev/) first. The project configuration pins Ruby
-3.3.0 and Temurin JDK 21 for GoGui. You also need a C compiler and `make`.
-
-To run experiments, install these programs separately and put them on `PATH`:
-
-* [GnuGo](https://www.gnu.org/software/gnugo/)
-* [GoGui](https://github.com/Remi-Coulom/gogui)
-* [brown](http://www.lysator.liu.se/%7Egunnar/gtp/brown-1.0.tar.gz)
-* [AmiGoGtp](https://amigogtp.sourceforge.net/)
+3.3.0 and Temurin JDK 21 for GoGui. On macOS or Linux, you also need C and C++
+compilers, `make`, `curl`, `tar`, `unzip`, and either `shasum` or `sha256sum`.
 
 ## Installation
 
 1. Clone the repository: `git clone git@github.com:ujh/evo.git`
-2. Run `mise run setup`. This installs the pinned tools, initializes the
-   submodule, installs Ruby gems, and builds the C programs.
-3. Run `mise run verify` to run the tests and check the programs needed for
-   experiments.
+2. Run `mise run setup-experiments`. This runs the base `setup` task, then
+   downloads and builds pinned versions of [GNU Go](https://www.gnu.org/software/gnugo/),
+   [Brown](https://www.lysator.liu.se/~gunnar/gtp/), and
+   [AmiGoGtp](https://amigogtp.sourceforge.net/), and installs
+   [GoGui](https://github.com/Remi-Coulom/gogui) 1.6.0. Archives are checked
+   against SHA-256 hashes before extraction. The programs stay under
+   `.local/evo-tools/` and mise places them on `PATH` for project tasks.
+3. Run `mise run verify` to run the C tests and a complete 9×9 match with
+   Brown, AmiGoGtp, GoGui, and the GNU Go referee.
 
-CI runs the same `mise run setup` and `mise run test` tasks. Other useful tasks
+CI runs the same setup and verification tasks. For C development without the
+external programs, use `mise run setup` and `mise run test`. Other useful tasks
 are `mise run build`, `mise run clean`, and `mise run doctor`.
 
 ## Running the evolution of the neural net
