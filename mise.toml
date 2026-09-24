@@ -1,0 +1,44 @@
+[tools]
+ruby = "3.3.0"
+java = "temurin-21.0.11+10.0.LTS"
+
+[tasks.setup]
+description = "Initialize submodules, install pinned tools and Ruby gems, then build"
+run = ["sh scripts/ensure-submodules.sh", "bundle install", { task = "build" }]
+
+[tasks.build]
+description = "Build the C programs"
+run = "make"
+
+[tasks.test]
+description = "Run the C test suite"
+run = "make test"
+
+[tasks.verify]
+description = "Run tests and check the programs needed for experiments"
+run = [{ task = "test" }, { task = "doctor" }]
+
+[tasks.clean]
+description = "Remove generated C build and test files"
+run = "make clean"
+
+[tasks.doctor]
+description = "Check external programs needed to run experiments"
+run = "sh scripts/check-runtime-dependencies.sh"
+
+[tasks.run]
+description = "Run or resume an experiment: mise run run NAME [CONCURRENCY [one-generation]]"
+depends = ["build", "doctor"]
+run = "./runner"
+raw = true
+
+[tasks.stats]
+description = "Show experiment statistics: mise run stats NAME [--csv]"
+run = "./stats"
+raw = true
+
+[tasks.example]
+description = "Open the bundled network self-play example in GoGui"
+depends = ["build", "doctor"]
+run = "sh scripts/run-example.sh"
+raw = true
