@@ -1,0 +1,20 @@
+# Black: Brown
+# BlackCommand: brown
+# BlackLabel: Brown:1.0
+# BlackVersion: 1.0
+# Date: September 24, 2026, 8:31:50 PM CEST
+# Host: Mac
+# Komi: 6.5
+# Referee: GNU Go
+# RefereeCommand: gnugo --mode gtp
+# RefereeLabel: GNU Go
+# RefereeVersion: 3.8
+# Size: 9
+# White: Brown
+# WhiteCommand: brown
+# WhiteLabel: Brown:1.0
+# WhiteVersion: 1.0
+# Xml: 0
+#
+#GAME	RES_B	RES_W	RES_R	ALT	DUP	LEN	TIME_B	TIME_W	CPU_B	CPU_W	ERR	ERR_MSG
+0	W+77.5	W+77.5	W+18.5	0	-	5	0	0	0	0	1	move limit exceeded

@@ -21,13 +21,14 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    against SHA-256 hashes before extraction, and GNU Go is patched for an
    upstream sorting bug (`scripts/patches/`). The programs stay under
    `.local/evo-tools/` and mise places them on `PATH` for project tasks.
-3. Run `mise run verify` to run the C tests and refereed 9×9 matches in which
+3. Run `mise run verify` to run the C and Ruby tests and refereed 9×9 matches in which
    Brown, AmiGoGtp, GNU Go levels 0 and 10, and Evo each play. It fails if a
    program crashes or the GNU Go referee returns no score.
 
-CI runs the same setup and verification tasks. For C development without the
-external programs, use `mise run setup` and `mise run test`. Other useful tasks
-are `mise run build`, `mise run clean`, and `mise run doctor`.
+CI runs the same setup and verification tasks. For development without the
+external programs, use `mise run setup` and `mise run test` (or `test-c` and
+`test-ruby` on their own). Other useful tasks are `mise run build`,
+`mise run clean`, and `mise run doctor`.
 
 ## Running the evolution of the neural net
 
