@@ -1,0 +1,20 @@
+gg_sort computes a pointer before the array when nel is 0, which is undefined
+behavior. Clang builds then run the comparator on garbage and GNU Go aborts in
+findstones, both when generating moves and in final_score.
+
+--- a/utils/gg_utils.c
++++ b/utils/gg_utils.c
+@@ -366,7 +366,12 @@
+ {
+   int gap = nel;
+   int swap_made;
+-  char *end = (char *) base + width * (nel - 1);
++  char *end;
++
++  if (nel < 2)
++    return;
++
++  end = (char *) base + width * (nel - 1);
+   do {
+     char *a, *b;
+     swap_made = 0;

@@ -252,6 +252,7 @@ class RunGeneration
   BROWN = { 'name' => 'Brown', 'command' => 'brown', 'points' => 1 }
   GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp', 'points' => 50 }
   GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp', 'points' => 100 }
+  # scripts/smoke-external-tools.sh plays each of these; add new opponents there too.
   EXTERNAL_PLAYERS = [
     *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
     *(1..10).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) },

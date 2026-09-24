@@ -7,7 +7,8 @@ _This is an experiment to see if genetic algorithms can be used to evolve a neur
 
 Install [mise](https://mise.jdx.dev/) first. The project configuration pins Ruby
 3.3.0 and Temurin JDK 21 for GoGui. On macOS or Linux, you also need C and C++
-compilers, `make`, `curl`, `tar`, `unzip`, and either `shasum` or `sha256sum`.
+compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
+`sha256sum`.
 
 ## Installation
 
@@ -17,10 +18,12 @@ compilers, `make`, `curl`, `tar`, `unzip`, and either `shasum` or `sha256sum`.
    [Brown](https://www.lysator.liu.se/~gunnar/gtp/), and
    [AmiGoGtp](https://amigogtp.sourceforge.net/), and installs
    [GoGui](https://github.com/Remi-Coulom/gogui) 1.6.0. Archives are checked
-   against SHA-256 hashes before extraction. The programs stay under
+   against SHA-256 hashes before extraction, and GNU Go is patched for an
+   upstream sorting bug (`scripts/patches/`). The programs stay under
    `.local/evo-tools/` and mise places them on `PATH` for project tasks.
-3. Run `mise run verify` to run the C tests and a complete 9×9 match with
-   Brown, AmiGoGtp, GoGui, and the GNU Go referee.
+3. Run `mise run verify` to run the C tests and refereed 9×9 matches in which
+   Brown, AmiGoGtp, GNU Go levels 0 and 10, and Evo each play. It fails if a
+   program crashes or the GNU Go referee returns no score.
 
 CI runs the same setup and verification tasks. For C development without the
 external programs, use `mise run setup` and `mise run test`. Other useful tasks
