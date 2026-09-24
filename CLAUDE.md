@@ -49,8 +49,9 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 ### Game results
 
 - A GoGui `.dat` file is tab-separated: `GAME RES_B RES_W RES_R ALT DUP LEN TIME_B TIME_W CPU_B CPU_W ERR ERR_MSG`.
-  - The runner and `stats` split on whitespace and read `result[3]` (`RES_R`, the referee) and `result[6]` (`LEN`).
-  - Anything in `RES_R` that does not start with `B`, including `?`, counts as a White win.
+  - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` still split on whitespace, so an empty column shifts `RES_R` and `LEN`, and anything not starting with `B` counts as a White win there.
+  - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file. Only stderr says which program crashed ("Black program died" or "White program died"). Breeding deletes the empty `.err` files and keeps the rest.
+  - Games with no usable result give no points and are listed under `unscored` in `GEN/data.json`. The rules are in the `PROJECT_NOTES.md` decision log.
 - Check `RES_R` and `ERR`, not only whether a game finished. A crashed player shows only in `ERR`, and a crashed referee only as `?` in `RES_R`. `scripts/smoke-external-tools.sh` checks both. Keep it that way when changing it.
 - Brown and AmiGo play deterministically. The 5 Brown and 10 AmiGo "instances" are copies of the same opponent, so replaying a pairing with the same colors adds no information.
 - GNU Go seeds its random choices from the clock unless it gets `--seed N`. Runs started in different seconds differ, so compare GNU Go behavior with a fixed seed.
@@ -67,7 +68,7 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 - State lives in `GEN/data.json`. It is rewritten after every game and not atomically. On resume, `setup_complete` skips creating or breeding the population. The generation's games are skipped only once `round` reaches `tournament_rounds`. Game hashes are built with symbol keys and read back with string keys after the JSON round trip.
 - Generation 0 names networks `0001.ann`, `0002.ann`, and so on. Later generations use `0.ann`, `1.ann`, and so on.
 - **Evidence gets destroyed:**
-  - Breeding a new generation deletes every `.ann` and `.sgf` in the previous generation.
+  - Breeding a new generation deletes every `.ann` and `.sgf`, and every empty `.err`, in the previous generation.
   - `stats` is not read-only. It moves each generation's `.dat` files into `data.tar.bz2` and caches results in `stats.json`.
   - Copy anything you need to inspect before running either of them.
 - `stats` (without `--csv`), `ranking`, and `multi` loop forever. Run them with a timeout or in the background.
