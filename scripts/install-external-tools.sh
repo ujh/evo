@@ -5,7 +5,7 @@ project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 tools_root="$project_root/.local/evo-tools"
 cache_dir="$tools_root/cache"
 releases_dir="$tools_root/releases"
-release_id='gnugo-3.8_brown-1.0_amigogtp-1.8_gogui-1.6.0_r2'
+release_id='gnugo-3.8_brown-1.0_amigogtp-1.8_gogui-1.6.0_r3'
 release_dir="$releases_dir/$release_id"
 
 mkdir -p "$cache_dir" "$releases_dir"
@@ -60,7 +60,7 @@ mkdir -p "$stage/src" "$stage/bin"
 
 tar -xzf "$cache_dir/gnugo-3.8.tar.gz" -C "$stage/src"
 printf 'Building GNU Go 3.8\n'
-if ! (cd "$stage/src/gnugo-3.8" && ./configure --without-curses && make -s) >"$stage/gnugo-build.log" 2>&1; then
+if ! (cd "$stage/src/gnugo-3.8" && CFLAGS='-O2 -fcommon' ./configure --without-curses && make -s) >"$stage/gnugo-build.log" 2>&1; then
   tail -40 "$stage/gnugo-build.log" >&2
   exit 1
 fi
