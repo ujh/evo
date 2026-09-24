@@ -139,6 +139,13 @@ loop do
     next
   end
 
+  # Now remove all but the last 100 best players
+  generations[0..-100].each do |generation|
+    Dir.chdir(generation) do
+      FileUtils.rm_rf('best.ann')
+    end
+  end
+
   gens = if options[:csv]
            generations[0..-2]
          else

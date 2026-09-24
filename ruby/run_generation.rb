@@ -225,8 +225,18 @@ class RunGeneration
     total = settings['population_size'].to_i
     total.times do |i|
       print "\rGenerating population ... #{i + 1}/#{total}"
-      `../evolve #{settings['cross_over_rate']} ../#{previous_generation}/#{picks.sample} ../#{previous_generation}/#{picks.sample}`
-      FileUtils.mv('child.ann', "#{i}.ann")
+      # Always keep the best player
+      if i.zero?
+        FileUtils.cp("../#{previous_generation}/#{picks.first}", "#{i}.ann")
+        next
+      end
+      # 10% just copying a player
+      if rand < 0.1
+        FileUtils.cp("../#{previous_generation}/#{picks.sample}", "#{i}.ann")
+      else
+        `../evolve #{settings['cross_over_rate']} ../#{previous_generation}/#{picks.sample} ../#{previous_generation}/#{picks.sample}`
+        FileUtils.mv('child.ann', "#{i}.ann")
+      end
     end
     puts "\rGenerating population ... done         "
     clean_up_generation(previous_generation)
@@ -235,15 +245,18 @@ class RunGeneration
 
   def clean_up_generation(g)
     Dir.chdir("../#{g}") do
-      # stdout, stderr, status = Open3.capture3('find . -name "*.ann" -print | tar cvfj anns.tar.bz2 -T -')
-      # if status.success?
-      FileUtils.rm(Dir['*.ann'])
-      # else
-      #   puts 'Failed to tar *.ann files'
-      #   puts stdout
-      #   puts stderr
-      #   exit(1)
-      # end
+      data = JSON.load_file('data.json')
+      first = true
+      data['ranking'].each do |player|
+        next if data['players'][player['name']]['external']
+
+        if first
+          first = false
+          FileUtils.mv(player['name'], "best.ann")
+        else
+          FileUtils.rm(player['name'])
+        end
+      end
       FileUtils.rm(Dir['*.sgf'])
     end
   end
@@ -253,7 +266,7 @@ class RunGeneration
   GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp', 'points' => 50 }
   GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp', 'points' => 100 }
   EXTERNAL_PLAYERS = [
-    *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
+    *(1..10).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
     *(1..10).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) },
     *(1..2).map { |i| GNUGO0.merge('name' => GNUGO0['name'] + i.to_s) },
     *(1..2).map { |i| GNUGO10.merge('name' => GNUGO10['name'] + i.to_s) }
