@@ -161,7 +161,6 @@ These should be fixed first, each with a test that fails before the fix.
 | [`stats:95`](stats) | `'average' => median(...)`. | The reported average is the median. |
 | [`stats:145`](stats) | Deletes `best.ann` from all but the last 99 generations while displaying statistics, and archives and deletes `.dat` files as a side effect. | Opening a viewer destroys evidence. |
 | [`multi:19`](multi) | References the undefined variable `next_input`. | A mistyped experiment name raises `NameError` instead of the intended message. |
-| [`evolve/test.c`](evolve/test.c) | `main` does not return the failure count. | `make test` passes even when crossover assertions fail. |
 | `engine/main.c`, `initial-population/main.c`, `evolve/evolve.c` | RNG seeded with `time(NULL)` and the address of the global `rng`. | Runs cannot be reproduced, and processes started in the same second rely on address randomization for different seeds. Seeds should be passed in and recorded. |
 
 ### Structure and hygiene
@@ -195,7 +194,7 @@ The largest structural change suggested by the timing sample is a C program that
 
 ### Suggested cleanup order
 
-1. Add characterization tests around current behavior: result parsing, parent selection, crossover and mutation, file round trip, and a short scripted GTP game. Fix the test exit status first so failures are visible.
+1. Add characterization tests around current behavior: result parsing, parent selection, crossover and mutation, file round trip, and a short scripted GTP game. The evolve test suite now exits nonzero on failed assertions, so failures are visible.
 2. Fix the result-changing defects above, one change at a time, each with its test.
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
 4. Pin the toolchain with mise, replace Ractors with a thread pool, make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
@@ -261,5 +260,6 @@ There is precedent for training substantial neural policies with genetic algorit
 - Current recommendation: address the essential measurement defects and profile a short run, then test evolution of a shared local pattern scorer. Treat search as a possible follow-on that needs its own control experiment.
 - Code review (24 Sep): the code needs a test-protected cleanup pass before new experiments. Several defects change results. GENANN should be replaced by a small module owned by the project, for control over outputs, file format, and batching rather than for speed. Timing points to GNU Go adjudication and wasted pairings as the main costs, not inference.
 - Toolchain follow-up: the mise setup keeps Ruby at 3.3.0 so the current runner remains usable. Upgrade Ruby to 4.0 in a separate change together with replacing the Ractor worker pool and testing experiment runs under the new version.
-- External tool setup follow-up (24 Sep): `mise run setup-experiments` installs checksum-pinned GNU Go 3.8, Brown 1.0, AmiGoGtp 1.8, and GoGui 1.6.0 in the project directory. `mise run verify` includes a complete GoGui match with the GNU Go referee. The macOS setup and match passed; the Linux CI run remains to be observed after this change is published.
+- External tool setup follow-up (24 Sep): `mise run setup-experiments` installs checksum-pinned GNU Go 3.8, Brown 1.0, AmiGoGtp 1.8, and GoGui 1.6.0 in the project directory. `mise run verify` includes a complete GoGui match with the GNU Go referee. The macOS setup and match passed; the Linux CI run passed on `main` after merge.
+- Test exit status (24 Sep): `evolve/test.c` now returns nonzero when an assertion fails, so `make test` no longer passes over failed crossover checks.
 - Benchmark, compute budget, acceptable built-in Go knowledge, and first implementation milestone: open.
