@@ -45,7 +45,7 @@ class ScoreGameTest < Minitest::Test
     assert_equal '0001.ann', score('black_crashed')['winner']
   end
 
-  def test_move_limit_error_is_ignored_and_the_score_is_used
+  def test_move_limit_error_is_ignored_and_the_score_is_used_defect
     assert_equal 'GnuGoLevel101', score('move_limit')['winner']
   end
 
@@ -112,7 +112,7 @@ end
 class EvolveFromPreviousPopulationTest < Minitest::Test
   include RunGenerationHelpers
 
-  # Sets up generation 0 with two networks and an SGF, then runs the breeding
+  # Sets up generation 0 with the given networks and an SGF, then runs the breeding
   # step for generation 1 with `../evolve` replaced by the given block.
   def breed(scores:, settings: {}, stale_child: nil, &evolve)
     in_experiment do |dir|
@@ -175,7 +175,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_equal({ '0.ann' => 'stale' }, state[:children])
   end
 
-  def test_evolve_failure_stops_breeding_before_the_parents_are_deleted
+  def test_evolve_failure_stops_breeding_before_the_parents_are_deleted_defect
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) {}
     assert_kind_of Errno::ENOENT, state[:error]
     assert_includes state[:previous_files], '0001.ann'
