@@ -2,7 +2,7 @@
 
 Evo evolves the weights of a fixed dense neural network that plays Go. The C programs build, breed, and play networks. The Ruby scripts run tournaments through GoGui, with GNU Go as referee. The goal is to show measurable improvement from evolution, not a strong engine.
 
-`PROJECT_NOTES.md` holds the assessment, the list of known defects, the planned cleanup order, and the decision log. Read it before changing behavior. When a change fixes a listed defect or settles an open question, update it in the same change.
+`PROJECT_NOTES.md` holds only work still to do: known defects, the planned cleanup order, proposed experiments, and open questions. Read it before changing behavior. When a change fixes a listed item or settles a question, delete it from `PROJECT_NOTES.md` in the same change. Do not record finished work or history there. If a future agent must know something about the change, put it in this file instead.
 
 ## Commands
 
@@ -51,7 +51,12 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 - A GoGui `.dat` file is tab-separated: `GAME RES_B RES_W RES_R ALT DUP LEN TIME_B TIME_W CPU_B CPU_W ERR ERR_MSG`.
   - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` still split on whitespace, so an empty column shifts `RES_R` and `LEN`, and anything not starting with `B` counts as a White win there.
   - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file. Only stderr says which program crashed ("Black program died" or "White program died"). Breeding deletes the empty `.err` files and keeps the rest.
-  - Games with no usable result give no points and are listed under `unscored` in `GEN/data.json`. The rules are in the `PROJECT_NOTES.md` decision log.
+- Scoring rules (agreed with the owner, in `score_game` and `ruby/game_result.rb`):
+  - A referee win (`B+` or `W+`) counts, including games stopped by the move limit. The winner gets the loser's `points`.
+  - A draw gives no points.
+  - A network that crashes loses, whatever the referee said.
+  - These give no points and are logged and listed under `unscored` in `GEN/data.json`: a crashed external bot, a missing referee score (`?`), any other GoGui error (an illegal move is blamed on the program that rejected it, not the one that played it), and a missing or empty `.dat` file.
+  - Failed games are never retried, so a broken setup stays visible.
 - Check `RES_R` and `ERR`, not only whether a game finished. A crashed player shows only in `ERR`, and a crashed referee only as `?` in `RES_R`. `scripts/smoke-external-tools.sh` checks both. Keep it that way when changing it.
 - Brown and AmiGo play deterministically. The 5 Brown and 10 AmiGo "instances" are copies of the same opponent, so replaying a pairing with the same colors adds no information.
 - GNU Go seeds its random choices from the clock unless it gets `--seed N`. Runs started in different seconds differ, so compare GNU Go behavior with a fixed seed.
