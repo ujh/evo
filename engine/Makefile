@@ -3,10 +3,12 @@ LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
 OBJS = brown.o gtp.o genann.o generate_move.o interface.o
 
+.PHONY: enginetest test clean
+
 default: evo
 
 %.dep : %.c
-	$(CC) -M $(CFLAGS) $< > $@
+	$(CC) -M -MP $(CFLAGS) $< > $@
 include $(OBJS:.o=.dep)
 
 evo: $(OBJS) main.o

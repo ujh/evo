@@ -3,10 +3,12 @@ LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
 OBJS = genann.o evolve.o
 
+.PHONY: test evolvetest clean
+
 default: evolve
 
 %.dep : %.c
-	$(CC) -M $(CFLAGS) $< > $@
+	$(CC) -M -MP $(CFLAGS) $< > $@
 include $(OBJS:.o=.dep)
 
 evolve: $(OBJS) main.o
@@ -25,4 +27,3 @@ test: $(OBJS) test.o
 clean:
 	$(RM) *.o *.dep
 	$(RM) evolve test
-

@@ -5,33 +5,38 @@ _This is an experiment to see if genetic algorithms can be used to evolve a neur
 
 ## Requirements
 
+Install [mise](https://mise.jdx.dev/) first. The project configuration pins Ruby
+3.3.0 and Temurin JDK 21 for GoGui. You also need a C compiler and `make`.
+
+To run experiments, install these programs separately and put them on `PATH`:
+
 * [GnuGo](https://www.gnu.org/software/gnugo/)
 * [GoGui](https://github.com/Remi-Coulom/gogui)
 * [brown](http://www.lysator.liu.se/%7Egunnar/gtp/brown-1.0.tar.gz)
 * [AmiGoGtp](https://amigogtp.sourceforge.net/)
-* gcc (or compatible, like clang)
-* make
-* ruby
 
 ## Installation
 
-1. Clone the repository
-2. Set up the submodules using `git submodule init && git submodule update`
-3. Build everything using `make`
-4. Run the tests using `make test`
+1. Clone the repository: `git clone git@github.com:ujh/evo.git`
+2. Run `mise run setup`. This installs the pinned tools, initializes the
+   submodule, installs Ruby gems, and builds the C programs.
+3. Run `mise run verify` to run the tests and check the programs needed for
+   experiments.
+
+CI runs the same `mise run setup` and `mise run test` tasks. Other useful tasks
+are `mise run build`, `mise run clean`, and `mise run doctor`.
 
 ## Running the evolution of the neural net
 
-1. Ensure that you have the Ruby version installed as specified in `.ruby-version` (or use rvm or similar to do it automatically).
-2. Execute `./runner EXPERIMENT_NAME` and answer the setup questions
-3. If you quit you can just restart the experiment with the same command
+1. Run `mise run run EXPERIMENT_NAME` and answer the setup questions.
+2. Restart an interrupted experiment with the same command.
+3. View results with `mise run stats EXPERIMENT_NAME`.
 
-## Running brown against itself
+You can pass the existing runner arguments after the name, for example
+`mise run run EXPERIMENT_NAME 2 one-generation`. `mise run` supplies the pinned
+Ruby and Java versions even without shell activation.
 
-```
-BLACK="./engine/evo"
-WHITE="./engine/evo"
-REFEREE="gnugo --mode gtp"
-TWOGTP="gogui-twogtp -black \"$BLACK\" -white \"$WHITE\" -referee \"$REFEREE\" -games 10 -size 9 -alternate -sgffile evo"
-gogui -size 9 -program "$TWOGTP" -computer-both -auto
-```
+## Running the bundled example against itself
+
+Run `mise run example` to open a GoGui match with the bundled network playing
+both colors.
