@@ -19,7 +19,7 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
 - `mise run example` opens the GoGui window. Do not use it headless. `gogui-twogtp` runs without a display.
-- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` because `new` starts Ractors, and they stub `../evolve` by overriding the backtick method. The PR script tests run `scripts/pr-checks.sh` and `scripts/pr-feedback.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
+- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` because `new` starts Ractors, and they stub `../evolve` by overriding the backtick method. The PR script tests run `scripts/pr-checks.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
 
 ## Layout
 
@@ -95,5 +95,5 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 - Commits: imperative, sentence-case subject (for example "Build GNU Go with common symbols on Linux"), with a body that explains why.
 - Branches: `fix/…`, `chore/…`, `docs/…`.
 - PRs: this is a personal repo with no Jira, so titles and bodies carry no ticket key. The body is one short paragraph that starts with the why, plus a line on how the change was verified.
-- Open and update every PR by following `docs/pull-requests.md`: tests, the sweep for stale text, the review loop and its rules, and the CI and feedback checks.
+- Open and update every PR by following `docs/pull-requests.md`: tests, the sweep for stale text, the review loop and its rules, and the CI check.
 - CI (`.github/workflows/ci.yml`) runs on Ubuntu: `mise run setup-experiments`, then `mise run verify`. Local setup is usually macOS with Apple clang, so code that builds GNU Go or other external tools has to work with both clang and GCC. A green local `verify` says nothing about Linux; wait for CI.

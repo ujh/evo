@@ -7,8 +7,9 @@ Follow these steps in order for every PR. The PR title and body follow the conve
 3. Review the whole branch (`git diff main...HEAD`) under the [review rules](#review-rules) below, and loop until a round is clean.
 4. Push and open the PR.
 5. Run `mise run pr-checks <pr>`. It waits for CI and fails unless every check passed on the local `HEAD`. If a check fails, fix the cause. Do not skip or disable it.
-6. Run `mise run pr-feedback <pr>`. It lists reviews (including summary text and change requests), inline comments, and top-level comments. Fix or answer each one. Reply to an inline comment on its thread, and answer reviews and top-level comments with a new top-level comment (the output shows both commands).
-7. For any later fix, repeat steps 1–3 for the whole branch, push, then repeat steps 5–6.
+6. For any later fix, repeat steps 1–3 for the whole branch, push, then repeat step 5.
+
+No external reviewer runs on this repository, so do not wait for review comments. The CI result is the only thing to check after pushing.
 
 ## Review rules
 
