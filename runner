@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+require "bundler/setup"
 require_relative "ruby/all"
 
 experiment_name = ARGV[0]

@@ -3,6 +3,7 @@ require 'fileutils'
 require 'json'
 require 'tmpdir'
 require_relative '../ruby/run_generation'
+require_relative '../ruby/result_store'
 
 $stop_now = false
 

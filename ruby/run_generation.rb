@@ -1,16 +1,17 @@
 require_relative 'game_result'
 
 class RunGeneration
-  def self.call(generation, settings, pool)
-    new(generation, settings, pool).call
+  def self.call(generation, settings, pool, store)
+    new(generation, settings, pool, store).call
   end
 
-  # `pool` is the WorkerPool that plays the games. It lives as long as the
-  # experiment, so every generation shares the same threads.
-  def initialize(generation, settings, pool)
+  # `pool` is the WorkerPool that plays the games and `store` the ResultStore
+  # that keeps their results. Both live as long as the experiment.
+  def initialize(generation, settings, pool, store)
     self.generation = generation
     self.settings = settings
     self.pool = pool
+    self.store = store
   end
 
   def call
@@ -22,7 +23,7 @@ class RunGeneration
 
   private
 
-  attr_accessor :generation, :settings, :pool
+  attr_accessor :generation, :settings, :pool, :store
 
   def setup
     FileUtils.mkdir(generation) unless File.exist?(generation)
@@ -79,7 +80,9 @@ class RunGeneration
       # Ctrl-C also stops the running games. Leave them unscored so that
       # resuming plays them again instead of counting a killed game.
       exit if $stop_now
-      update_data(completed_game, score_game(completed_game))
+      scored = score_game(completed_game)
+      store_game(completed_game, scored)
+      update_data(completed_game, scored)
       refresh_progress
     end
   end
@@ -143,6 +146,35 @@ class RunGeneration
     return { 'winner' => nil, 'failure' => "#{loser} crashed" } if result.crashed? && data['players'][loser]['external']
 
     { 'winner' => winner }
+  end
+
+  # Writes the game to the result store, then deletes the files gogui-twogtp
+  # left, so an experiment does not pile up three files per game. The SGF is
+  # kept for every sgf_every-th generation only. A crash between the two
+  # steps replays the game, and its row is replaced.
+  def store_game(game, scored)
+    prefix = prefix_from(game)
+    result = GameResult.read(prefix)
+    sgf_file = "#{prefix}-0.sgf"
+    err_file = "#{prefix}.err"
+    store.record(
+      generation: generation.to_i, round: data['round'], black: game['black'], white: game['white'],
+      black_external: external?(game['black']), white_external: external?(game['white']),
+      winner: scored['winner'], failure: scored['failure'], length: result.length,
+      referee_result: result.referee, error_message: result.error_message,
+      stderr: File.exist?(err_file) ? File.read(err_file) : nil,
+      sgf: keep_sgf? && File.exist?(sgf_file) ? File.read(sgf_file) : nil
+    )
+    FileUtils.rm_f(["#{prefix}.dat", sgf_file, err_file])
+  end
+
+  def keep_sgf?
+    every = settings.fetch('sgf_every', '10').to_i
+    every.positive? && (generation.to_i % every).zero?
+  end
+
+  def external?(player)
+    data['players'].fetch(player, {})['external'] ? true : false
   end
 
   def prefix_from(game)
