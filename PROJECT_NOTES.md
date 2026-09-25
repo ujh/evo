@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** test evolution of a shared local pattern scorer, with the [cleanup](#suggested-cleanup-order) alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** test evolution of a shared local pattern scorer, with the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -12,7 +12,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 The tournament has a useful idea: match roughly comparable players while including fixed external bots. However, different networks can face very different schedules, colors are randomized rather than paired, and repeat pairings are allowed. A tournament score measures success in that particular schedule; it is not a stable measure of strength across generations. The benchmark (see `CLAUDE.md`) measures strength instead.
 
-**Proposed experiment:** now that progress is measured apart from the tournament, test whether bots belong in the tournament at all. Compare an experiment with the default `opponents` panel against one with an empty `opponents` table, on the benchmark, at equal game budgets. If the bot-free run drifts or cycles (the usual coevolution pathologies), try a hall of fame of frozen past champions in the tournament instead; those games would be cheap in the [C arena](#a-c-arena-for-network-games).
+**Proposed experiment:** now that progress is measured apart from the tournament, test whether bots belong in the tournament at all. Compare an experiment with the default `opponents` panel against one with an empty `opponents` table, on the benchmark, at equal game budgets. If the bot-free run drifts or cycles (the usual coevolution pathologies), try a hall of fame of frozen past champions in the tournament instead; games between networks are cheap, since the arena plays them (see `CLAUDE.md`).
 
 ### 2. Selection pressure is a guess
 
@@ -64,7 +64,7 @@ Many settings rest on assumptions nobody has checked: the tournament size, wheth
 
 Brown's internal final-status algorithm assumes the board has been filled according to Brown's original move policy. Evo can pass earlier, so those assumptions do not generally hold. The GNU Go referee is consequently an important part of the current experimental setup.
 
-Before treating results as reliable, specify the board size, komi, suicide policy, ko rule, scoring method, and adjudication of unfinished games. The local engine uses simple ko and accepts suicide through `play`, although its generated moves exclude suicide. Those conventions should agree with the surrounding match system.
+Before treating results as reliable, specify the board size, suicide policy, ko rule, and adjudication of unfinished games. The local engine uses simple ko and accepts suicide through `play`, although its generated moves exclude suicide. Those conventions should agree with the surrounding match system.
 
 ## Comparing the owner's two proposed directions
 
@@ -100,15 +100,14 @@ The recommendation is to consider using the local scorer to guide exploration af
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Each game launches a new GoGui process, two players, and a GNU Go referee. Without GNU Go opponents, a profiled generation (see "Performance" in `CLAUDE.md`) spends almost all its game time on that overhead: a median game takes 0.29 s, and the slowest are network games that end early and leave the referee an unfinished position to score.
+Games between two networks run in the arena and cost almost nothing. Every game with a bot still launches a new GoGui process, two players, and a GNU Go referee, and that overhead is now nearly all of a profiled generation's game time (see "Performance" in `CLAUDE.md`): a median of 0.27 s per game, against 0.005 s in the arena. Once GNU Go opponents return through the ladder, each of their games takes about 7 s.
 
 The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. That adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
 
 Candidate remedies, to decide between:
 
-- Skip pairings between two copies of the same bot. This is for accuracy more than speed.
+- Skip pairings between two copies of the same bot. This is mainly for accuracy, but games between bots are also a large share of the remaining GoGui games (41 of 101 in the profile).
 - Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; it lives in each experiment's `opponents` table, which the runner reads every generation, so a ladder can add rows; next come GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. A changing panel changes what a tournament score means; the benchmark panel is stored apart (`benchmark_opponents`), so checkpoints stay comparable while the ladder moves.
-- Play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, keeping GoGui with GNU Go for benchmark games. This removes the per-game overhead, which is now nearly all of a generation's game time. Once GNU Go opponents return through the ladder, their games would still be slow.
 
 The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
 
@@ -125,22 +124,12 @@ GENANN stays: it is small, tested upstream, and does what the experiments need. 
 
 GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
 
-### A C arena for network games
-
-The largest structural change for speed is a C program that loads a set of networks once and plays the scheduled network-against-network games in one process. It would reuse Brown's board code, score with an explicit rule set (Tromp–Taylor area scoring is simple and well defined when a game ends by two passes or the move limit), vary openings or seeds deliberately, and write one result line per game with an explicit outcome (win, loss, draw, or error). Ruby would still orchestrate generations, selection, and benchmarks. This removes JVM startup and the GNU Go referee from most games. With no GNU Go opponents, that overhead is nearly all of a generation's game time, and network-against-network games took 35 s of the profile's 63 s.
-
-### Suggested cleanup order
-
-1. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
-
-The arena can be interleaved with milestone 1 below, and should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
-
 ## Proposed sequence
 
 These are candidate milestones for discussion, rather than an implementation commitment.
 
-0. **Clean up the code under test.** Carry out the [cleanup order](#suggested-cleanup-order) alongside milestone 1.
-1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9, specify rules and komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring.
+0. **Clean up the code under test.** Carry out the remaining [cleanup](#code-cleanup) alongside milestone 1.
+1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9 and the komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring.
 2. **Test evolution with shared local patterns.** Use a compact scorer and a simple mutation-based evolutionary baseline. Compare it with random search using the same representation and game budget. Preserve the original dense-policy implementation as a reference; if comparing representations, use the same breeding procedure and account explicitly for differing genome sizes. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.
 
@@ -181,8 +170,6 @@ There is precedent for training substantial neural policies with genetic algorit
 - Which network sizes, populations, and approximate runtimes were used before? Do historical results or champions exist elsewhere?
 - For a shared 3×3 scorer, should the first version use occupancy patterns alone or also a few tactical features such as liberties and captures?
 - What hardware, compute budget, and unattended runtime are comfortable for a single experiment?
-- Is it acceptable for network-against-network games to use the project's own Tromp–Taylor scoring instead of the GNU Go referee, with GNU Go kept for benchmarks?
-- Should the harness stay in Ruby, or should orchestration move into the C code along with the arena?
 - Which board size and first opponent would make a satisfying initial milestone?
 - For the opponent ladder: what promotes a network to the next bot (for example, a win rate over a number of games in both colors, sustained for some generations), whether beaten bots leave the panel, and which bots fill the gaps?
 - How much built-in Go knowledge (features, search) is acceptable before improvement no longer counts as coming from evolution?
