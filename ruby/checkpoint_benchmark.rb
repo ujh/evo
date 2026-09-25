@@ -23,6 +23,22 @@ class CheckpointBenchmark
     def prefix = File.join(DIRECTORY, "#{opponent.name}-#{opening}-#{color}")
   end
 
+  # The rows of the benchmark panel (ExperimentDatabase#benchmark_opponents)
+  # that the checkpoint `generation` plays, in panel order. Generation 0 has
+  # no earlier network to play. Its champion is also the previous checkpoint
+  # of the first checkpoint, so that one is played once. ExperimentStats
+  # uses this to tell a complete benchmark.
+  def self.opponents_for(generation, panel, keep_every)
+    panel.select do |row|
+      case row[:kind]
+      when 'bot' then true
+      when 'initial_champion' then generation.positive?
+      when 'previous_checkpoint' then (generation - keep_every).positive?
+      else raise ArgumentError, "unknown benchmark opponent kind #{row[:kind]}"
+      end
+    end
+  end
+
   def self.call(generation, settings, pool, store)
     new(generation, settings, pool, store).call
   end
@@ -68,17 +84,12 @@ class CheckpointBenchmark
     end
   end
 
-  # Generation 0 has no earlier network to play. Its champion is also the
-  # previous checkpoint of the first checkpoint, so that one is played once.
   def opponents
-    store.benchmark_opponents.filter_map do |row|
+    self.class.opponents_for(generation, store.benchmark_opponents, settings['keep_every']).map do |row|
       case row[:kind]
       when 'bot' then Opponent.new(name: row[:name], command: row[:command], network: nil)
-      when 'initial_champion' then network_opponent(row[:name], 0) if generation.positive?
-      when 'previous_checkpoint'
-        previous = generation - settings['keep_every']
-        network_opponent(row[:name], previous) if previous.positive?
-      else raise ArgumentError, "unknown benchmark opponent kind #{row[:kind]}"
+      when 'initial_champion' then network_opponent(row[:name], 0)
+      when 'previous_checkpoint' then network_opponent(row[:name], generation - settings['keep_every'])
       end
     end
   end

@@ -148,11 +148,11 @@ class ExperimentDatabase
     @games.insert_conflict(:replace).insert(game.slice(*COLUMNS))
   end
 
-  # Every game of a generation, as hashes with the keys of `record`. A
-  # database opened read-only before the runner migrated it lacks the newer
-  # columns, and its rows lack those keys.
-  def games(generation)
-    @games.where(generation:).order(:round, :black, :white).select(*(COLUMNS & @games.columns)).all
+  # Every game of a generation, as hashes with the keys of `record`, or
+  # only the given `columns`. A database opened read-only before the runner
+  # migrated it lacks the newer columns, and its rows lack those keys.
+  def games(generation, columns: COLUMNS)
+    @games.where(generation:).order(:round, :black, :white).select(*(columns & @games.columns)).all
   end
 
   BENCHMARK_COLUMNS = %i[
@@ -165,8 +165,10 @@ class ExperimentDatabase
     @db[:benchmark_games].insert_conflict(:replace).insert(game.slice(*BENCHMARK_COLUMNS))
   end
 
-  def benchmark_games(generation)
-    @db[:benchmark_games].where(generation:).order(:opponent, :opening, :network_color).select(*BENCHMARK_COLUMNS).all
+  # A generation's benchmark games, with every column or only the given
+  # `columns`.
+  def benchmark_games(generation, columns: BENCHMARK_COLUMNS)
+    @db[:benchmark_games].where(generation:).order(:opponent, :opening, :network_color).select(*columns).all
   end
 
   BIRTH_COLUMNS = %i[

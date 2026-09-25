@@ -78,6 +78,17 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
+  # ExperimentStats counts a checkpoint's benchmark as complete by the same
+  # rule the runner plays it by.
+  def test_the_opponents_of_a_checkpoint_depend_on_its_generation
+    panel = SetupExperiment::DEFAULT_BENCHMARK
+    names = ->(generation) { CheckpointBenchmark.opponents_for(generation, panel, 10).map { |o| o[:name] } }
+    assert_equal %w[Brown AmiGo GnuGoLevel0], names.call(0)
+    assert_equal %w[Brown AmiGo GnuGoLevel0 Gen0Champion], names.call(10)
+    assert_equal %w[Brown AmiGo GnuGoLevel0 Gen0Champion PreviousCheckpoint], names.call(20)
+    assert_raises(ArgumentError) { CheckpointBenchmark.opponents_for(0, [{ name: 'X', kind: 'nope' }], 10) }
+  end
+
   def test_each_opening_is_played_once_with_each_color
     in_experiment do
       only_opponents('Brown')

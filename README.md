@@ -38,7 +38,7 @@ external programs, use `mise run setup` and `mise run test` (or `test-c` and
 
 1. Run `mise run run EXPERIMENT_NAME` and answer the setup questions.
 2. Restart an interrupted experiment with the same command.
-3. View results with `mise run stats EXPERIMENT_NAME`.
+3. View results with `mise run stats EXPERIMENT_NAME` (see [Statistics](#statistics)).
 
 You can pass the existing runner arguments after the name, for example
 `mise run run EXPERIMENT_NAME 2 one-generation`. `mise run` supplies the pinned
@@ -63,13 +63,8 @@ Two settings control it:
   networks repeat, because those players are deterministic.
 
 The results are in the `benchmark_games` table of
-`experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game. `stats`
-does not show them yet; until it does, query the table, for example:
-
-```sh
-sqlite3 experiments/EXPERIMENT_NAME/experiment.sqlite3 \
-  'SELECT generation, opponent, winner, count(*) FROM benchmark_games GROUP BY 1, 2, 3'
-```
+`experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game, and
+`stats` shows them per checkpoint and opponent.
 
 The panel is stored in each experiment's database (table
 `benchmark_opponents`) when the experiment is created. To use another panel,
@@ -79,6 +74,50 @@ the table before the first `mise run run`, for example
 and leave it alone afterwards: a panel changed during a run makes its
 checkpoints incomparable. A bot row has `kind` `bot` and the `command` that
 starts it; `initial_champion` and `previous_checkpoint` rows have no command.
+
+## Statistics
+
+`stats` reads the experiment database read-only, so it can run while the
+experiment does:
+
+- `mise run stats EXPERIMENT_NAME` prints the tables once.
+- `mise run stats EXPERIMENT_NAME --watch` redraws them every 5 seconds until
+  Ctrl-C.
+- `mise run stats EXPERIMENT_NAME --csv` prints one row per generation with
+  every figure, for a spreadsheet. The columns depend only on the benchmark
+  panel, so experiments with the same panel line up.
+
+The first table shows whether evolution is healthy: the games, draws, and
+failed games of each generation's tournament and their total time, the share
+of bred children identical to a parent, the distinct networks that passed on
+weights (a mutation copies one parent only), the distinct genomes, and the
+lowest, median, and highest network score. A generation is done once its
+rounds and, at a checkpoint, its benchmark are played. The second table shows
+progress: each checkpoint's benchmark, with the network's wins and losses as
+Black and as White against each opponent. For example, after two generations
+of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (trimmed; the times vary):
+
+```text
+Generations
++-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
+| Gen | Done | Games | Draws | Failed | Time | Copies | Parents | Genomes | Min | Med | Max |
++-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
+|   0 |  yes |     9 |     0 |      0 | 2.2s |      - |       0 |       4 |   0 | 0.5 |   1 |
+|   1 |  yes |     9 |     0 |      0 | 1.7s |    50% |       2 |       3 |   0 |   0 |   1 |
++-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
+
+Benchmark
++-----+----------+--------------+-------+-------+-------+-------+--------+
+| Gen | Network  | Opponent     | Games | Black | White | Draws | Failed |
++-----+----------+--------------+-------+-------+-------+-------+--------+
+|   0 | 0002.ann | Brown        |   2/2 |   1-0 |   0-1 |     0 |      0 |
+|   1 | 3.ann    | Brown        |   2/2 |   1-0 |   0-1 |     0 |      0 |
+|   1 | 3.ann    | Gen0Champion |   2/2 |   0-1 |   1-0 |     0 |      0 |
++-----+----------+--------------+-------+-------+-------+-------+--------+
+```
+
+The tournament score only ranks one generation's networks against each other,
+so compare generations by the benchmark, not by the scores.
 
 ## Running the bundled example against itself
 

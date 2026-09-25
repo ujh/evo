@@ -62,7 +62,7 @@ run = "./new-experiment"
 raw = true
 
 [tasks.stats]
-description = "Show experiment statistics: mise run stats NAME [--csv]"
+description = "Show experiment statistics: mise run stats NAME [--watch | --csv]"
 run = "./stats"
 raw = true
 
