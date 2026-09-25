@@ -8,13 +8,16 @@ class GameResult
   # be split on tabs, not whitespace.
   RES_R = 3
   LEN = 6
+  TIME_B = 7
+  TIME_W = 8
   ERR = 11
   ERR_MSG = 12
   MOVE_LIMIT = 'move limit exceeded'.freeze
 
-  # length is the number of moves played, and referee and error_message are
-  # the RES_R and ERR_MSG columns; all three are nil without a game line.
-  attr_reader :winner, :failure, :length, :referee, :error_message
+  # length is the number of moves played, referee and error_message are the
+  # RES_R and ERR_MSG columns, and time_black and time_white the seconds each
+  # player used; all are nil without a game line.
+  attr_reader :winner, :failure, :length, :referee, :error_message, :time_black, :time_white
 
   def self.read(prefix)
     dat = "#{prefix}.dat"
@@ -30,7 +33,9 @@ class GameResult
   def self.parse(line, stderr = '')
     fields = line.split("\t", -1)
     length = Integer(fields[LEN], exception: false)
-    columns = { length:, referee: fields[RES_R], error_message: fields[ERR_MSG] }
+    columns = { length:, referee: fields[RES_R], error_message: fields[ERR_MSG],
+                time_black: Float(fields[TIME_B], exception: false),
+                time_white: Float(fields[TIME_W], exception: false) }
 
     # twogtp says which program died only on stderr; the .dat file just says
     # "The Go program terminated unexpectedly."
@@ -50,13 +55,16 @@ class GameResult
     end
   end
 
-  def initialize(winner: nil, failure: nil, crashed: false, length: nil, referee: nil, error_message: nil)
+  def initialize(winner: nil, failure: nil, crashed: false, length: nil, referee: nil, error_message: nil,
+                 time_black: nil, time_white: nil)
     @winner = winner
     @failure = failure
     @crashed = crashed
     @length = length
     @referee = referee
     @error_message = error_message
+    @time_black = time_black
+    @time_white = time_white
   end
 
   # True when the loser lost by crashing rather than on the board.

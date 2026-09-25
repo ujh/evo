@@ -102,12 +102,12 @@ class RunGeneration
     end
 
     until data['games'].empty?
-      completed_game = pool.next_finished
+      completed_game, duration = pool.next_finished
       # Ctrl-C also stops the running games. Leave them unscored so that
       # resuming plays them again instead of counting a killed game.
       exit if $stop_now
       scored = score_game(completed_game)
-      store_game(completed_game, scored)
+      store_game(completed_game, scored, duration)
       update_data(completed_game, scored)
       refresh_progress
     end
@@ -182,7 +182,7 @@ class RunGeneration
   # left, so an experiment does not pile up three files per game. The SGF is
   # kept for every keep_every-th generation only. A crash between the two
   # steps replays the game, and its row is replaced.
-  def store_game(game, scored)
+  def store_game(game, scored, duration)
     prefix = prefix_from(game)
     result = GameResult.read(prefix)
     sgf_file = "#{prefix}-0.sgf"
@@ -192,6 +192,7 @@ class RunGeneration
       black_external: external?(game['black']), white_external: external?(game['white']),
       winner: scored['winner'], failure: scored['failure'], length: result.length,
       referee_result: result.referee, error_message: result.error_message,
+      duration:, time_black: result.time_black, time_white: result.time_white,
       stderr: File.exist?(err_file) ? File.read(err_file) : nil,
       sgf: keep_sgf? && File.exist?(sgf_file) ? File.read(sgf_file) : nil
     )

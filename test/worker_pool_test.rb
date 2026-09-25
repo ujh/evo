@@ -4,7 +4,7 @@ require_relative '../ruby/worker_pool'
 
 class WorkerPoolTest < Minitest::Test
   def finish_all(pool, count)
-    Array.new(count) { pool.next_finished }
+    Array.new(count) { pool.next_finished.first }
   end
 
   def test_runs_every_job_and_reports_each_identifier_once
@@ -32,8 +32,18 @@ class WorkerPoolTest < Minitest::Test
   def test_a_failing_command_still_reports_its_identifier
     pool = WorkerPool.new(1)
     pool.submit('exit 3', :failed)
-    assert_equal :failed, pool.next_finished
+    assert_equal :failed, pool.next_finished.first
     pool.stop
+  end
+
+  def test_reports_how_long_each_command_ran
+    pool = WorkerPool.new(2)
+    pool.submit('sleep 0.3', :slow)
+    pool.submit('true', :fast)
+    seconds = Array.new(2) { pool.next_finished }.to_h
+    pool.stop
+    assert_in_delta 0.3, seconds[:slow], 0.2
+    assert_operator seconds[:fast], :<, seconds[:slow]
   end
 
   def test_stop_waits_for_running_jobs_and_drops_queued_ones
