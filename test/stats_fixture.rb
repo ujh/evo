@@ -46,7 +46,7 @@ module StatsFixture
 
     game = lambda do |generation, round, black, white, **rest|
       db.record(generation:, round:, black:, white:, black_external: black == 'Brown1', white_external: white == 'Brown1',
-                winner: nil, failure: nil, length: 50, **rest)
+                winner: nil, failure: nil, length: 50, scorer: 'gnugo', **rest)
     end
     game.call(1, 0, 'a.ann', 'Brown1', winner: 'a.ann', duration: 1.5)
     game.call(1, 0, 'b.ann', 'c.ann') # draw

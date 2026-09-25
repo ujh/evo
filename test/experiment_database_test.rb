@@ -6,7 +6,7 @@ class ExperimentDatabaseTest < Minitest::Test
   GAME = {
     generation: 3, round: 1, black: '0.ann', white: 'Brown1', black_external: false, white_external: true,
     winner: '0.ann', failure: nil, length: 93, referee_result: 'B+R', error_message: '', stderr: '', sgf: '(;SZ[9])',
-    duration: 2.25, time_black: 0.5, time_white: 1.25
+    duration: 2.25, time_black: 0.5, time_white: 1.25, scorer: 'gnugo'
   }.freeze
 
   BENCHMARK_GAME = {
@@ -68,12 +68,45 @@ class ExperimentDatabaseTest < Minitest::Test
       path = File.join(dir, 'experiment.sqlite3')
       db = Sequel.sqlite(path)
       Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 4)
-      old_game = GAME.except(:duration, :time_black, :time_white)
+      old_game = GAME.except(:duration, :time_black, :time_white, :scorer)
       db[:games].insert(old_game)
       db.disconnect
       reader = ExperimentDatabase.new(path, readonly: true)
       assert_equal [old_game], reader.games(3)
       reader.close
+    end
+  end
+
+  def test_records_an_arena_game_with_its_scorer
+    with_store do |store|
+      store.record(**GAME, scorer: 'tromp_taylor')
+      assert_equal ['tromp_taylor'], store.games(3).map { |row| row[:scorer] }
+    end
+  end
+
+  # Every row says who scored it, so a missing or unknown scorer fails
+  # instead of writing a row nobody can interpret.
+  def test_a_game_without_a_known_scorer_is_refused
+    with_store do |store|
+      assert_raises(ArgumentError) { store.record(**GAME.except(:scorer)) }
+      assert_raises(ArgumentError) { store.record(**GAME, scorer: nil) }
+      assert_raises(ArgumentError) { store.record(**GAME, scorer: 'referee') }
+      assert_empty store.games(3)
+    end
+  end
+
+  # Games recorded before migration 009 were all GoGui games refereed by
+  # GNU Go.
+  def test_migration_marks_earlier_games_as_scored_by_gnu_go
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 8)
+      db[:games].insert(GAME.except(:scorer))
+      db.disconnect
+      store = ExperimentDatabase.new(path)
+      assert_equal [GAME], store.games(3)
+      store.close
     end
   end
 

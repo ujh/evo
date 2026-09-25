@@ -208,7 +208,7 @@ class RunGeneration
       black_external: external?(game['black']), white_external: external?(game['white']),
       winner: scored['winner'], failure: scored['failure'], length: result.length,
       referee_result: result.referee, error_message: result.error_message,
-      duration:, time_black: result.time_black, time_white: result.time_white,
+      duration:, time_black: result.time_black, time_white: result.time_white, scorer: 'gnugo',
       stderr: File.exist?(err_file) ? File.read(err_file) : nil,
       sgf: keep_sgf? && File.exist?(sgf_file) ? File.read(sgf_file) : nil
     )
