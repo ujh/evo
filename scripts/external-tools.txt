@@ -1,0 +1,8 @@
+# Archives for scripts/install-external-tools.sh: name, SHA-256, upstream URL.
+# The installer downloads each archive from the project's own GitHub release
+# (see the installer), never from upstream. Upstream is only where
+# `mise run mirror-external-tools` fetches an archive before uploading it.
+gnugo-3.8.tar.gz da68d7a65f44dcf6ce6e4e630b6f6dd9897249d34425920bfdd4e07ff1866a72 https://ftp.gnu.org/gnu/gnugo/gnugo-3.8.tar.gz
+brown-1.0.tar.gz 5ff2419cdc858d9cedc4fe9f5ca903a4ce5a4f0d2ca870fd337bc5a0a93fc934 https://www.lysator.liu.se/~gunnar/gtp/brown-1.0.tar.gz
+amigogtp-1.8.tar.gz a82ea472d5662f4f2e09ded7bc19729e0c7853a9bdc76e07f99e9e182a67dacc https://downloads.sourceforge.net/project/amigogtp/1.8/amigogtp-1.8.tar.gz
+gogui-v1.6.0-bin.zip a6216fdc13c54f2a62d27fd178df21005ad36fb1b7795b678f175d1a60801ba9 https://github.com/Remi-Coulom/gogui/releases/download/v1.6.0/gogui-v1.6.0-bin.zip

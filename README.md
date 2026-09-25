@@ -17,8 +17,10 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    downloads and builds pinned versions of [GNU Go](https://www.gnu.org/software/gnugo/),
    [Brown](https://www.lysator.liu.se/~gunnar/gtp/), and
    [AmiGoGtp](https://amigogtp.sourceforge.net/), and installs
-   [GoGui](https://github.com/Remi-Coulom/gogui) 1.6.0. Archives are checked
-   against SHA-256 hashes before extraction, and GNU Go is patched for an
+   [GoGui](https://github.com/Remi-Coulom/gogui) 1.6.0. The archives come from
+   this repository's `external-tools-r1` GitHub release, a copy of the
+   upstream files, so setup does not depend on the upstream hosts. They are
+   checked against SHA-256 hashes before extraction, and GNU Go is patched for an
    upstream sorting bug (`scripts/patches/`). The programs stay under
    `.local/evo-tools/` and mise places them on `PATH` for project tasks.
 3. Run `mise run verify` to run the C and Ruby tests and refereed 9×9 matches in which

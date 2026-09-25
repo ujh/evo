@@ -11,7 +11,7 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 | Task | Command |
 | --- | --- |
 | First setup (submodule, gems, build) | `mise run setup` |
-| Install external Go programs | `mise run setup-experiments` (downloads with pinned checksums and builds under `.local/evo-tools/`) |
+| Install external Go programs | `mise run setup-experiments` (downloads from the project's own GitHub release with pinned checksums, and builds under `.local/evo-tools/`) |
 | Build | `mise run build` (root `make`; builds `pcg-c` first) |
 | Tests (C and Ruby) | `mise run test` (or `test-c`, `test-ruby` alone) |
 | Full check, same as CI | `mise run verify` (tests, `doctor`, and `smoke`: refereed GoGui matches with every bot and Evo) |
@@ -81,6 +81,7 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 - `stats` (without `--csv`), `ranking`, and `multi` loop forever. Run them with a timeout or in the background.
 - The worker pool uses Ractors (`Ractor.yield`/`take`), which Ruby 4.0 removed. Stay on the pinned Ruby 3.3.0 until the planned thread-pool rewrite. The "Ractor is experimental" warning is expected.
 - GNU Go 3.8 needs `scripts/patches/gnugo-3.8-gg-sort-empty.patch`. Without it, clang builds abort in `final_score` and during level 10 move generation. GCC builds happen to work either way. When changing how external tools are built, bump `release_id` in `scripts/install-external-tools.sh` so existing installs rebuild, then run `mise run verify`.
+- The installer downloads only from the GitHub release named in `mirror_url` in `scripts/install-external-tools.sh`, never from upstream. `scripts/external-tools.txt` lists each archive's SHA-256 and upstream URL. To change an archive, edit the manifest, give `mirror_url` a new release tag (a published release's files should not change under the same tag), bump `release_id`, and run `mise run mirror-external-tools`. That task fetches from upstream and uploads to the release.
 
 ### Performance
 
