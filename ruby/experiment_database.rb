@@ -23,7 +23,7 @@ class ExperimentDatabase
     @rankings = @db[:rankings]
   end
 
-  # Settings are strings, as settings.json held them.
+  # Settings are stored as strings.
   def settings
     @db[:settings].to_hash(:key, :value)
   end

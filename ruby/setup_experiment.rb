@@ -1,10 +1,25 @@
 require 'fileutils'
-require 'json'
 require_relative 'experiment_database'
 require_relative 'seeds'
 
 class SetupExperiment
   DATABASE = 'experiment.sqlite3'.freeze
+
+  # Every setting, with its prompt and its default. nil means required; a
+  # Proc is called for a fresh default.
+  SETTINGS = {
+    'board_size' => ['Board size', nil],
+    'population_size' => ['Population size', nil],
+    'hidden_layers' => ['Number of hidden layers', nil],
+    'layer_size' => ['Number of neurons per layer', nil],
+    'cross_over_rate' => ['Cross over rate', nil],
+    'game_length' => ['Game length (time)', nil],
+    'max_moves' => ['Max moves', nil],
+    'tournament_rounds' => ['Rounds (tournament)', nil],
+    'tournament_size' => ['Tournament size for parent selection', '3'],
+    'sgf_every' => ['Keep the SGF of every game in every Nth generation (0 for never)', '10'],
+    'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }]
+  }.freeze
 
   # Opens the experiment's database and yields its settings and the database.
   def self.call(experiment_dir)
@@ -18,56 +33,62 @@ class SetupExperiment
     end
   end
 
+  # Creates an experiment from key=value arguments, so it can be started
+  # without the prompts (`mise run new-experiment NAME key=value ...`).
+  def self.create(experiment_dir, arguments)
+    settings = settings_from_arguments(arguments)
+    FileUtils.mkdir_p(experiment_dir)
+    database = ExperimentDatabase.new(File.join(experiment_dir, DATABASE))
+    raise ArgumentError, "#{experiment_dir} already has settings" unless database.settings.empty?
+
+    database.save_settings(settings)
+    settings
+  ensure
+    database&.close
+  end
+
+  def self.settings_from_arguments(arguments)
+    given = arguments.to_h do |argument|
+      key, value = argument.split('=', 2)
+      raise ArgumentError, "expected key=value, got #{argument}" if value.nil?
+
+      [key, value]
+    end
+    unknown = given.keys - SETTINGS.keys
+    raise ArgumentError, "unknown settings: #{unknown.join(', ')}" if unknown.any?
+
+    missing = SETTINGS.select { |key, (_, default)| default.nil? && !given.key?(key) }.keys
+    raise ArgumentError, "missing settings: #{missing.join(', ')}" if missing.any?
+
+    SETTINGS.to_h { |key, (_, default)| [key, given.fetch(key) { default_for(default) }] }
+  end
+
+  def self.default_for(default)
+    default.respond_to?(:call) ? default.call : default
+  end
+
   def self.setup_directory(experiment_dir)
     FileUtils.mkdir_p(experiment_dir)
     executables = ["engine/evo", "initial-population/initial-population", "evolve/evolve"].map {|e| File.expand_path(e)}
     FileUtils.ln_s(executables, experiment_dir, force: true)
   end
 
-  # The settings live in the database. A settings.json in the experiment
-  # directory is imported once and removed, so an experiment can still be
-  # started without the prompts.
+  # The settings live in the database; a new experiment prompts for them.
   def self.settings(database)
     settings = database.settings
-    if settings.empty? && File.exist?("settings.json")
-      settings = JSON.load_file("settings.json").transform_values(&:to_s)
-      File.delete("settings.json")
-    elsif settings.empty?
+    if settings.empty?
       settings = prompt_for_settings
+      database.save_settings(settings)
     end
-    # Every seed in the experiment derives from this one, so it is saved.
-    settings["seed"] ||= Seeds.new_experiment_seed.to_s
-    database.save_settings(settings)
     settings
   end
 
   def self.prompt_for_settings
-    settings = {}
-    print "Board Size: "
-    settings["board_size"] = STDIN.gets.chomp
-    print "Population Size: "
-    settings["population_size"] = STDIN.gets.chomp
-    print "Number of hidden layers: "
-    settings["hidden_layers"] = STDIN.gets.chomp
-    print "Number of neurons per layer: "
-    settings["layer_size"] = STDIN.gets.chomp
-    print "Cross over rate: "
-    settings["cross_over_rate"] = STDIN.gets.chomp
-    print "Game length (time): "
-    settings["game_length"] = STDIN.gets.chomp
-    print "Max moves: "
-    settings["max_moves"] = STDIN.gets.chomp
-    print "Rounds (tournament): "
-    settings["tournament_rounds"] = STDIN.gets.chomp
-    print "Tournament size for parent selection (default 3): "
-    tournament_size = STDIN.gets.chomp
-    settings["tournament_size"] = tournament_size.empty? ? "3" : tournament_size
-    print "Keep the SGF of every game in every Nth generation (default 10, 0 for never): "
-    sgf_every = STDIN.gets.chomp
-    settings["sgf_every"] = sgf_every.empty? ? "10" : sgf_every
-    print "Seed (default random): "
-    seed = STDIN.gets.chomp
-    settings["seed"] = seed.empty? ? Seeds.new_experiment_seed.to_s : seed
-    settings
+    SETTINGS.to_h do |key, (prompt, default)|
+      label = default.nil? ? prompt : "#{prompt} (default #{default.respond_to?(:call) ? 'random' : default})"
+      print "#{label}: "
+      answer = $stdin.gets.to_s.chomp
+      [key, answer.empty? && !default.nil? ? default_for(default) : answer]
+    end
   end
 end
