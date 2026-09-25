@@ -64,11 +64,12 @@ class RunGeneration
 
   def play_round
     data['games'].each do |game|
-      game_data = prepare_game(game)
-      if game_data['winner']
-        update_data(game, game_data)
+      if game['white'].nil?
+        # The odd player out sits the round out and gets nothing for it.
+        update_data(game, { 'winner' => nil })
         refresh_progress
       else
+        game_data = prepare_game(game)
         pool.submit(game_data['command'], game_data['identifier'])
       end
     end
@@ -85,11 +86,10 @@ class RunGeneration
 
   def update_data(game, result)
     winner = result['winner']
-    points = result['points'] || 1
-    # Update score
+    # Every win is worth one point, against a network or a bot alike.
     new_ranking = data['ranking'].map do |s|
       if s['name'] == winner
-        s.merge('score' => s['score'] + points)
+        s.merge('score' => s['score'] + 1)
       else
         s
       end
@@ -122,9 +122,6 @@ class RunGeneration
   end
 
   def prepare_game(game)
-    # Odd number of players. Received a bye
-    return { 'winner' => game['black'], 'points' => 1 } unless game['white']
-
     black = data['players'][game['black']]['command']
     white = data['players'][game['white']]['command']
     size = settings['board_size']
@@ -137,9 +134,6 @@ class RunGeneration
   end
 
   def score_game(game)
-    # Odd number of players. Received a bye
-    return { 'winner' => game['black'] } unless game['white']
-
     result = GameResult.read(prefix_from(game))
     return { 'winner' => nil, 'failure' => result.failure } if result.failure
     return { 'winner' => nil } unless result.winner
@@ -148,7 +142,7 @@ class RunGeneration
     # A bot crashing says nothing about the network that played it.
     return { 'winner' => nil, 'failure' => "#{loser} crashed" } if result.crashed? && data['players'][loser]['external']
 
-    { 'winner' => winner, 'points' => data['players'][loser]['points'] }
+    { 'winner' => winner }
   end
 
   def prefix_from(game)
@@ -243,10 +237,10 @@ class RunGeneration
     end
   end
 
-  AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp', 'points' => 10 }
-  BROWN = { 'name' => 'Brown', 'command' => 'brown', 'points' => 1 }
-  GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp', 'points' => 50 }
-  GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp', 'points' => 100 }
+  AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp' }
+  BROWN = { 'name' => 'Brown', 'command' => 'brown' }
+  GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp' }
+  GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp' }
   # scripts/smoke-external-tools.sh plays each of these; add new opponents there too.
   EXTERNAL_PLAYERS = [
     *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
@@ -281,10 +275,10 @@ class RunGeneration
 
   def setup_players
     players = EXTERNAL_PLAYERS.each_with_object({}) do |player, hash|
-      hash[player['name']] = { 'command' => player['command'], 'points' => player['points'], 'external' => true }
+      hash[player['name']] = { 'command' => player['command'], 'external' => true }
     end
     players.merge!(Dir['*.ann'].each_with_object({}) do |player, hash|
-                     hash[player] = { 'command' => "../evo #{player}", 'points' => 1 }
+                     hash[player] = { 'command' => "../evo #{player}" }
                    end)
     players
   end

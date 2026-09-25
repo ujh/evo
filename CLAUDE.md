@@ -51,9 +51,9 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 - A GoGui `.dat` file is tab-separated: `GAME RES_B RES_W RES_R ALT DUP LEN TIME_B TIME_W CPU_B CPU_W ERR ERR_MSG`.
   - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` still split on whitespace, so an empty column shifts `RES_R` and `LEN`, and anything not starting with `B` counts as a White win there.
   - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file. Only stderr says which program crashed ("Black program died" or "White program died"). Breeding deletes the empty `.err` files and keeps the rest.
-- Points for beating an opponent: 1 for a network or Brown, 10 for AmiGo, 50 for GNU Go level 0, 100 for level 10 (`EXTERNAL_PLAYERS` in `ruby/run_generation.rb`). Parents are chosen by tournament selection (`select_parent` in `ruby/run_generation.rb`): draw `tournament_size` networks (setting, default 3) with replacement and keep the highest score. Only the order of scores matters, and equal scores pick uniformly.
+- Every win is worth 1 point, whether the loser is a network or a bot, and the odd player out in a round sits out with no point. The bots play in the ranking like networks, and against each other, on purpose: their place in the ranking shows how the networks compare to them. Parents are chosen by tournament selection (`select_parent` in `ruby/run_generation.rb`): draw `tournament_size` networks (setting, default 3) with replacement and keep the highest score. Only the order of scores matters, and equal scores pick uniformly.
 - Scoring rules (agreed with the owner, in `score_game` and `ruby/game_result.rb`):
-  - A referee win (`B+` or `W+`) counts, including games stopped by the move limit. The winner gets the loser's `points`.
+  - A referee win (`B+` or `W+`) counts, including games stopped by the move limit.
   - A draw gives no points.
   - A network that crashes loses, whatever the referee said.
   - These give no points and are logged and listed under `unscored` in `GEN/data.json`: a crashed external bot, a missing referee score (`?`), any other GoGui error (an illegal move is blamed on the program that rejected it, not the one that played it), and a missing or empty `.dat` file.

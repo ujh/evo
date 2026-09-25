@@ -54,7 +54,7 @@ Cached sigmoid outputs also create artificial score ties, which favor earlier in
 
 ### 6. Record statistics to test the assumptions
 
-Many settings rest on assumptions nobody has checked: the tournament size, the points for beating each bot, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. Record enough per generation to test them later, in a file that breeding and `stats` do not delete:
+Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. Record enough per generation to test them later, in a file that breeding and `stats` do not delete:
 
 - for each child, its parents, whether it came from crossover or mutation, and how many weights changed (so the share of unchanged children is visible)
 - how many children each parent got, and how many distinct parents and unique genomes there are
@@ -101,9 +101,9 @@ The recommendation is to consider using the local scorer to guide exploration af
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Each game launches a new GoGui process, two players, and a GNU Go referee. A timing sample points away from the neural network and toward adjudication (see "Performance" in `CLAUDE.md`). The tournament also spends games on pairings that carry no selection signal: bots playing each other, and repeated deterministic pairings.
+Each game launches a new GoGui process, two players, and a GNU Go referee. A timing sample points away from the neural network and toward adjudication (see "Performance" in `CLAUDE.md`). The tournament also replays deterministic pairings: the Brown and AmiGo instances are copies of the same program, so a repeated pairing in the same colors adds nothing. (Bots playing each other is intended; it places them in the ranking.)
 
-The remedies are to play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, to stop scheduling bot-against-bot games and duplicate deterministic bot instances, and to keep GoGui with GNU Go for benchmark games. Repeat the sample over a full generation, reporting games per minute at the intended concurrency, before relying on it. The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
+The remedies are to play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, to stop scheduling duplicate deterministic bot instances, and to keep GoGui with GNU Go for benchmark games. Repeat the sample over a full generation, reporting games per minute at the intended concurrency, before relying on it. The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
 
 ## Code cleanup
 
@@ -116,7 +116,6 @@ Fix each with a test that fails before the fix.
 | Location | Problem | Effect |
 | --- | --- | --- |
 | [`stats:65`](stats), [`ranking:37`](ranking) | Result lines are split on whitespace, so an empty column (GoGui leaves `RES_B` or `RES_W` empty when a program gives no score) shifts `RES_R` and `LEN`. Anything not starting with `B` counts as a White win. | Reported win rates and game lengths can be wrong. Reuse `ruby/game_result.rb`, which the runner uses. |
-| [`ruby/run_generation.rb`](ruby/run_generation.rb) `games_from_ranking` | External bots are paired with each other, and an odd player count gives the last-ranked player a free point (a "bye"). | Compute goes to games that carry no selection signal, and byes add points unrelated to play. |
 | [`engine/generate_move.c:114`](engine/generate_move.c) | A network whose size does not match the board calls `exit(1)` inside `genmove`. | The process dies mid-game instead of returning a GTP error. `boardsize` should reject a size the loaded network cannot play. |
 | [`engine/interface.c:153`](engine/interface.c) | The engine reports its name as `Brown`. | SGF files and GoGui output cannot tell Evo apart from the real Brown opponent. |
 | [`stats:95`](stats) | `'average' => median(...)`. | The reported average is the median. |
