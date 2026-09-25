@@ -187,12 +187,23 @@ class RunGeneration
     total = settings['population_size'].to_i
     total.times do |i|
       print "\rGenerating population ... #{i + 1}/#{total}"
-      `../evolve #{settings['cross_over_rate']} ../#{previous_generation}/#{select_parent(candidates)} ../#{previous_generation}/#{select_parent(candidates)}`
-      FileUtils.mv('child.ann', "#{i}.ann")
+      breed_child(previous_generation, candidates, "#{i}.ann")
     end
     puts "\rGenerating population ... done         "
     clean_up_generation(previous_generation)
     save_data(setup_tournament)
+  end
+
+  # Writes one child straight to `child`. A file left there by an interrupted
+  # run is removed first, so a child exists only if this evolve wrote it. On
+  # failure, breeding stops before the parents are deleted.
+  def breed_child(previous_generation, candidates, child)
+    FileUtils.rm_f(child)
+    parents = Array.new(2) { "../#{previous_generation}/#{select_parent(candidates)}" }
+    command = "../evolve #{settings['cross_over_rate']} #{parents.join(' ')} #{child}"
+    return if system(command, out: File::NULL) && File.exist?(child)
+
+    raise "evolve failed to breed #{child}: #{command}"
   end
 
   def parent_candidates(previous_data)

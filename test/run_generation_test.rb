@@ -163,10 +163,11 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   include RunGenerationHelpers
 
   # Sets up generation 0 with the given networks, an SGF, and twogtp stderr files, then runs the breeding
-  # step for generation 1 with `../evolve` replaced by the given block.
+  # step for generation 1 with `../evolve` replaced by the given block. The block's result is the exit
+  # status `system` reports. `stale_child` is left in 0.ann, as an interrupted earlier run would.
   def breed(scores:, settings: {}, stale_child: nil, &evolve)
     in_experiment do |dir|
-      File.write('child.ann', stale_child) if stale_child
+      File.write('0.ann', stale_child) if stale_child
       gen0 = File.join(dir, '0')
       FileUtils.mkdir_p(gen0)
       scores.each_key { |name| File.write(File.join(gen0, name), name) }
@@ -180,10 +181,9 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
 
       commands = []
       gen = build_generation(settings: settings)
-      gen.define_singleton_method(:`) do |cmd|
+      gen.define_singleton_method(:system) do |cmd, **_options|
         commands << cmd
-        evolve&.call(cmd)
-        ''
+        evolve ? evolve.call(cmd) : true
       end
       error = nil
       begin
@@ -201,15 +201,19 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     end
   end
 
+  # Writes the child to the output path, evolve's last argument, and succeeds.
   def write_child(cmd)
-    File.write('child.ann', cmd)
+    File.write(cmd.split.last, cmd)
+    true
   end
+
+  PARENTS = %r{\A\.\./evolve 0\.5 \.\./0/000[12]\.ann \.\./0/000[12]\.ann}
 
   def test_breeds_children_from_selected_parents_and_deletes_the_parents
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
     assert_nil state[:error]
     assert_equal 2, state[:commands].size
-    state[:commands].each { |cmd| assert_match %r{\A\.\./evolve 0\.5 \.\./0/000[12]\.ann \.\./0/000[12]\.ann\z}, cmd }
+    state[:commands].each_with_index { |cmd, i| assert_match(/#{PARENTS} #{i}\.ann\z/, cmd) }
     assert_equal %w[0.ann 1.ann], state[:children].keys
     assert_equal ['crashed.err', 'data.json'], state[:previous_files]
     assert state[:data]['setup_complete']
@@ -219,28 +223,33 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   def test_all_zero_scores_still_breed_from_real_parents
     state = breed(scores: { '0001.ann' => 0, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
     assert_nil state[:error]
-    state[:commands].each { |cmd| assert_match %r{\A\.\./evolve 0\.5 \.\./0/000[12]\.ann \.\./0/000[12]\.ann\z}, cmd }
+    state[:commands].each { |cmd| assert_match PARENTS, cmd }
   end
 
-  def test_stale_child_is_reused_when_evolve_writes_nothing_defect
-    # evolve fails and writes nothing, but an interrupted earlier run left a child.ann behind.
-    state = breed(scores: { '0001.ann' => 1 }, settings: { 'population_size' => '1' }, stale_child: 'stale') {}
-    assert_nil state[:error]
-    assert_equal({ '0.ann' => 'stale' }, state[:children])
-  end
-
-  def test_evolve_failure_stops_breeding_before_the_parents_are_deleted_defect
-    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) {}
-    assert_kind_of Errno::ENOENT, state[:error]
+  def test_evolve_failing_stops_breeding_before_the_parents_are_deleted
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { false }
+    assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
     assert_includes state[:previous_files], '0001.ann'
     assert_nil state[:data]
+  end
+
+  def test_evolve_writing_nothing_stops_breeding
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { true }
+    assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
+    assert_includes state[:previous_files], '0001.ann'
+  end
+
+  def test_child_left_by_an_interrupted_run_is_not_reused
+    state = breed(scores: { '0001.ann' => 1 }, settings: { 'population_size' => '1' }, stale_child: 'stale') { true }
+    assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
+    assert_empty state[:children]
   end
 
   def test_skips_breeding_once_setup_is_complete
     in_experiment do
       write_data('setup_complete' => true)
       gen = build_generation
-      gen.define_singleton_method(:`) { |_cmd| flunk 'evolve should not run' }
+      gen.define_singleton_method(:system) { |*| flunk 'evolve should not run' }
       gen.send(:evolve_from_previous_population)
     end
   end

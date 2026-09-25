@@ -24,8 +24,10 @@ SOFTWARE.
 
 */
 
+#include <errno.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "evolve.h"
 
@@ -34,14 +36,15 @@ int main(int argc, char **argv) {
   setbuf(stdout, NULL);
   seed();
 
-  if (argc != 4) {
-    fprintf(stderr, "3 arguments required: cross_over_rate, ann1, ann2!\n");
+  if (argc != 5) {
+    fprintf(stderr, "4 arguments required: cross_over_rate, ann1, ann2, output!\n");
     exit(1);
   }
 
   double cross_over_rate = atof(argv[1]);
   char *ann1_name = argv[2];
   char *ann2_name = argv[3];
+  char *output_name = argv[4];
 
   printf(
     "cross_over_rate = %f, ann1_name = %s, ann2_name = %s\n",
@@ -61,9 +64,16 @@ int main(int argc, char **argv) {
     child = child_from_mutation(anns);
   }
 
-  printf("Saving output to child.ann ...");
-  FILE *fd = fopen("child.ann", "wb");
+  printf("Saving output to %s ...", output_name);
+  FILE *fd = fopen(output_name, "wb");
+  if (fd == NULL) {
+    fprintf(stderr, "\nCould not open %s: %s\n", output_name, strerror(errno));
+    exit(1);
+  }
   genann_binary_write(child, fd);
-  fclose(fd);
+  if (fclose(fd) != 0) {
+    fprintf(stderr, "\nCould not write %s: %s\n", output_name, strerror(errno));
+    exit(1);
+  }
   printf("\n");
 }

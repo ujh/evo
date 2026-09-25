@@ -19,13 +19,13 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
 - `mise run example` opens the GoGui window. Do not use it headless. `gogui-twogtp` runs without a display.
-- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` and set its instance variables directly (settings, a seeded `rng`, a fake pool), and they stub `../evolve` by overriding the backtick method. The PR script tests run `scripts/pr-checks.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
+- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` and set its instance variables directly (settings, a seeded `rng`, a fake pool), and they stub `../evolve` by overriding `system` on that object. The PR script tests run `scripts/pr-checks.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
 
 ## Layout
 
 - `engine/`: `evo`, a GTP engine built on Brown's board code (`brown.c`, `gtp.c`) plus the network move policy (`generate_move.c`). `engine/test.c` tests GENANN only, not Go rules.
 - `initial-population/`: `initial-population POP SIZE LAYERS NEURONS` writes random networks named `0001.ann`, `0002.ann`, and so on.
-- `evolve/`: `evolve RATE A.ann B.ann` writes `child.ann` to the current directory. It either crosses over or mutates; it never does both.
+- `evolve/`: `evolve RATE A.ann B.ann OUT.ann` writes the child to `OUT.ann`. It either crosses over or mutates; it never does both. It exits 1 without writing anything when an input cannot be read. The runner checks the exit status and that the file exists, and stops breeding before deleting the parents if either fails.
 - `ruby/`, `runner`: tournament orchestration. `stats`, `ranking`: viewers. `multi`: rotates between several experiments.
 - `lib/` is **unused**. `genann.c/h` has four identical copies (`lib/`, `engine/`, `evolve/`, `initial-population/`), and every Makefile compiles its own local copy. A GENANN change must go into all four until the cleanup consolidates them.
 - `pcg-c/` is an upstream submodule (`imneme/pcg-c`). Do not edit it.

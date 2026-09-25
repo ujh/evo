@@ -25,9 +25,11 @@ SOFTWARE.
 */
 
 #include <pcg_variants.h>
+#include <errno.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "evolve.h"
@@ -39,19 +41,29 @@ void seed() {
   pcg32_srandom(time(NULL), (intptr_t)&rng);
 }
 
+// Exits with an error, instead of returning NULL, when the file cannot be
+// opened or does not hold a network.
+static genann *load_nn(char *name) {
+  printf("Loading %s ...", name);
+  FILE *fd = fopen(name, "rb");
+  if (fd == NULL) {
+    fprintf(stderr, "\nCould not open %s: %s\n", name, strerror(errno));
+    exit(1);
+  }
+  genann *ann = genann_binary_read(fd);
+  fclose(fd);
+  if (ann == NULL) {
+    fprintf(stderr, "\nCould not read a network from %s\n", name);
+    exit(1);
+  }
+  printf("\n");
+  return ann;
+}
+
 genann **load_nns(char *ann1_name, char *ann2_name) {
   genann **anns = malloc(2 * sizeof(genann *));
-
-  printf("Loading %s ...", ann1_name);
-  FILE *fd = fopen(ann1_name, "rb");
-  anns[0] = genann_binary_read(fd);
-  fclose(fd);
-  printf("\nLoading %s ...", ann2_name);
-  fd = fopen(ann2_name, "rb");
-  anns[1] = genann_binary_read(fd);
-  fclose(fd);
-  printf("\n");
-
+  anns[0] = load_nn(ann1_name);
+  anns[1] = load_nn(ann2_name);
   return anns;
 }
 
