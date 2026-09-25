@@ -1,7 +1,9 @@
 require_relative 'test_helper'
-require_relative '../ruby/benchmark'
+require 'open3'
+require 'rbconfig'
+require_relative '../ruby/checkpoint_benchmark'
 
-class BenchmarkTest < Minitest::Test
+class CheckpointBenchmarkTest < Minitest::Test
   include RunGenerationHelpers
 
   # Every generation that the tests benchmark or take a network from ranks
@@ -30,7 +32,7 @@ class BenchmarkTest < Minitest::Test
       copy_dat(pick ? pick.call(game) : fixture, game.prefix)
       File.write("#{game.prefix}-0.sgf", '(;SZ[9])')
     end
-    capture_io { Benchmark.new(generation, SETTINGS.merge('benchmark_games' => 2).merge(settings), pool, database).call }
+    capture_io { CheckpointBenchmark.new(generation, SETTINGS.merge('benchmark_games' => 2).merge(settings), pool, database).call }
     pool
   end
 
@@ -213,10 +215,30 @@ class BenchmarkTest < Minitest::Test
       only_opponents('Brown')
       store_generations(0)
       pool = FakePool.new { $stop_now = true }
-      capture_io { assert_raises(SystemExit) { Benchmark.new(0, SETTINGS.merge('benchmark_games' => 2), pool, database).call } }
+      capture_io { assert_raises(SystemExit) { CheckpointBenchmark.new(0, SETTINGS.merge('benchmark_games' => 2), pool, database).call } }
       assert_empty database.benchmark_games(0)
     ensure
       $stop_now = false
     end
+  end
+
+  # Ruby's benchmark library defines a Benchmark module, so the class has
+  # another name. A fresh process, because this one has loaded the class
+  # already, and outside Bundler, which hides the gem since Ruby 4.0.
+  def test_loads_together_with_rubys_benchmark_library
+    script = <<~RUBY
+      begin
+        require 'benchmark'
+      rescue LoadError
+        exit 2
+      end
+      require #{File.expand_path('../ruby/checkpoint_benchmark', __dir__).inspect}
+      print CheckpointBenchmark.class
+    RUBY
+    run = -> { Open3.capture3(RbConfig.ruby, '-e', script) }
+    out, err, status = defined?(Bundler) ? Bundler.with_unbundled_env(&run) : run.call
+    skip "Ruby's benchmark library is not installed" if status.exitstatus == 2
+    assert status.success?, err
+    assert_equal 'Class', out
   end
 end

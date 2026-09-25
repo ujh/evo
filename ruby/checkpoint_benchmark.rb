@@ -8,7 +8,7 @@ require_relative 'seeds'
 # top network also plays a fixed panel (see migration 008). Every opening is
 # played once with each color, and the openings are the same at every
 # checkpoint, so checkpoints can be compared.
-class Benchmark
+class CheckpointBenchmark
   # Inside the generation's work directory, which twogtp runs in, so the
   # engine is ../evo as in the tournament.
   DIRECTORY = 'benchmark'.freeze

@@ -1,6 +1,6 @@
 require 'digest'
 require 'open3'
-require_relative 'benchmark'
+require_relative 'checkpoint_benchmark'
 require_relative 'game_result'
 require_relative 'seeds'
 
@@ -24,7 +24,7 @@ class RunGeneration
       result = play_games
       # After the tournament, whose final ranking names the network to
       # benchmark, and on resume too, so a checkpoint finishes its benchmark.
-      Benchmark.call(generation.to_i, settings, pool, store) if keep?(generation.to_i)
+      CheckpointBenchmark.call(generation.to_i, settings, pool, store) if keep?(generation.to_i)
       result
     end
   end
