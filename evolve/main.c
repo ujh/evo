@@ -70,8 +70,10 @@ static int parse_whole(const char *name, const char *text, long min, long max) {
   return (int)value;
 }
 
-// How many weights of the child differ from a parent's.
+// How many weights of the child differ from a parent's, or -1 when their
+// shapes differ.
 static int count_differences(genann const *child, genann const *parent) {
+  if (!same_shape(child, parent)) return -1;
   int differences = 0;
   for (int i = 0; i < child->total_weights; i++) {
     if (child->weight[i] != parent->weight[i]) differences++;
@@ -99,11 +101,11 @@ int main(int argc, char **argv) {
   double cross_over_rate = parse_number("cross_over_rate", argv[1], 0, 1);
   double meta_rate = parse_number("meta_rate", argv[2], 0, HUGE_VAL);
   // The bounds on the child's shape, and the width of a layer added to a
-  // network without hidden layers. No structural change exists yet, so they
-  // are only checked.
-  int max_hidden_layers = parse_whole("max_hidden_layers", argv[3], 0, INT_MAX);
-  int max_layer_size = parse_whole("max_layer_size", argv[4], 1, INT_MAX);
-  int add_layer_size = parse_whole("add_layer_size", argv[5], 1, max_layer_size);
+  // network without hidden layers.
+  shape_bounds bounds;
+  bounds.max_hidden_layers = parse_whole("max_hidden_layers", argv[3], 0, INT_MAX);
+  bounds.max_layer_size = parse_whole("max_layer_size", argv[4], 1, INT_MAX);
+  bounds.add_layer_size = parse_whole("add_layer_size", argv[5], 1, bounds.max_layer_size);
   char *ann1_name = argv[6];
   char *ann2_name = argv[7];
   char *output_name = argv[8];
@@ -113,9 +115,9 @@ int main(int argc, char **argv) {
     "ann1_name = %s, ann2_name = %s\n",
     cross_over_rate,
     meta_rate,
-    max_hidden_layers,
-    max_layer_size,
-    add_layer_size,
+    bounds.max_hidden_layers,
+    bounds.max_layer_size,
+    bounds.add_layer_size,
     ann1_name,
     ann2_name
   );
@@ -124,24 +126,9 @@ int main(int argc, char **argv) {
   genann **anns = load_nns(ann1_name, ann2_name, genes);
   check_nns(anns);
 
-  genann *child = NULL;
-  const char *operator_name;
-  int picked;
-  ann_genes child_genes;
-  mutation_outcome outcome = {.copy = false, .activation_changed = false};
-
-  if (GENANN_RANDOM() < cross_over_rate) {
-    printf("Cross over\n");
-    child = child_from_cross_over(anns, &picked);
-    operator_name = "crossover";
-    // A crossover child is not mutated: it keeps the activations and genes
-    // of the parent whose weights come first.
-    child_genes = genes[picked];
-  } else {
-    printf("Mutation\n");
-    child = child_from_mutation(anns, genes, meta_rate, &picked, &child_genes, &outcome);
-    operator_name = outcome.copy ? "copy" : "mutation";
-  }
+  breeding result;
+  genann *child = breed(anns, genes, cross_over_rate, meta_rate, &bounds, &result);
+  printf("%s\n", result.operator_name);
 
   printf("Saving output to %s ...", output_name);
   FILE *fd = fopen(output_name, "wb");
@@ -150,7 +137,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
   // A half-written child is removed, so the runner never finds one.
-  int written = ann_binary_write(child, &child_genes, fd);
+  int written = ann_binary_write(child, &result.genes, fd);
   if (fclose(fd) != 0 || written != 0) {
     fprintf(stderr, "\nCould not write %s: %s\n", output_name, strerror(errno));
     remove(output_name);
@@ -160,14 +147,15 @@ int main(int argc, char **argv) {
 
   // Two machine-readable lines for the runner, the child's genes last.
   // parent is the picked parent in argument order. A child identical to a
-  // parent differs from it in 0 weights.
+  // parent differs from it in 0 weights, and one of another shape in -1.
   printf(
-    "summary operator=%s parent=%s structure=none activation_changed=%d differs_from_first=%d differs_from_second=%d\n",
-    operator_name,
-    picked == 0 ? "first" : "second",
-    outcome.activation_changed ? 1 : 0,
+    "summary operator=%s parent=%s structure=%s activation_changed=%d differs_from_first=%d differs_from_second=%d\n",
+    result.operator_name,
+    result.picked == 0 ? "first" : "second",
+    structure_name(result.outcome.structure),
+    result.outcome.activation_changed ? 1 : 0,
     count_differences(child, anns[0]),
     count_differences(child, anns[1])
   );
-  ann_print_genes_line(stdout, child, &child_genes);
+  ann_print_genes_line(stdout, child, &result.genes);
 }

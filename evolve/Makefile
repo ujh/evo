@@ -92,8 +92,23 @@ evolvetest: evolve
 	# Parents whose activations differ still cross over.
 	./evolve 1 $(BOUNDS) mutated.ann parents/0002.ann cross-e.ann 7 > cross-e.out
 	set -- $$($(SUMMARY) cross-e.out) && test "$$1" = crossover
+	# A parent that changes its structure half the time. With room for a
+	# second hidden layer, seed 3 adds one: the child is 2x5, of another
+	# shape than either parent, so both differs counts are -1, and the engine
+	# plays it.
+	mkdir parents/shaped
+	cd parents/shaped && ../../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.02 0.5 42 > /dev/null
+	./evolve 0 0.2 2 6 5 parents/shaped/0001.ann parents/shaped/0001.ann deep.ann 3 > deep.out
+	set -- $$($(SUMMARY) deep.out) && test "$$*" = "mutation first add_layer 0 -1 -1"
+	tail -n 1 deep.out | grep -q '^genes layers=2 width=5 '
+	printf 'boardsize 9\ngenmove b\nquit\n' | ../engine/evo deep.ann | grep -q '^= [A-Z]'
+	# Parents of different shapes never cross over, even at rate 1: seed 3
+	# mutates the deeper one, which keeps its shape, so only the count
+	# against it is a number.
+	./evolve 1 0.2 2 6 5 parents/shaped/0001.ann deep.ann mixed.ann 3 > mixed.out
+	set -- $$($(SUMMARY) mixed.out) && test "$$1 $$2 $$3 $$5" = "mutation second none -1" && test "$$6" -ge 0
 	rm -rf parents cross-a.ann cross-b.ann cross-c.ann cross-d.ann cross-e.ann cross-a.out cross-d.out cross-e.out \
-	  copy.ann copy.out mutated.ann mutated.out kept.ann kept.out
+	  copy.ann copy.out mutated.ann mutated.out kept.ann kept.out deep.ann deep.out mixed.ann mixed.out
 
 test: $(OBJS) test.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
