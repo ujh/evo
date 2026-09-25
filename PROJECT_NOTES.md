@@ -10,11 +10,11 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 ### 1. Fitness and reported progress need a clearer meaning
 
-The tournament has a useful idea: match roughly comparable players while including fixed external bots. However, different networks can face very different schedules, colors are randomized rather than paired, and repeat pairings are allowed. A tournament score measures success in that particular schedule; it is not a stable measure of strength across generations.
+The tournament has a useful idea: match roughly comparable players while including fixed external bots. However, different networks can face very different schedules, colors are randomized rather than paired, and repeat pairings are allowed. A tournament score measures success in that particular schedule; it is not a stable measure of strength across generations. The benchmark (see `CLAUDE.md`) measures strength instead; keep tournament score and benchmark results as separate quantities.
 
-The percentages in `stats` divide evolved-player wins by the total number of rounds played by external bot instances. Those rounds include games between external bots. Thus the display is not the evolved population's win rate in its actual games against each bot. Changes in pairings can change the percentage independently of playing strength.
+`stats` still shows the old percentages, which divide evolved-player wins by the total number of rounds played by external bot instances. Those rounds include games between external bots, so the display is not the evolved population's win rate in its actual games against each bot, and changes in pairings can change it independently of playing strength. The next step is a `stats` redesign around the benchmark results (wins and games, by opponent and color) and population health.
 
-**Proposed response:** maintain a fixed benchmark alongside breeding tournaments. Report wins and games played, separated by opponent and color. Keep tournament score and benchmark performance as different quantities.
+**Proposed experiment:** now that progress is measured apart from the tournament, test whether bots belong in the tournament at all. Compare an experiment with the default `opponents` panel against one with an empty `opponents` table, on the benchmark, at equal game budgets. If the bot-free run drifts or cycles (the usual coevolution pathologies), try a hall of fame of frozen past champions in the tournament instead; those games would be cheap in the [C arena](#a-c-arena-for-network-games).
 
 ### 2. Selection pressure is a guess
 
@@ -50,7 +50,7 @@ None of the network's settings was chosen for a reason: the number and size of h
 
 ### 5. Long runs need recoverable evidence
 
-Networks and SGFs are kept only for every `keep_every`-th generation. That saves space but limits comparisons with early ancestors to those generations. Each experiment keeps copies of its executables and records the code revision they came from, but not yet its opponent panel and scoring rules.
+Networks and SGFs are kept only for every `keep_every`-th generation. That saves space but limits comparisons with early ancestors to those generations. Each experiment keeps copies of its executables and records the code revision they came from.
 
 **Proposed response:** also keep each generation's top-ranked network, if the `keep_every` generations turn out too sparse.
 
@@ -109,7 +109,7 @@ The tournament also plays games between copies of the same bot. Brown and AmiGo 
 Candidate remedies, to decide between:
 
 - Skip pairings between two copies of the same bot. This is for accuracy more than speed.
-- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; it lives in each experiment's `opponents` table, which the runner reads every generation, so a ladder can add rows; next come GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. Because a changing panel changes what a tournament score means, the ladder depends on the fixed benchmark from item 1.
+- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; it lives in each experiment's `opponents` table, which the runner reads every generation, so a ladder can add rows; next come GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. A changing panel changes what a tournament score means; the benchmark panel is stored apart (`benchmark_opponents`), so checkpoints stay comparable while the ladder moves.
 - Play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, keeping GoGui with GNU Go for benchmark games. This removes the per-game overhead, which is now nearly all of a generation's game time. Once GNU Go opponents return through the ladder, their games would still be slow.
 
 The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
@@ -117,10 +117,6 @@ The first experiment should have a comfortable elapsed-time cap and checkpoint r
 ## Code cleanup
 
 The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
-
-### Structure and hygiene
-
-- **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library
 
@@ -146,7 +142,7 @@ It can be interleaved with milestone 1 below, and should keep a short reference 
 These are candidate milestones for discussion, rather than an implementation commitment.
 
 0. **Clean up the code under test.** Carry out the [cleanup order](#suggested-cleanup-order) alongside milestone 1.
-1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9, specify rules and komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring. Establish a reproducible benchmark containing weak external opponents and frozen initial networks.
+1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9, specify rules and komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring.
 2. **Test evolution with shared local patterns.** Use a compact scorer and a simple mutation-based evolutionary baseline. Compare it with random search using the same representation and game budget. Preserve the original dense-policy implementation as a reference; if comparing representations, use the same breeding procedure and account explicitly for differing genome sizes. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.
 

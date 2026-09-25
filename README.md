@@ -44,6 +44,42 @@ You can pass the existing runner arguments after the name, for example
 `mise run run EXPERIMENT_NAME 2 one-generation`. `mise run` supplies the pinned
 Ruby and Java versions even without shell activation.
 
+## Benchmark
+
+Tournament scores only compare the networks of one generation, so they cannot
+show whether evolution makes progress. At every checkpoint (every
+`keep_every`-th generation, including generation 0; none when `keep_every` is
+0), after the tournament, the generation's top network plays a fixed panel:
+Brown, AmiGo, GNU Go level 0, the top network of generation 0, and the top
+network of the previous checkpoint. Generation 0 plays only the bots.
+
+Two settings control it:
+
+- `benchmark_games` (default 20): games per opponent, an even number, half
+  with each color.
+- `benchmark_opening_moves` (default 4): stones in each seeded opening. Every
+  checkpoint plays the same openings, each once with each color, so
+  checkpoints can be compared. With 0, the games against Brown, AmiGo, and
+  networks repeat, because those players are deterministic.
+
+The results are in the `benchmark_games` table of
+`experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game. `stats`
+does not show them yet; until it does, query the table, for example:
+
+```sh
+sqlite3 experiments/EXPERIMENT_NAME/experiment.sqlite3 \
+  'SELECT generation, opponent, winner, count(*) FROM benchmark_games GROUP BY 1, 2, 3'
+```
+
+The panel is stored in each experiment's database (table
+`benchmark_opponents`) when the experiment is created. To use another panel,
+create the experiment with `mise run new-experiment EXPERIMENT_NAME ...`, change
+the table before the first `mise run run`, for example
+`sqlite3 experiments/EXPERIMENT_NAME/experiment.sqlite3 "DELETE FROM benchmark_opponents WHERE name = 'GnuGoLevel0'"`,
+and leave it alone afterwards: a panel changed during a run makes its
+checkpoints incomparable. A bot row has `kind` `bot` and the `command` that
+starts it; `initial_champion` and `previous_checkpoint` rows have no command.
+
 ## Running the bundled example against itself
 
 Run `mise run example` to open a GoGui match with the bundled network playing

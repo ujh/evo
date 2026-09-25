@@ -45,10 +45,11 @@ match() {
   fi
 }
 
-# Each opponent in DEFAULT_OPPONENTS (ruby/setup_experiment.rb) plays at
-# least once, and so does the engine itself. GNU Go is not in the tournament,
-# only its referee, but it plays here too: it comes back as an opponent later,
-# and level 10 move generation checks the gg_sort patch.
+# Each opponent in DEFAULT_OPPONENTS and each bot in DEFAULT_BENCHMARK
+# (ruby/setup_experiment.rb) plays at least once, and so does the engine
+# itself. GNU Go level 0 is a benchmark bot; level 10 plays because it comes
+# back as a tournament opponent later, and its move generation checks the
+# gg_sort patch.
 match brown-amigo brown amigogtp
 match gnugo0-brown 'gnugo --level 0 --mode gtp' brown
 match amigo-gnugo10 amigogtp 'gnugo --level 10 --mode gtp'
