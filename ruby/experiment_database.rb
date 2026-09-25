@@ -35,6 +35,11 @@ class ExperimentDatabase
     end
   end
 
+  # Runs the block in one transaction; nested writes join it.
+  def transaction(&)
+    @db.transaction(&)
+  end
+
   # The bots the experiment plays against, in order; see migration 007.
   def opponents
     @db[:opponents].order(:position).select(:name, :command, :copies).all

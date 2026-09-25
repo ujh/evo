@@ -91,11 +91,19 @@ class SetupExperiment
     database = ExperimentDatabase.new(File.join(experiment_dir, DATABASE))
     raise ArgumentError, "#{experiment_dir} already has settings" unless database.settings.empty?
 
-    database.save_settings(settings)
-    save_rules(database)
+    save_new_experiment(database, settings)
     settings
   ensure
     database&.close
+  end
+
+  # Settings, opponents, and scoring together or not at all, so no
+  # experiment has settings it cannot run with.
+  def self.save_new_experiment(database, settings)
+    database.transaction do
+      database.save_settings(settings)
+      save_rules(database)
+    end
   end
 
   def self.save_rules(database)
@@ -200,8 +208,7 @@ class SetupExperiment
     return parse(stored) unless stored.empty?
 
     settings = prompt_for_settings
-    database.save_settings(settings)
-    save_rules(database)
+    save_new_experiment(database, settings)
     settings
   end
 

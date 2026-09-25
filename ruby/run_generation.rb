@@ -92,7 +92,7 @@ class RunGeneration
   def play_round
     data['games'].each do |game|
       if game['white'].nil?
-        # The odd player out sits the round out and gets nothing for it.
+        # The odd player out sits the round out and gets the bye points.
         update_data(game, { 'winner' => nil })
         refresh_progress
       else

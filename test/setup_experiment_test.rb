@@ -122,6 +122,21 @@ class SetupExperimentTest < Minitest::Test
     end
   end
 
+  # Settings without their opponents and scoring could never run, so the
+  # two are saved together or not at all.
+  def test_settings_are_not_saved_without_their_rules
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.define_singleton_method(:save_scoring) { |_| raise IOError, 'disk full' }
+      answers = SetupExperiment::SETTINGS.keys.map { |key| { 'seed' => '', 'board_size' => '9' }.fetch(key, '1') }
+      with_stdin("#{answers.join("\n")}\n") do
+        assert_raises(IOError) { SetupExperiment.settings(database) }
+      end
+      assert_empty database.settings
+      assert_empty database.opponents
+    end
+  end
+
   # Scoring logic that changed since the experiment began would score its
   # remaining games by different rules, so the run refuses to start.
   def test_an_experiment_scored_by_other_rules_does_not_run
