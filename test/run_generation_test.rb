@@ -187,7 +187,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
                  }, File.join(gen0, 'data.json'))
 
       commands = []
-      store = ResultStore.new(':memory:')
+      store = ExperimentDatabase.new(':memory:')
       gen = build_generation(settings: settings, store:)
       gen.define_singleton_method(:run_evolve) do |cmd|
         commands << cmd
@@ -371,7 +371,7 @@ class PlayRoundTest < Minitest::Test
   def build_with(pool, generation: '1', store: nil)
     gen = build_generation(generation:)
     gen.instance_variable_set(:@pool, pool)
-    gen.instance_variable_set(:@store, store || ResultStore.new(':memory:'))
+    gen.instance_variable_set(:@store, store || ExperimentDatabase.new(':memory:'))
     gen
   end
 
@@ -388,7 +388,7 @@ class PlayRoundTest < Minitest::Test
   def test_stores_each_scored_game_and_deletes_its_files
     in_experiment do
       setup_round
-      store = ResultStore.new(':memory:')
+      store = ExperimentDatabase.new(':memory:')
       capture_io { build_with(playing_pool, store:).send(:play_round) }
       assert_equal [{ generation: 1, round: 0, black: 'a.ann', white: 'b.ann', black_external: false,
                       white_external: false, winner: 'a.ann', failure: nil, length: 93, referee_result: 'B+R',
@@ -400,7 +400,7 @@ class PlayRoundTest < Minitest::Test
   def test_keeps_the_sgf_every_sgf_every_generations
     in_experiment(generation: '10') do
       setup_round
-      store = ResultStore.new(':memory:')
+      store = ExperimentDatabase.new(':memory:')
       capture_io { build_with(playing_pool, generation: '10', store:).send(:play_round) }
       assert_equal '(;SZ[9];B[ee])', store.games(10).first[:sgf]
     end
@@ -470,7 +470,7 @@ class ReproducibleRoundsTest < Minitest::Test
 
   def test_the_initial_population_gets_its_seed_and_is_recorded
     in_experiment(generation: '0') do
-      store = ResultStore.new(':memory:')
+      store = ExperimentDatabase.new(':memory:')
       gen = build_generation(generation: '0', store:)
       commands = []
       gen.define_singleton_method(:system) do |cmd|
@@ -492,7 +492,7 @@ class ReproducibleRoundsTest < Minitest::Test
     in_experiment do
       write_data('round' => 1, 'games' => [], 'players' => { 'a.ann' => {} },
                  'ranking' => [{ 'name' => 'a.ann', 'score' => 1 }])
-      store = ResultStore.new(':memory:')
+      store = ExperimentDatabase.new(':memory:')
       assert_equal :already_done, build_generation(store:).send(:play_games)
       assert_equal [[1, 'a.ann', 1]], store.ranking(1).map { |r| r.values_at(:rank, :name, :score) }
     end
@@ -503,7 +503,7 @@ class ReproducibleRoundsTest < Minitest::Test
       write_data('round' => 0, 'games' => [],
                  'players' => { 'a.ann' => {}, 'Brown1' => { 'external' => true } },
                  'ranking' => [{ 'name' => 'Brown1', 'score' => 1 }, { 'name' => 'a.ann', 'score' => 0 }])
-      store = ResultStore.new(':memory:')
+      store = ExperimentDatabase.new(':memory:')
       gen = build_generation(store:)
       gen.instance_variable_set(:@pool, PlayRoundTest::FakePool.new {})
       capture_io { gen.send(:play_games) }

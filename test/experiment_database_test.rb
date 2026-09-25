@@ -1,8 +1,8 @@
 require 'minitest/autorun'
 require 'tmpdir'
-require_relative '../ruby/result_store'
+require_relative '../ruby/experiment_database'
 
-class ResultStoreTest < Minitest::Test
+class ExperimentDatabaseTest < Minitest::Test
   GAME = {
     generation: 3, round: 1, black: '0.ann', white: 'Brown1', black_external: false, white_external: true,
     winner: '0.ann', failure: nil, length: 93, referee_result: 'B+R', error_message: '', stderr: '', sgf: '(;SZ[9])'
@@ -10,8 +10,8 @@ class ResultStoreTest < Minitest::Test
 
   def with_store
     Dir.mktmpdir do |dir|
-      path = File.join(dir, 'results.sqlite3')
-      store = ResultStore.new(path)
+      path = File.join(dir, 'experiment.sqlite3')
+      store = ExperimentDatabase.new(path)
       yield store, path
     ensure
       store&.close
@@ -38,7 +38,7 @@ class ResultStoreTest < Minitest::Test
   def test_a_read_only_store_sees_rows_while_the_writer_is_open
     with_store do |store, path|
       store.record(**GAME)
-      reader = ResultStore.new(path, readonly: true)
+      reader = ExperimentDatabase.new(path, readonly: true)
       assert_equal [GAME], reader.games(3)
       reader.close
     end
@@ -78,7 +78,7 @@ class ResultStoreTest < Minitest::Test
   def test_a_read_only_store_does_not_create_a_database
     Dir.mktmpdir do |dir|
       path = File.join(dir, 'missing.sqlite3')
-      assert_raises(Sequel::DatabaseConnectionError) { ResultStore.new(path, readonly: true) }
+      assert_raises(Sequel::DatabaseConnectionError) { ExperimentDatabase.new(path, readonly: true) }
       refute File.exist?(path)
     end
   end

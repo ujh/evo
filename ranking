@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 require 'bundler/setup'
 require 'json'
-require_relative 'ruby/result_store'
+require_relative 'ruby/experiment_database'
 
 experiment_name = ARGV.first
 
@@ -34,11 +34,11 @@ def average(array)
   (total.to_f / array.length).round
 end
 
-# Runs inside the generation directory; the result store is one level up.
+# Runs inside the generation directory; the experiment database is one level up.
 def compute_game_lengths(generation)
-  return [] unless File.exist?("../results.sqlite3")
+  return [] unless File.exist?("../experiment.sqlite3")
 
-  store = ResultStore.new("../results.sqlite3", readonly: true)
+  store = ExperimentDatabase.new("../experiment.sqlite3", readonly: true)
   store.games(generation.to_i).filter_map { |game| game[:length] }
 ensure
   store&.close

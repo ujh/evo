@@ -8,7 +8,7 @@ class RunGeneration
     new(generation, settings, pool, store).call
   end
 
-  # `pool` is the WorkerPool that plays the games and `store` the ResultStore
+  # `pool` is the WorkerPool that plays the games and `store` the ExperimentDatabase
   # that keeps their results. Both live as long as the experiment.
   def initialize(generation, settings, pool, store)
     self.generation = generation
@@ -186,7 +186,7 @@ class RunGeneration
     { 'winner' => winner }
   end
 
-  # Writes the game to the result store, then deletes the files gogui-twogtp
+  # Writes the game to the experiment database, then deletes the files gogui-twogtp
   # left, so an experiment does not pile up three files per game. The SGF is
   # kept for every sgf_every-th generation only. A crash between the two
   # steps replays the game, and its row is replaced.

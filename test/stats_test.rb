@@ -4,10 +4,10 @@ require 'fileutils'
 require 'json'
 require 'open3'
 require 'tmpdir'
-require_relative '../ruby/result_store'
+require_relative '../ruby/experiment_database'
 
 # Runs the stats script with --csv on a small experiment whose games are in
-# the result store. Draws and failed games count for nobody.
+# the experiment database. Draws and failed games count for nobody.
 class StatsTest < Minitest::Test
   ROOT = File.expand_path('..', __dir__)
 
@@ -35,7 +35,7 @@ class StatsTest < Minitest::Test
         'ranking' => [{ 'name' => '0002.ann', 'score' => 2 }, { 'name' => 'Brown1', 'score' => 0 },
                       { 'name' => '0001.ann', 'score' => 1 }]
       ))
-      store = ResultStore.new(File.join(experiment, 'results.sqlite3'))
+      store = ExperimentDatabase.new(File.join(experiment, 'experiment.sqlite3'))
       GAMES.each { |black, white, outcome| store.record(**game(black, white, **outcome)) }
       # Rounds are part of the key, so the second game against the same
       # opponent goes in another round.

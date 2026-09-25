@@ -3,7 +3,7 @@ require 'fileutils'
 require 'json'
 require 'tmpdir'
 require_relative '../ruby/run_generation'
-require_relative '../ruby/result_store'
+require_relative '../ruby/experiment_database'
 
 $stop_now = false
 
@@ -25,7 +25,7 @@ module RunGenerationHelpers
 
   # Tests build the object without calling initialize and set its instance
   # variables directly. A fixed seed keeps parent selection reproducible.
-  def build_generation(generation: '1', settings: {}, rng: Random.new(42), store: ResultStore.new(':memory:'))
+  def build_generation(generation: '1', settings: {}, rng: Random.new(42), store: ExperimentDatabase.new(':memory:'))
     gen = RunGeneration.allocate
     gen.instance_variable_set(:@generation, generation)
     gen.instance_variable_set(:@settings, SETTINGS.merge(settings))

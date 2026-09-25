@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 require 'bundler/setup'
 require 'optparse'
-require_relative 'ruby/result_store'
+require_relative 'ruby/experiment_database'
 Bundler.require(:default)
 
 options = {}
@@ -48,10 +48,10 @@ $starting = true
 
 TO_COMBINE = %w[Brown AmiGo GnuGoLevel0 GnuGoLevel10]
 
-# stats only reads: games come from the result store the runner writes, and
+# stats only reads: games come from the experiment database the runner writes, and
 # the ranking from each generation's data.json.
-def result_store
-  $result_store ||= ResultStore.new('results.sqlite3', readonly: true)
+def experiment_database
+  $experiment_database ||= ExperimentDatabase.new('experiment.sqlite3', readonly: true)
 end
 
 def stats_for(generation)
@@ -60,7 +60,7 @@ def stats_for(generation)
   data = JSON.load_file(File.join(generation, 'data.json'))
   external_engines = data['players'].keys.find_all { |p| data['players'][p]['external'] }
   wins = external_engines.each_with_object({}) { |player, hash| hash[player] = Hash.new { |h, k| h[k] = 0 } }
-  games = result_store.games(generation.to_i)
+  games = experiment_database.games(generation.to_i)
 
   games.each do |game|
     # Draws and failed games have no winner and count for nobody.
@@ -134,8 +134,8 @@ loop do
            generations[0..-2].reverse.take(50).reverse
          end
 
-  # The runner creates the result store when it starts.
-  if gens.empty? || !File.exist?('results.sqlite3')
+  # The runner creates the experiment database when it starts.
+  if gens.empty? || !File.exist?('experiment.sqlite3')
     sleep(5)
     next
   end
