@@ -1,5 +1,6 @@
 require 'digest'
 require 'open3'
+require_relative 'benchmark'
 require_relative 'game_result'
 require_relative 'seeds'
 
@@ -20,7 +21,11 @@ class RunGeneration
   def call
     puts "\n*** GENERATION #{generation} [#{Time.now}] ***\n\n"
     setup do
-      play_games
+      result = play_games
+      # After the tournament, whose final ranking names the network to
+      # benchmark, and on resume too, so a checkpoint finishes its benchmark.
+      Benchmark.call(generation.to_i, settings, pool, store) if keep?(generation.to_i)
+      result
     end
   end
 
@@ -162,8 +167,8 @@ class RunGeneration
     # GNU Go, as a player and as the referee, picks moves at random unless it
     # gets a seed; one per game makes every game repeatable.
     seed = Seeds.gnugo(experiment_seed, 'game', generation.to_i, data['round'], game['black'], game['white'])
-    black = with_gnugo_seed(data['players'][game['black']]['command'], seed)
-    white = with_gnugo_seed(data['players'][game['white']]['command'], seed)
+    black = Seeds.with_gnugo_seed(data['players'][game['black']]['command'], seed)
+    white = Seeds.with_gnugo_seed(data['players'][game['white']]['command'], seed)
     size = settings['board_size']
     maxmoves = settings['max_moves']
     prefix = prefix_from(game)
@@ -171,10 +176,6 @@ class RunGeneration
     cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp --seed #{seed}" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves} 2> #{prefix}.err)
 
     { 'command' => cmd, 'identifier' => game }
-  end
-
-  def with_gnugo_seed(command, seed)
-    command.start_with?('gnugo ') ? "#{command} --seed #{seed}" : command
   end
 
   def score_game(game)

@@ -155,6 +155,20 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  def test_exports_one_network_to_a_path
+    with_store do |store|
+      store.record_network(2, '0.ann', 'mine'.b)
+      store.record_network(3, '0.ann', 'next'.b)
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, '2-0.ann')
+        assert_equal path, store.export_network(2, '0.ann', path)
+        assert_equal 'mine'.b, File.binread(path)
+        assert_nil store.export_network(2, '1.ann', File.join(dir, 'missing.ann'))
+        refute File.exist?(File.join(dir, 'missing.ann'))
+      end
+    end
+  end
+
   def test_recording_a_network_again_replaces_it
     with_store do |store|
       store.record_network(2, '0.ann', 'old'.b)

@@ -109,6 +109,16 @@ class ExperimentDatabase
     end
   end
 
+  # Writes one network to `path` and returns the path; nil, writing nothing,
+  # when the generation has no such network.
+  def export_network(generation, name, path)
+    weights = @db[:networks].where(generation:, name:).get(:weights)
+    return nil unless weights
+
+    File.binwrite(path, weights)
+    path
+  end
+
   # Replaces the generation's whole state in one transaction, so a crash
   # leaves either the old state or the new one. `retire_networks_of` deletes
   # that generation's networks in the same transaction, so parents are only

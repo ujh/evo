@@ -398,30 +398,6 @@ end
 class PlayRoundTest < Minitest::Test
   include RunGenerationHelpers
 
-  # Stands in for WorkerPool: "runs" a game by calling the block, which writes
-  # its result file, and hands the games back in the order they were queued.
-  class FakePool
-    attr_reader :commands
-
-    def initialize(&run)
-      @run = run
-      @queued = []
-      @commands = []
-    end
-
-    def submit(command, identifier)
-      @commands << command
-      @queued << identifier
-    end
-
-    # Every game "takes" 1.5 seconds.
-    def next_finished
-      identifier = @queued.shift
-      @run.call(identifier)
-      [identifier, 1.5]
-    end
-  end
-
   def setup_round(generation: 1)
     write_data(generation:, 'round' => 0,
                'players' => {
@@ -610,7 +586,7 @@ class ReproducibleRoundsTest < Minitest::Test
                  'ranking' => [{ 'name' => 'Brown1', 'score' => 1 }, { 'name' => 'a.ann', 'score' => 0 }])
       store = database
       gen = build_generation(store:)
-      gen.instance_variable_set(:@pool, PlayRoundTest::FakePool.new {})
+      gen.instance_variable_set(:@pool, FakePool.new {})
       capture_io { gen.send(:play_games) }
       assert_equal [[1, 'Brown1', 1, true], [2, 'a.ann', 0, false]],
                    store.ranking(1).map { |r| r.values_at(:rank, :name, :score, :external) }
@@ -687,5 +663,44 @@ class PlayRoundBookkeepingTest < Minitest::Test
       gen.send(:update_data, game, { 'winner' => 'a.ann' })
       assert_equal 1, gen.send(:data)['ranking'].first['score']
     end
+  end
+end
+
+class GenerationBenchmarkTest < Minitest::Test
+  include RunGenerationHelpers
+
+  # Runs a whole generation, with its networks already bred and a panel of
+  # Brown alone, and returns what call returned and the benchmark's rows.
+  # `round` 1 means the tournament is already over, as on a resume.
+  def run_generation(generation, round:, settings: {})
+    in_experiment do
+      store = ExperimentDatabase.new(':memory:')
+      store.save_benchmark_opponents([{ name: 'Brown', kind: 'bot', command: 'brown' }])
+      %w[a.ann b.ann].each { |name| store.record_network(generation, name, name) }
+      store.save_state(generation, { 'setup_complete' => true, 'round' => round, 'games' => [],
+                                     'players' => { 'a.ann' => {}, 'b.ann' => {} },
+                                     'ranking' => [{ 'name' => 'b.ann', 'score' => 1 }, { 'name' => 'a.ann', 'score' => 0 }] })
+      gen = build_generation(generation: generation.to_s, settings: { 'benchmark_games' => 2 }.merge(settings), store:)
+      gen.instance_variable_set(:@pool, FakePool.new { |game| copy_dat('black_wins', game.prefix) })
+      result = nil
+      capture_io { result = gen.call }
+      [result, store.benchmark_games(generation).map { |row| row.values_at(:network, :network_color, :winner) }]
+    end
+  end
+
+  def test_a_checkpoint_benchmarks_its_top_network_after_the_tournament
+    assert_equal [nil, [%w[b.ann black network], %w[b.ann white opponent]]], run_generation(10, round: 0)
+  end
+
+  def test_a_resumed_checkpoint_finishes_its_benchmark
+    assert_equal [:already_done, [%w[b.ann black network], %w[b.ann white opponent]]], run_generation(10, round: 1)
+  end
+
+  def test_other_generations_are_not_benchmarked
+    assert_equal [:already_done, []], run_generation(5, round: 1)
+  end
+
+  def test_keep_every_zero_benchmarks_no_generation
+    assert_equal [:already_done, []], run_generation(0, round: 1, settings: { 'keep_every' => 0 })
   end
 end

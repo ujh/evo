@@ -70,3 +70,27 @@ module RunGenerationHelpers
     end
   end
 end
+
+# Stands in for WorkerPool: "runs" a game by calling the block, which writes
+# its result file, and hands the games back in the order they were queued.
+class FakePool
+  attr_reader :commands
+
+  def initialize(&run)
+    @run = run
+    @queued = []
+    @commands = []
+  end
+
+  def submit(command, identifier)
+    @commands << command
+    @queued << identifier
+  end
+
+  # Every game "takes" 1.5 seconds.
+  def next_finished
+    identifier = @queued.shift
+    @run.call(identifier)
+    [identifier, 1.5]
+  end
+end
