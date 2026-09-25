@@ -116,7 +116,7 @@ Fix each with a test that fails before the fix.
 | Location | Problem | Effect |
 | --- | --- | --- |
 | [`multi:19`](multi) | References the undefined variable `next_input`. | A mistyped experiment name raises `NameError` instead of the intended message. |
-| `engine/main.c`, `initial-population/main.c`, `evolve/evolve.c` | RNG seeded with `time(NULL)` and the address of the global `rng`. | Runs cannot be reproduced, and processes started in the same second rely on address randomization for different seeds. Seeds should be passed in and recorded. |
+| [`ruby/run_generation.rb`](ruby/run_generation.rb) | `initial-population` and `evolve` accept a seed, but the runner does not pass one, and parent selection uses an unseeded `Random`. | Runs cannot be reproduced. Derive every seed from one experiment seed in the settings and record them. |
 
 ### Structure and hygiene
 

@@ -25,6 +25,13 @@ evolvetest: evolve
 	! ./evolve 0.9 . ../engine/example.ann child-dir.ann
 	test ! -e child-dir.ann
 	! ./evolve 0.9 ../engine/example.ann ../engine/example.ann
+	./evolve 0.5 ../engine/example.ann child.ann seeded-a.ann 7 > seeded-a.out
+	./evolve 0.5 ../engine/example.ann child.ann seeded-b.ann 7 > seeded-b.out
+	cmp seeded-a.ann seeded-b.ann
+	test "$$(grep ^summary seeded-a.out)" = "$$(grep ^summary seeded-b.out)"
+	grep -Eq '^summary operator=(crossover|mutation) differs_from_first=[0-9]+ differs_from_second=[0-9]+$$' seeded-a.out
+	! ./evolve 0.5 ../engine/example.ann child.ann seeded-c.ann not-a-seed
+	rm -f seeded-a.ann seeded-b.ann seeded-a.out seeded-b.out
 
 test: $(OBJS) test.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)

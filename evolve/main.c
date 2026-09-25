@@ -26,19 +26,48 @@ SOFTWARE.
 
 #include <errno.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "evolve.h"
 
+// A seed is a non-negative decimal integer; anything else is an error, so a
+// typo cannot silently fall back to an unseeded run.
+static uint64_t parse_seed(const char *text) {
+  char *end;
+  errno = 0;
+  unsigned long long value = strtoull(text, &end, 10);
+  if (errno != 0 || end == text || *end != '\0' || text[0] == '-') {
+    fprintf(stderr, "seed must be a non-negative integer, got %s\n", text);
+    exit(1);
+  }
+  return value;
+}
+
+// How many weights of the child differ from a parent's.
+static int count_differences(genann const *child, genann const *parent) {
+  int differences = 0;
+  for (int i = 0; i < child->total_weights; i++) {
+    if (child->weight[i] != parent->weight[i]) differences++;
+  }
+  return differences;
+}
+
 int main(int argc, char **argv) {
   // Do not buffer stdout
   setbuf(stdout, NULL);
-  seed();
 
-  if (argc != 5) {
-    fprintf(stderr, "4 arguments required: cross_over_rate, ann1, ann2, output!\n");
+  if (argc != 5 && argc != 6) {
+    fprintf(stderr, "4 arguments required: cross_over_rate, ann1, ann2, output, and optionally a seed!\n");
     exit(1);
+  }
+
+  // Without a seed the child differs on every run.
+  if (argc == 6) {
+    pcg32_srandom(parse_seed(argv[5]), 54u);
+  } else {
+    seed();
   }
 
   double cross_over_rate = atof(argv[1]);
@@ -57,11 +86,14 @@ int main(int argc, char **argv) {
   check_nns(anns);
 
   genann *child = NULL;
+  const char *operator_name;
 
   if (GENANN_RANDOM() < cross_over_rate) {
     child = child_from_cross_over(anns);
+    operator_name = "crossover";
   } else {
     child = child_from_mutation(anns);
+    operator_name = "mutation";
   }
 
   printf("Saving output to %s ...", output_name);
@@ -76,4 +108,13 @@ int main(int argc, char **argv) {
     exit(1);
   }
   printf("\n");
+
+  // One machine-readable line for the runner. A child identical to a parent
+  // differs from it in 0 weights.
+  printf(
+    "summary operator=%s differs_from_first=%d differs_from_second=%d\n",
+    operator_name,
+    count_differences(child, anns[0]),
+    count_differences(child, anns[1])
+  );
 }
