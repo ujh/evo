@@ -49,6 +49,40 @@ if [ "$count" -ne 9 ]; then
   failed=1
 fi
 
+# GTP play follows Brown's rules: it accepts suicide (the stone is removed
+# at once), refuses an occupied point and an immediate ko recapture, and
+# accepts pass. Any other move ends the ko.
+rules=$(./evo example.ann 2>/dev/null <<'EOF'
+boardsize 9
+clear_board
+play b B9
+play b A8
+play b C8
+play b B7
+play w C9
+play w D8
+play w C7
+play w B8
+play b C8
+play b E5
+play b C8
+play b H9
+play b J8
+play w J9
+play b J9
+play b E5
+play w pass
+quit
+EOF
+) || true
+# Successful answers end in a space; J9 is empty again after the suicide.
+got=$(printf '%s\n' "$rules" | grep -v '^$' | sed 's/ *$//' | tr '\n' '|')
+want='=|=|=|=|=|=|=|=|=|=|? illegal move|=|=|=|=|=|=|? illegal move|=|=|'
+if [ "$got" != "$want" ]; then
+  printf 'rules session: expected %s\n               got %s\n' "$want" "$got" >&2
+  failed=1
+fi
+
 # A network file that is missing or does not hold a network must stop evo
 # with exit status 1 and a message naming the file, not crash it.
 refuses() {

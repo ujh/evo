@@ -121,7 +121,6 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 ### Structure and hygiene
 
 - **Record the opponent panel and scoring rules.** They live in the code (`EXTERNAL_PLAYERS`, `score_game`), so a later change silently changes what an older experiment's records mean. Store them with the experiment, like its provenance.
-- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass).
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library

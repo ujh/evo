@@ -25,7 +25,10 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ## Layout
 
-- `engine/`: `evo`, a GTP engine built on Brown's board code (`brown.c`, `gtp.c`) plus the network move policy (`generate_move.c`). Nothing tests its Go rules.
+- `engine/`: `evo`, a GTP engine built on Brown's board code (`brown.c`, `gtp.c`) plus the network move policy (`generate_move.c`). `engine/rules_test.c` (`make test` in `engine/`) pins Brown's rules and the move filter, and `enginetest.sh` checks them through GTP `play`:
+  - Captures remove every neighboring opponent string left without a liberty. Ko is simple ko: only an immediate single-stone recapture is refused, and any other move or a pass ends it.
+  - `legal_move` and GTP `play` accept suicide; the suicided string is removed at once.
+  - `genmove` plays the highest-scoring point that is legal, not suicide, and not the opponent's suicide point (in effect an own eye) unless it touches an opponent stone. It passes when nothing is allowed or the pass output scores at least as high, so a tie (common with saturated cached sigmoid outputs) passes.
 - `initial-population/`: `initial-population POP SIZE LAYERS NEURONS [SEED]` writes random networks named `0001.ann`, `0002.ann`, and so on.
 - `evolve/`: `evolve RATE A.ann B.ann OUT.ann [SEED]` writes the child to `OUT.ann`. Its last stdout line is `summary operator=crossover|mutation differs_from_first=N differs_from_second=N` (weights differing from each parent; 0 means an identical copy). It either crosses over or mutates; it never does both. It exits 1 without writing anything when an input cannot be read, when the parents differ in sizes or activations, or when the child cannot be written. The runner checks the exit status and that the file exists, and stops breeding before deleting the parents if either fails.
   - `evolve/test.c` (`make test` in `evolve/`) pins `mutate()`'s hard-coded values statistically: it mutates seeded networks thousands of times and checks the shares against tolerances of about four standard errors. Changing a mutation value means updating those tests. The statistical checks do not depend on the exact random draws; only the copy and seed tests rely on a particular seed.
