@@ -15,7 +15,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 | Build | `mise run build` (root `make`; builds `pcg-c` first) |
 | Tests (C and Ruby) | `mise run test` (or `test-c`, `test-ruby` alone) |
 | Full check, same as CI | `mise run verify` (tests, `doctor`, and `smoke`: refereed GoGui matches with every bot and Evo) |
-| Create an experiment without prompts | `mise run new-experiment NAME key=value ...` |
+| Create an experiment without prompts | `mise run new-experiment NAME --board-size 9 ...` (without arguments it lists the options) |
 | Run/resume experiment | `mise run run NAME [CONCURRENCY [one-generation]]` |
 
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
@@ -67,10 +67,10 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ### Running experiments
 
-- On a first run, `mise run run NAME` prompts on STDIN for settings. To start without prompts, create the experiment first; `SetupExperiment::SETTINGS` lists every setting and its default, and settings are stored as **strings**:
+- On a first run, `mise run run NAME` prompts on STDIN for settings. To start without prompts, create the experiment first; `SetupExperiment::SETTINGS` lists every setting and its default (`mise run new-experiment` without arguments shows them), and settings are stored as **strings**:
   ```sh
-  mise run new-experiment NAME board_size=9 population_size=4 hidden_layers=1 layer_size=10 \
-    cross_over_rate=0.5 game_length=10 max_moves=200 tournament_rounds=1
+  mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 \
+    --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 1
   ```
   With `4 one-generation`, that runs one generation of 12 pairings (11 games plus a bye for the odd player out) in a few seconds, which makes it a good smoke run. Delete `experiments/NAME` afterwards. Running it again breeds and plays the next generation. `experiments/` is gitignored.
 - The runner works inside `experiments/NAME/GEN/` and calls `../evo`, `../evolve`, and `../initial-population`. Those are **symlinks** to the build output, so rebuilding changes a running experiment.

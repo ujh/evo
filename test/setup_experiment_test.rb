@@ -5,8 +5,8 @@ require 'tmpdir'
 require_relative '../ruby/setup_experiment'
 
 class SetupExperimentTest < Minitest::Test
-  REQUIRED = %w[board_size=9 population_size=4 hidden_layers=1 layer_size=10 cross_over_rate=0.5
-                game_length=10 max_moves=200 tournament_rounds=1].freeze
+  REQUIRED = %w[--board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5
+                --game-length 10 --max-moves 200 --tournament-rounds 1].freeze
 
   def in_tmpdir(&)
     Dir.mktmpdir { |dir| Dir.chdir(dir, &) }
@@ -22,17 +22,37 @@ class SetupExperimentTest < Minitest::Test
   end
 
   def test_an_argument_overrides_a_default
-    assert_equal '5', SetupExperiment.settings_from_arguments(REQUIRED + ['tournament_size=5'])['tournament_size']
+    assert_equal '5', SetupExperiment.settings_from_arguments(REQUIRED + %w[--tournament-size 5])['tournament_size']
   end
 
   def test_a_missing_required_setting_is_named
-    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED - ['max_moves=200']) }
-    assert_includes error.message, 'max_moves'
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED[0..-3]) }
+    assert_includes error.message, '--tournament-rounds'
   end
 
   def test_an_unknown_setting_is_named
-    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + ['board=9']) }
-    assert_includes error.message, 'board'
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[--boards 9]) }
+    assert_includes error.message, '--boards'
+  end
+
+  def test_an_abbreviated_option_is_not_accepted
+    # OptionParser would otherwise read --board as --board-size.
+    assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED[2..] + %w[--board 9]) }
+  end
+
+  def test_an_option_without_a_value_is_an_error
+    assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[--seed]) }
+  end
+
+  def test_a_stray_argument_is_an_error
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[extra]) }
+    assert_includes error.message, 'extra'
+  end
+
+  def test_the_help_lists_every_setting_with_its_default
+    help = SetupExperiment.option_parser({}).help
+    SetupExperiment::SETTINGS.each_key { |key| assert_includes help, "--#{key.tr('_', '-')}" }
+    assert_includes help, 'default 3'
   end
 
   def test_create_writes_the_settings_into_a_new_experiment

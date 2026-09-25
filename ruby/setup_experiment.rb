@@ -1,4 +1,5 @@
 require 'fileutils'
+require 'optparse'
 require_relative 'experiment_database'
 require_relative 'seeds'
 
@@ -33,8 +34,8 @@ class SetupExperiment
     end
   end
 
-  # Creates an experiment from key=value arguments, so it can be started
-  # without the prompts (`mise run new-experiment NAME key=value ...`).
+  # Creates an experiment from command-line options, so it can be started
+  # without the prompts (`mise run new-experiment NAME --board-size 9 ...`).
   def self.create(experiment_dir, arguments)
     settings = settings_from_arguments(arguments)
     FileUtils.mkdir_p(experiment_dir)
@@ -47,20 +48,34 @@ class SetupExperiment
     database&.close
   end
 
-  def self.settings_from_arguments(arguments)
-    given = arguments.to_h do |argument|
-      key, value = argument.split('=', 2)
-      raise ArgumentError, "expected key=value, got #{argument}" if value.nil?
-
-      [key, value]
+  # One --option per setting (board_size becomes --board-size), filling
+  # `given` as it parses.
+  def self.option_parser(given)
+    OptionParser.new do |parser|
+      parser.banner = 'Usage: mise run new-experiment NAME [options]'
+      # Without this, OptionParser takes --board for --board-size.
+      parser.require_exact = true
+      SETTINGS.each do |key, (prompt, default)|
+        note = if default.nil? then 'required'
+               elsif default.respond_to?(:call) then 'default random'
+               else "default #{default}"
+               end
+        parser.on("--#{key.tr('_', '-')} VALUE", "#{prompt} (#{note})") { |value| given[key] = value }
+      end
     end
-    unknown = given.keys - SETTINGS.keys
-    raise ArgumentError, "unknown settings: #{unknown.join(', ')}" if unknown.any?
+  end
+
+  def self.settings_from_arguments(arguments)
+    given = {}
+    rest = option_parser(given).parse(arguments)
+    raise ArgumentError, "unexpected arguments: #{rest.join(' ')}" if rest.any?
 
     missing = SETTINGS.select { |key, (_, default)| default.nil? && !given.key?(key) }.keys
-    raise ArgumentError, "missing settings: #{missing.join(', ')}" if missing.any?
+    raise ArgumentError, "missing options: #{missing.map { |key| "--#{key.tr('_', '-')}" }.join(', ')}" if missing.any?
 
     SETTINGS.to_h { |key, (_, default)| [key, given.fetch(key) { default_for(default) }] }
+  rescue OptionParser::ParseError => e
+    raise ArgumentError, e.message
   end
 
   def self.default_for(default)

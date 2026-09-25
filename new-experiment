@@ -4,10 +4,9 @@ require_relative "ruby/all"
 
 # Creates experiments/NAME with its settings, without the prompts.
 name, *arguments = ARGV
-if name.nil? || name.include?("=")
-  warn "Usage: mise run new-experiment NAME key=value ..."
-  warn "Settings: #{SetupExperiment::SETTINGS.keys.join(', ')}"
-  exit 1
+if name.nil? || name.start_with?("-")
+  puts SetupExperiment.option_parser({}).help
+  exit(name.nil? ? 1 : 0)
 end
 
 begin
@@ -15,5 +14,6 @@ begin
   puts "Created experiments/#{name} with seed #{settings['seed']}"
 rescue ArgumentError => e
   warn e.message
+  warn "Run mise run new-experiment without arguments to list the options."
   exit 1
 end
