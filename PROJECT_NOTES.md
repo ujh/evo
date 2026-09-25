@@ -62,9 +62,9 @@ Many settings rest on assumptions nobody has checked: the tournament size, wheth
 
 ## Go rules and scoring boundary
 
-Brown's internal final-status algorithm assumes the board has been filled according to Brown's original move policy. Evo can pass earlier, so those assumptions do not generally hold. The GNU Go referee is consequently an important part of the current experimental setup.
+Brown's internal final-status algorithm assumes the board has been filled according to Brown's original move policy. Evo can pass earlier, so those assumptions do not generally hold. The arena scores network games by Tromp–Taylor instead, but the GNU Go referee still decides every game with a bot and the whole benchmark.
 
-Before treating results as reliable, specify the board size, suicide policy, ko rule, and adjudication of unfinished games. The local engine uses simple ko and accepts suicide through `play`, although its generated moves exclude suicide. Those conventions should agree with the surrounding match system.
+Before treating results as reliable, specify the board size, suicide policy, ko rule, and how GNU Go adjudicates unfinished bot and benchmark games. The local engine uses simple ko and accepts suicide through `play`, although its generated moves exclude suicide. Those conventions should agree with the surrounding match system.
 
 ## Comparing the owner's two proposed directions
 
