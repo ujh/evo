@@ -7,7 +7,7 @@ Follow these steps in order for every PR. The PR title and body follow the conve
 3. List what the change makes newly true. Search the whole repository, including files the diff does not touch, for text that still says the old thing, and correct it.
 4. Review the whole branch (`git diff origin/main...HEAD`) under the [review rules](#review-rules) below, and loop until a round is clean.
 5. Push and open the PR.
-6. Run `mise run pr-checks <pr>`. It waits for CI and fails unless every check passed on the local `HEAD` and the PR is up to date with `main` without conflicts. If a check fails, fix the cause. Do not skip or disable it. If the PR is behind `main`, follow the command the script prints, then go back to step 2.
+6. Run `mise run pr-checks <pr>`. It waits for CI and fails unless every check passed on the local `HEAD` and the PR is up to date with `main` without conflicts. If a check fails, fix the cause. Do not skip or disable it. If the PR is behind `main`, follow the command the script prints, then go back to step 2. Run it on a commit that is pushed: it waits for GitHub to show the local `HEAD`, so on an unpushed commit it takes about five minutes to fail.
 7. For any later fix, repeat steps 1–4 for the whole branch, push, then repeat step 6.
 
 No external reviewer runs on this repository, so do not wait for review comments. The CI result is the only thing to check after pushing.
@@ -34,7 +34,7 @@ These are not findings:
 - **Important:** a real defect that someone hits in normal use, without corrupting results.
 - **Nit:** anything else that is still true and worth saying.
 
-Tests follow the risk. In experiment code (the engine, `evolve`, `initial-population`, the runner, scoring), a behavior change with no test that would fail when it breaks is important. In developer tooling (the `pr-*` scripts, mise tasks), ask for a test only where a break would produce a false pass.
+Tests follow the risk. In experiment code (the engine, `evolve`, `initial-population`, the runner, scoring), a behavior change with no test that would fail when it breaks is important. In developer tooling (the `pr-*` scripts, mise tasks), ask for a test only where a break would produce a false pass. A test counts only if it fails when the behavior breaks: before relying on a new test, undo or break the fix and check that the test fails.
 
 ### The loop
 

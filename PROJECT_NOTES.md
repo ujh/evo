@@ -123,7 +123,7 @@ Fix each with a test that fails before the fix.
 - **Move notifications out of `stats`.** `stats` still sends the `ntfy` notification, which belongs in the runner or a separate command, and builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
 - **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
-- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), mutation statistics, the file format round trip, and resuming a generation.
+- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass) and mutation statistics.
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library
@@ -144,7 +144,7 @@ The largest structural change suggested by the timing sample is a C program that
 
 ### Suggested cleanup order
 
-1. Add characterization tests for crossover and mutation statistics, the file round trip, and a short scripted GTP game.
+1. Add characterization tests for mutation statistics.
 2. Fix the result-changing defects above, one change at a time, each with its test.
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
 4. Type the settings, record the code revision, and copy the binaries.

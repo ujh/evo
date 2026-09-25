@@ -21,6 +21,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
 - `mise run example` opens the GoGui window. Do not use it headless. `gogui-twogtp` runs without a display.
 - Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` and set its instance variables directly (settings, a seeded `rng`, a fake pool), and they stub `../evolve` by overriding `run_evolve` on that object (and `initial-population` by overriding `system`). The PR script tests run `scripts/pr-checks.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
+- `ExperimentDatabase#save_state` and `RunGeneration#save_data` take a keyword argument besides the state hash (the test helper `write_data` accepts either form). In Ruby 3 a brace-less hash argument such as `save_state(1, 'round' => 0)` is then taken as keywords and fails with a wrong-number-of-arguments error, so pass the state in braces: `save_state(1, { 'round' => 0 })`.
 
 ## Layout
 
@@ -48,6 +49,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 - Besides `games`, the experiment database records `births` (each network's parents, operator, differing weights, seed, and SHA-256 of its `.ann`; generation 0 has operator `initial`) and `rankings` (each generation's standings, kept current after every game; final once the generation is done).
 - Brown's own `final_score` is unreliable on arbitrary positions: an empty 9×9 board scores `W+87.5`. Use the referee's result.
 - The build uses `-march=native`. Binaries are for the local machine only.
+- macOS ships GNU make 3.81, which compares timestamps to the second. A C file edited and rebuilt within the same second can leave the old object in place, so a quick edit-rebuild-test loop (such as checking that a test catches a mutant) may run a stale binary. Delete the `.o` files before rebuilding in that case.
 
 ### Game results
 
