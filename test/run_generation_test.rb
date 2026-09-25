@@ -11,9 +11,9 @@ class ScoreGameTest < Minitest::Test
 
   def players
     {
-      '0001.ann' => { 'command' => '../evo 0001.ann', 'points' => 1 },
-      '0002.ann' => { 'command' => '../evo 0002.ann', 'points' => 1 },
-      'GnuGoLevel101' => { 'command' => 'gnugo --level 10 --mode gtp', 'points' => 100, 'external' => true }
+      '0001.ann' => { 'command' => '../evo 0001.ann' },
+      '0002.ann' => { 'command' => '../evo 0002.ann' },
+      'GnuGoLevel101' => { 'command' => 'gnugo --level 10 --mode gtp', 'external' => true }
     }
   end
 
@@ -27,12 +27,12 @@ class ScoreGameTest < Minitest::Test
     end
   end
 
-  def test_black_win_earns_the_losers_points
-    assert_equal({ 'winner' => '0001.ann', 'points' => 100 }, score('black_wins'))
+  def test_black_win_names_black_as_winner
+    assert_equal({ 'winner' => '0001.ann' }, score('black_wins'))
   end
 
-  def test_white_win_earns_the_losers_points
-    assert_equal({ 'winner' => 'GnuGoLevel101', 'points' => 1 }, score('white_wins'))
+  def test_white_win_names_white_as_winner
+    assert_equal({ 'winner' => 'GnuGoLevel101' }, score('white_wins'))
   end
 
   def test_draw_gives_no_points_and_is_not_a_failure
@@ -45,11 +45,11 @@ class ScoreGameTest < Minitest::Test
 
   def test_crashed_network_loses_whatever_the_referee_said
     # Evo exited on its first move, yet GNU Go scored the position B+17.5.
-    assert_equal({ 'winner' => 'GnuGoLevel101', 'points' => 1 }, score('black_crashed'))
+    assert_equal({ 'winner' => 'GnuGoLevel101' }, score('black_crashed'))
   end
 
   def test_crashed_white_network_loses_to_black
-    assert_equal({ 'winner' => '0001.ann', 'points' => 1 }, score('white_crashed', NETWORK_VS_NETWORK))
+    assert_equal({ 'winner' => '0001.ann' }, score('white_crashed', NETWORK_VS_NETWORK))
   end
 
   def test_crashed_external_bot_gives_no_points_and_is_flagged
@@ -67,7 +67,7 @@ class ScoreGameTest < Minitest::Test
   end
 
   def test_move_limit_uses_the_referee_score
-    assert_equal({ 'winner' => 'GnuGoLevel101', 'points' => 1 }, score('move_limit'))
+    assert_equal({ 'winner' => 'GnuGoLevel101' }, score('move_limit'))
   end
 
   def test_missing_result_file_gives_no_points_and_is_flagged
@@ -77,10 +77,6 @@ class ScoreGameTest < Minitest::Test
   def test_result_file_without_a_game_line_gives_no_points_and_is_flagged
     result = score(nil) { |prefix| File.write("#{prefix}.dat", "# Black: Brown\n#GAME\tRES_B\n") }
     assert_equal({ 'winner' => nil, 'failure' => 'no game in result file' }, result)
-  end
-
-  def test_bye_goes_to_black_without_reading_a_result
-    assert_equal({ 'winner' => '0001.ann' }, score(nil, { 'black' => '0001.ann', 'white' => nil }))
   end
 
   def test_result_file_prefix_uses_basenames_and_round
@@ -99,7 +95,7 @@ class ParentSelectionTest < Minitest::Test
   def previous_data(scores)
     {
       'players' => scores.keys.to_h do |name|
-        [name, name.end_with?('.ann') ? { 'points' => 1 } : { 'points' => 1, 'external' => true }]
+        [name, name.end_with?('.ann') ? {} : { 'external' => true }]
       end,
       'ranking' => scores.map { |name, score| { 'name' => name, 'score' => score } }
     }
@@ -175,7 +171,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
       File.write(File.join(gen0, 'quiet.err'), '')
       File.write(File.join(gen0, 'crashed.err'), "Black program died\n")
       write_data({
-                   'players' => scores.keys.to_h { |name| [name, { 'points' => 1 }] },
+                   'players' => scores.keys.to_h { |name| [name, {}] },
                    'ranking' => scores.map { |name, score| { 'name' => name, 'score' => score } }
                  }, File.join(gen0, 'data.json'))
 
@@ -273,11 +269,12 @@ class GamesFromRankingTest < Minitest::Test
     assert_equal [%w[a.ann b.ann], %w[c.ann d.ann]], result.map { |game| game.values.sort }
   end
 
-  def test_odd_player_out_gets_a_bye_defect
+  def test_odd_player_out_sits_the_round_out
     assert_equal [{ black: 'c.ann', white: nil }], games(%w[a.ann b.ann c.ann]).drop(1)
   end
 
-  def test_external_players_are_paired_with_each_other_defect
+  # Bots play in the ranking like networks, so their place in it can be compared.
+  def test_external_players_are_paired_like_networks
     assert_equal %w[Brown1 Brown2], games(%w[Brown1 Brown2 a.ann b.ann]).first.values.sort
   end
 
@@ -330,9 +327,9 @@ class PlayRoundTest < Minitest::Test
   def setup_round
     write_data('round' => 0,
                'players' => {
-                 'a.ann' => { 'command' => '../evo a.ann', 'points' => 1 },
-                 'b.ann' => { 'command' => '../evo b.ann', 'points' => 1 },
-                 'c.ann' => { 'command' => '../evo c.ann', 'points' => 1 }
+                 'a.ann' => { 'command' => '../evo a.ann' },
+                 'b.ann' => { 'command' => '../evo b.ann' },
+                 'c.ann' => { 'command' => '../evo c.ann' }
                },
                'games' => [{ 'black' => 'a.ann', 'white' => 'b.ann' }, { 'black' => 'c.ann', 'white' => nil }],
                'ranking' => %w[a.ann b.ann c.ann].map { |name| { 'name' => name, 'score' => 0 } })
@@ -352,7 +349,8 @@ class PlayRoundTest < Minitest::Test
       capture_io { gen.send(:play_round) }
       data = gen.send(:data)
       assert_empty data['games']
-      assert_equal({ 'a.ann' => 1, 'b.ann' => 0, 'c.ann' => 1 }, data['ranking'].to_h { |r| r.values_at('name', 'score') })
+      # c.ann sat the round out and gets nothing for it.
+      assert_equal({ 'a.ann' => 1, 'b.ann' => 0, 'c.ann' => 0 }, data['ranking'].to_h { |r| r.values_at('name', 'score') })
       assert_equal 1, pool.commands.size
       assert_includes pool.commands.first, '-black "../evo a.ann" -white "../evo b.ann"'
     end
@@ -391,25 +389,18 @@ class PlayRoundBookkeepingTest < Minitest::Test
     end
   end
 
-  def test_prepare_game_awards_a_bye_one_point
-    in_experiment do
-      write_data('round' => 0, 'players' => {})
-      assert_equal({ 'winner' => 'a.ann', 'points' => 1 },
-                   build_generation.send(:prepare_game, { 'black' => 'a.ann', 'white' => nil }))
-    end
-  end
-
-  def test_update_data_adds_points_removes_the_game_and_sorts_the_ranking
+  def test_update_data_gives_the_winner_one_point_removes_the_game_and_sorts_the_ranking
     in_experiment do
       game = { 'black' => 'a.ann', 'white' => 'b.ann' }
       write_data('games' => [game, { 'black' => 'c.ann', 'white' => nil }],
                  'ranking' => [{ 'name' => 'a.ann', 'score' => 0 }, { 'name' => 'b.ann', 'score' => 2 },
                                { 'name' => 'c.ann', 'score' => 1 }])
       gen = build_generation
-      gen.send(:update_data, game, { 'winner' => 'a.ann', 'points' => 50 })
+      gen.send(:update_data, game, { 'winner' => 'a.ann' })
       data = gen.send(:data)
       assert_equal [{ 'black' => 'c.ann', 'white' => nil }], data['games']
-      assert_equal [['a.ann', 50], ['b.ann', 2], ['c.ann', 1]], data['ranking'].map(&:values)
+      assert_equal 'b.ann', data['ranking'].first['name']
+      assert_equal({ 'a.ann' => 1, 'b.ann' => 2, 'c.ann' => 1 }, data['ranking'].to_h { |r| r.values_at('name', 'score') })
     end
   end
 
