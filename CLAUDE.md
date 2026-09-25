@@ -6,7 +6,7 @@ Evo evolves the weights of a fixed dense neural network that plays Go. The C pro
 
 ## Commands
 
-Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-tools/current/bin` (GNU Go, Brown, AmiGoGtp, GoGui) on `PATH`. A bare shell has none of these. For one-off commands, use `mise exec -- <cmd>`.
+Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local/evo-tools/current/bin` (GNU Go, Brown, AmiGoGtp, GoGui) on `PATH`. A bare shell has none of these. For one-off commands, use `mise exec -- <cmd>`.
 
 | Task | Command |
 | --- | --- |
@@ -19,7 +19,7 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
 - `mise run example` opens the GoGui window. Do not use it headless. `gogui-twogtp` runs without a display.
-- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` because `new` starts Ractors, and they stub `../evolve` by overriding the backtick method. There is no Ruby linter yet.
+- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` because `new` starts Ractors, and they stub `../evolve` by overriding the backtick method. The PR script tests run `scripts/pr-checks.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
 
 ## Layout
 
@@ -51,6 +51,7 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 - A GoGui `.dat` file is tab-separated: `GAME RES_B RES_W RES_R ALT DUP LEN TIME_B TIME_W CPU_B CPU_W ERR ERR_MSG`.
   - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` still split on whitespace, so an empty column shifts `RES_R` and `LEN`, and anything not starting with `B` counts as a White win there.
   - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file. Only stderr says which program crashed ("Black program died" or "White program died"). Breeding deletes the empty `.err` files and keeps the rest.
+- Points for beating an opponent: 1 for a network or Brown, 10 for AmiGo, 50 for GNU Go level 0, 100 for level 10 (`EXTERNAL_PLAYERS` in `ruby/run_generation.rb`). Parents are sampled in proportion to the cube of the score (`parent_pool` in `ruby/run_generation.rb`).
 - Scoring rules (agreed with the owner, in `score_game` and `ruby/game_result.rb`):
   - A referee win (`B+` or `W+`) counts, including games stopped by the move limit. The winner gets the loser's `points`.
   - A draw gives no points.
@@ -81,10 +82,18 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 - The worker pool uses Ractors (`Ractor.yield`/`take`), which Ruby 4.0 removed. Stay on the pinned Ruby 3.3.0 until the planned thread-pool rewrite. The "Ractor is experimental" warning is expected.
 - GNU Go 3.8 needs `scripts/patches/gnugo-3.8-gg-sort-empty.patch`. Without it, clang builds abort in `final_score` and during level 10 move generation. GCC builds happen to work either way. When changing how external tools are built, bump `release_id` in `scripts/install-external-tools.sh` so existing installs rebuild, then run `mise run verify`.
 
+### Performance
+
+- One timing sample on macOS (24 Sep 2026) put the cost in adjudication, not inference. Its referee was a clang-built GNU Go from before the `gg_sort` patch, so recheck it before relying on it.
+  - A 9×9 network with 3 hidden layers of 400 neurons (about 387k weights) answered 1,000 `genmove` commands in 0.21 s, about 0.2 ms per move. Engine start and exit took about 10 ms.
+  - Through `gogui-twogtp`, a random network playing itself passed after 18 moves and took 2.1–2.2 s with the GNU Go referee, but 0.12 s without it. Complete games of 93–180 moves between Brown, AmiGo, and the example network took 0.16 s each.
+  - Early-passing networks, which is most of an untrained population, are the most expensive games to referee.
+
 ## Working conventions
 
 - Fix defects test-first: write a test that fails, then fix. The cleanup order in `PROJECT_NOTES.md` puts characterization tests and the result-changing defects before any new experiment.
 - Commits: imperative, sentence-case subject (for example "Build GNU Go with common symbols on Linux"), with a body that explains why.
 - Branches: `fix/…`, `chore/…`, `docs/…`.
 - PRs: this is a personal repo with no Jira, so titles and bodies carry no ticket key. The body is one short paragraph that starts with the why, plus a line on how the change was verified.
+- Open and update every PR by following `docs/pull-requests.md`: tests, the sweep for stale text, the review loop and its rules, and the CI check.
 - CI (`.github/workflows/ci.yml`) runs on Ubuntu: `mise run setup-experiments`, then `mise run verify`. Local setup is usually macOS with Apple clang, so code that builds GNU Go or other external tools has to work with both clang and GCC. A green local `verify` says nothing about Linux; wait for CI.

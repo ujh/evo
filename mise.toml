@@ -1,6 +1,7 @@
 [tools]
 ruby = "3.3.0"
 java = "temurin-21.0.11+10.0.LTS"
+jq = "1.8.2"
 
 [env]
 _.path = ".local/evo-tools/current/bin"
@@ -26,7 +27,7 @@ description = "Run the C test suite"
 run = "make test"
 
 [tasks.test-ruby]
-description = "Run the Ruby tests for the tournament runner"
+description = "Run the Ruby tests (tournament runner and PR check scripts)"
 run = "bundle exec ruby -e 'Dir[\"test/**/*_test.rb\"].sort.each { |f| require File.expand_path(f) }'"
 
 [tasks.verify]
@@ -57,3 +58,7 @@ description = "Open the bundled network self-play example in GoGui"
 depends = ["build", "doctor"]
 run = "sh scripts/run-example.sh"
 raw = true
+
+[tasks.pr-checks]
+description = "Wait for a PR's CI and fail unless every check passed on HEAD: mise run pr-checks PR"
+run = "sh scripts/pr-checks.sh"

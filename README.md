@@ -6,7 +6,7 @@ _This is an experiment to see if genetic algorithms can be used to evolve a neur
 ## Requirements
 
 Install [mise](https://mise.jdx.dev/) first. The project configuration pins Ruby
-3.3.0 and Temurin JDK 21 for GoGui. On macOS or Linux, you also need C and C++
+3.3.0, Temurin JDK 21 for GoGui, and jq. On macOS or Linux, you also need C and C++
 compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
 `sha256sum`.
 
