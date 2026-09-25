@@ -133,7 +133,7 @@ The largest structural change for speed is a C program that loads a set of netwo
 
 1. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
-It can be interleaved with milestone 1 below, and should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
+The arena can be interleaved with milestone 1 below, and should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
 ## Proposed sequence
 
