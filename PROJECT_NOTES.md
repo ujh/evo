@@ -128,7 +128,7 @@ Fix each with a test that fails before the fix.
 ### Structure and hygiene
 
 - **One copy of each shared file.** `genann.c` and `genann.h` exist in identical copies in `lib/`, `engine/`, `evolve/`, and `initial-population/`, and `minctest.h` in `lib/`, `engine/`, and `evolve/`. Every Makefile compiles its local copy. `lib/` is unused. Build shared code once from `lib/` (as a static library or shared object files) so a fix cannot land in one copy only.
-- **Concurrency without Ractors.** The worker pool uses `Ractor.yield` and `Ractor#take`, which Ruby 4.0 removed in favor of `Ractor::Port`, so the harness will not run on current Ruby. Each generation also creates new Ractors and re-installs the `SIGINT` trap without stopping the previous ones. The workers only call `system`, which releases the interpreter lock, so a fixed pool of threads fed from a `Queue`, created once per experiment, is simpler and sufficient. Move the mise Ruby pin to 4.0 in the same change, and test experiment runs under it. This is urgent: on Ruby 3.3, a worker Ractor often dies inside `system` with `No live threads left. Deadlock? (fatal)`, after which the runner spins at 100% CPU and ignores `SIGTERM`. It happened in most resumed runs of generation 1, on `main` as well as with the new parent selection.
+- **Move to Ruby 4.0.** The worker pool now uses threads, so nothing depends on the Ractor calls Ruby 4.0 removed. Bump the mise Ruby pin, update the gems, and test experiment runs under it.
 - **Typed, validated settings.** `settings.json` stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment needs (seed, code revision, opponent panel, scoring rules).
 - **Atomic checkpoints.** `data.json` is rewritten directly after every game and read while being written by `ranking`, which silently skips a refresh when parsing fails. Write to a temporary file and rename it. Save the next generation's setup before deleting the previous generation's files, so a crash in between cannot lose the parents. Stop mixing string and symbol keys in game hashes (`games_from_ranking` creates symbol keys, but after a JSON round trip the code reads string keys).
 - **Separate viewing from housekeeping.** `stats` and `ranking` should be read-only. Archiving, pruning, and notifications belong in the runner or a separate command. The `ntfy` notification builds a shell command from data; use `Net::HTTP` instead.
@@ -158,7 +158,7 @@ The largest structural change suggested by the timing sample is a C program that
 1. Add characterization tests for crossover and mutation statistics, the file round trip, and a short scripted GTP game.
 2. Fix the result-changing defects above, one change at a time, each with its test.
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
-4. Replace Ractors with a thread pool (moving to Ruby 4.0), make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
+4. Move to Ruby 4.0, make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
 5. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
 Steps 1–2 are prerequisites for trusting any new experiment. Steps 3–5 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
@@ -210,6 +210,6 @@ There is precedent for training substantial neural policies with genetic algorit
 - For a shared 3×3 scorer, should the first version use occupancy patterns alone or also a few tactical features such as liberties and captures?
 - What hardware, compute budget, and unattended runtime are comfortable for a single experiment?
 - Is it acceptable for network-against-network games to use the project's own Tromp–Taylor scoring instead of the GNU Go referee, with GNU Go kept for benchmarks?
-- Should the harness stay in Ruby (moving to 4.0 with a thread pool), or should orchestration move into the C code along with the arena?
+- Should the harness stay in Ruby, or should orchestration move into the C code along with the arena?
 - Which board size, benchmark, and first opponent would make a satisfying initial milestone?
 - How much built-in Go knowledge (features, search) is acceptable before improvement no longer counts as coming from evolution?

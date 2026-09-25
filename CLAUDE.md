@@ -19,7 +19,7 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
 - `mise run example` opens the GoGui window. Do not use it headless. `gogui-twogtp` runs without a display.
-- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` because `new` starts Ractors, and they stub `../evolve` by overriding the backtick method. The PR script tests run `scripts/pr-checks.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
+- Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` and set its instance variables directly (settings, a seeded `rng`, a fake pool), and they stub `../evolve` by overriding the backtick method. The PR script tests run `scripts/pr-checks.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
 
 ## Layout
 
@@ -69,7 +69,7 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
   {"board_size": "9", "population_size": "4", "hidden_layers": "1", "layer_size": "10",
    "cross_over_rate": "0.5", "game_length": "10", "max_moves": "200", "tournament_rounds": "1"}
   ```
-  With `4 one-generation`, that runs one generation of 12 pairings (11 games plus a bye for the odd player out) in a few seconds, which makes it a good smoke run. Delete `experiments/NAME` afterwards. Running it a second time breeds and plays generation 1, which often hangs: a worker Ractor dies with `No live threads left. Deadlock? (fatal)`, and the runner then spins at 100% CPU and ignores `SIGTERM`. Stop it with `kill -9`. This is the listed Ractor defect, not a setup problem. `experiments/` is gitignored.
+  With `4 one-generation`, that runs one generation of 12 pairings (11 games plus a bye for the odd player out) in a few seconds, which makes it a good smoke run. Delete `experiments/NAME` afterwards. Running it again breeds and plays the next generation. `experiments/` is gitignored.
 - The runner works inside `experiments/NAME/GEN/` and calls `../evo`, `../evolve`, and `../initial-population`. Those are **symlinks** to the build output, so rebuilding changes a running experiment.
 - State lives in `GEN/data.json`. It is rewritten after every game and not atomically. On resume, `setup_complete` skips creating or breeding the population. The generation's games are skipped only once `round` reaches `tournament_rounds`. Game hashes are built with symbol keys and read back with string keys after the JSON round trip.
 - The runner passes `-force` to twogtp, which deletes an existing `PREFIX.dat`. A game that was queued but not yet scored when the runner stopped is replayed from scratch on resume, and its `.err` is rewritten.
@@ -79,7 +79,7 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
   - `stats` is not read-only. It moves each generation's `.dat` files into `data.tar.bz2` and caches results in `stats.json`.
   - Copy anything you need to inspect before running either of them.
 - `stats` (without `--csv`), `ranking`, and `multi` loop forever. Run them with a timeout or in the background.
-- The worker pool uses Ractors (`Ractor.yield`/`take`), which Ruby 4.0 removed. Stay on the pinned Ruby 3.3.0 until the planned thread-pool rewrite. The "Ractor is experimental" warning is expected.
+- Games run on a `WorkerPool` (`ruby/worker_pool.rb`): `concurrency` threads, created once per experiment, each running `gogui-twogtp` through `system`. On Ctrl-C the running games stop, the pool starts no queued game (`WorkerPool#halt`, called from the trap in `RunExperiment`), and the runner exits without scoring, leaving the unfinished games in `data.json`, so resuming replays them.
 - GNU Go 3.8 needs `scripts/patches/gnugo-3.8-gg-sort-empty.patch`. Without it, clang builds abort in `final_score` and during level 10 move generation. GCC builds happen to work either way. When changing how external tools are built, bump `release_id` in `scripts/install-external-tools.sh` so existing installs rebuild, then run `mise run verify`.
 - The installer downloads only from the GitHub release named in `mirror_url` in `scripts/install-external-tools.sh`, never from upstream. `scripts/external-tools.txt` lists each archive's SHA-256 and upstream URL. To change an archive, edit the manifest, give `mirror_url` a new release tag (a published release's files should not change under the same tag), bump `release_id`, and run `mise run mirror-external-tools`. That task fetches from upstream and uploads to the release.
 
