@@ -102,16 +102,15 @@ The recommendation is to consider using the local scorer to guide exploration af
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Each game launches a new GoGui process, two players, and a GNU Go referee. A profiled generation (see "Performance" in `CLAUDE.md`) puts the cost in two places. Rounds wait for their slowest game, usually one involving GNU Go level 10, which sets most of the wall time; against a network such a game takes about 7 s. Every game without GNU Go costs 0.2–0.4 s, almost all of it overhead rather than play.
+Each game launches a new GoGui process, two players, and a GNU Go referee. Without GNU Go opponents, a profiled generation (see "Performance" in `CLAUDE.md`) spends almost all its game time on that overhead: a median game takes 0.29 s, and the slowest are network games that end early and leave the referee an unfinished position to score.
 
-The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. GNU Go copies get a different seed per game, but two equal players still decide nothing. Either way it adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
+The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. That adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
 
-Candidate remedies (only removing GNU Go level 10 is decided):
+Candidate remedies, to decide between:
 
-- Skip pairings between two copies of the same bot. This is for accuracy; it saves only about 12 s of the 142 s of game time in the profile.
-- Remove GNU Go level 10 from the tournament for now (the owner's decision). Early networks are far too weak for it, so its games cost the most time and say nothing.
-- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. Roughly from weakest: Brown (random moves), AmiGo, GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. Because a changing panel changes what a tournament score means, the ladder depends on the fixed benchmark from item 1.
-- Play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, keeping GoGui with GNU Go for benchmark games. This removes the per-game overhead, but not the wait for the slow GNU Go games.
+- Skip pairings between two copies of the same bot. This is for accuracy more than speed.
+- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; next come GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. Because a changing panel changes what a tournament score means, the ladder depends on the fixed benchmark from item 1.
+- Play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, keeping GoGui with GNU Go for benchmark games. This removes the per-game overhead, which is now nearly all of a generation's game time. Once GNU Go opponents return through the ladder, their games would still be slow.
 
 The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
 
@@ -143,7 +142,7 @@ Speed is not a reason to replace it: inference is small next to game adjudicatio
 
 ### A C arena for network games
 
-The largest structural change for speed is a C program that loads a set of networks once and plays the scheduled network-against-network games in one process. It would reuse Brown's board code, score with an explicit rule set (Tromp–Taylor area scoring is simple and well defined when a game ends by two passes or the move limit), vary openings or seeds deliberately, and write one result line per game with an explicit outcome (win, loss, draw, or error). Ruby would still orchestrate generations, selection, and benchmarks. This removes JVM startup and the GNU Go referee from most games. The profiled generation suggests it matters most once the rounds no longer wait on slow GNU Go games. Before switching, check on a sample of games that arena results agree with the GoGui/GNU Go results.
+The largest structural change for speed is a C program that loads a set of networks once and plays the scheduled network-against-network games in one process. It would reuse Brown's board code, score with an explicit rule set (Tromp–Taylor area scoring is simple and well defined when a game ends by two passes or the move limit), vary openings or seeds deliberately, and write one result line per game with an explicit outcome (win, loss, draw, or error). Ruby would still orchestrate generations, selection, and benchmarks. This removes JVM startup and the GNU Go referee from most games. With no GNU Go opponents, that overhead is nearly all of a generation's game time, and network-against-network games took 35 s of the profile's 63 s. Before switching, check on a sample of games that arena results agree with the GoGui/GNU Go results.
 
 ### Suggested cleanup order
 

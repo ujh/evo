@@ -44,7 +44,9 @@ match() {
 }
 
 # Each opponent type in EXTERNAL_PLAYERS (ruby/run_generation.rb) plays at
-# least once, and so does the engine itself.
+# least once, and so does the engine itself. GNU Go is not in the tournament,
+# only its referee, but it plays here too: it comes back as an opponent later,
+# and level 10 move generation checks the gg_sort patch.
 match brown-amigo brown amigogtp
 match gnugo0-brown 'gnugo --level 0 --mode gtp' brown
 match amigo-gnugo10 amigogtp 'gnugo --level 10 --mode gtp'

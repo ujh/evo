@@ -325,6 +325,17 @@ class GamesFromRankingTest < Minitest::Test
     assert_equal %w[Brown1 Brown2], games(%w[Brown1 Brown2 a.ann b.ann]).first.values.sort
   end
 
+  # Early networks are far too weak for GNU Go, and its games set most of a
+  # generation's wall time.
+  def test_tournament_has_no_gnu_go_player
+    in_experiment do
+      File.write('0001.ann', '')
+      commands = build_generation.send(:setup_tournament)['players'].values.map { |player| player['command'] }
+      assert_includes commands, 'amigogtp'
+      refute(commands.any? { |command| command.start_with?('gnugo') })
+    end
+  end
+
   def test_game_keys_become_strings_after_saving
     in_experiment do
       gen = build_generation
@@ -337,8 +348,9 @@ class GamesFromRankingTest < Minitest::Test
     in_experiment do
       %w[0001.ann 0002.ann 0003.ann 0004.ann].each { |name| File.write(name, '') }
       tournament = build_generation.send(:setup_tournament)
-      assert_equal 23, tournament['players'].size
-      assert_equal 12, tournament['games'].size
+      # 4 networks, 5 Brown, and 10 AmiGo.
+      assert_equal 19, tournament['players'].size
+      assert_equal 10, tournament['games'].size
       assert_equal 1, tournament['games'].count { |game| game[:white].nil? }
       assert_equal '../evo 0001.ann', tournament['players']['0001.ann']['command']
     end

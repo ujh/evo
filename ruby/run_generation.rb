@@ -320,14 +320,13 @@ class RunGeneration
 
   AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp' }
   BROWN = { 'name' => 'Brown', 'command' => 'brown' }
-  GNUGO0 = { 'name' => 'GnuGoLevel0', 'command' => 'gnugo --level 0 --mode gtp' }
-  GNUGO10 = { 'name' => 'GnuGoLevel10', 'command' => 'gnugo --level 10 --mode gtp' }
+  # Early networks are far too weak for GNU Go, at any level, and its games
+  # set most of a generation's wall time, so it stays out until networks beat
+  # these (see the opponent ladder in PROJECT_NOTES.md). GNU Go still referees.
   # scripts/smoke-external-tools.sh plays each of these; add new opponents there too.
   EXTERNAL_PLAYERS = [
     *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
-    *(1..10).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) },
-    *(1..2).map { |i| GNUGO0.merge('name' => GNUGO0['name'] + i.to_s) },
-    *(1..2).map { |i| GNUGO10.merge('name' => GNUGO10['name'] + i.to_s) }
+    *(1..10).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) }
   ]
 
   def setup_tournament
