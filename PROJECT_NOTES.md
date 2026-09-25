@@ -133,7 +133,6 @@ GENANN stays: it is small, tested upstream, and does what the experiments need. 
 
 - **A file format that can evolve.** The `.ann` format writes four native `int`s and native `double`s with no magic number, version, activation choice, or endianness. Activations are not stored, so a network with a linear output would load as sigmoid. The shared 3×3 scorer also needs metadata such as its feature set and symmetry handling. Add a versioned little-endian header in `lib/ann.c`, keep reading the current format, and check that converted networks choose the same moves on a fixed set of positions.
 - **Activations as settings.** Once the header records them, make the hidden and output activations experiment settings, passed to `initial-population` and kept by `evolve`.
-- **Engine loading.** `engine/interface.c` checks neither `fopen` nor the result of `ann_binary_read`, so a missing or bad network file crashes `evo` instead of failing with a message.
 
 GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
 

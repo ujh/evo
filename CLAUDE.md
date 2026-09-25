@@ -37,7 +37,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ### Engine and network files
 
-- `evo` starts at board size 6. Without a file argument it builds a random 5-layer network sized for 6×6. Always pass an `.ann` file and send `boardsize` before `genmove`.
+- `evo` starts at board size 6. Without a file argument it builds a random 5-layer network sized for 6×6. Always pass an `.ann` file and send `boardsize` before `genmove`. A file that is missing or holds no network makes `evo` exit 1 at startup with a message naming it.
 - `boardsize` answers `? unacceptable size` for a size the loaded network does not fit, and `genmove` answers `? network does not fit the board` if no fitting `boardsize` came first. The process keeps running. `engine/enginetest.sh` (`make test`) checks a whole GTP session.
 - The engine answers `name` with `Evo`.
 - The startup message reads "total neurons", but the number it prints is `total_weights`.
