@@ -66,11 +66,12 @@ class ExperimentStats
   # bots are ranked too, but are left out).
   def population(generation)
     births = database.births(generation)
+    parents = generation.zero? ? {} : database.births(generation - 1).to_h { |birth| [birth[:child], birth] }
     scores = database.ranking(generation).reject { |row| row[:external] }.map { |row| row[:score] }.sort
     {
       children: births.size,
       operators: OPERATORS.to_h { |operator| [operator, 0] }.merge(births.map { |birth| birth[:operator] }.tally),
-      identical: births.count { |birth| birth[:operator] != 'initial' && identical?(birth) },
+      identical: births.count { |birth| birth[:operator] != 'initial' && identical?(birth, parents) },
       distinct_parents: births.flat_map { |birth| inherited_from(birth) }.uniq.size,
       unique_genomes: births.map { |birth| birth[:genome] }.uniq.size,
       scores: { min: scores.first, median: median(scores), max: scores.last }
@@ -98,14 +99,26 @@ class ExperimentStats
     end
   end
 
-  # A bred child equal to a parent. A copy always is; a child of another
-  # shape than a parent has no count for it, and one whose activation
-  # switched plays differently even with the same weights.
-  def identical?(birth)
+  # A bred child equal to a parent: the same weights (differs 0) and the
+  # same activations. A copy always is. A child of another shape than a
+  # parent has no count for it; one whose activation switched plays
+  # differently even with the same weights; and a crossover takes the
+  # picked parent's activations, so it can have all of the other parent's
+  # weights but not its activations. `parents` are the previous
+  # generation's births by name (rows from before migration 010 have no
+  # activations, which then compare equal).
+  def identical?(birth, parents)
     return true if birth[:operator] == 'copy'
     return false if birth[:activation_changed]
 
-    birth[:differs_from_first]&.zero? || birth[:differs_from_second]&.zero? || false
+    { first_parent: :differs_from_first, second_parent: :differs_from_second }.any? do |parent, differs|
+      birth[differs]&.zero? && same_activations?(birth, parents[birth[parent]])
+    end
+  end
+
+  def same_activations?(birth, parent)
+    columns = %i[act_hidden act_output]
+    birth.values_at(*columns) == (parent || {}).values_at(*columns)
   end
 
   def median(sorted)

@@ -212,6 +212,27 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal 0, @stats.generation(4)[:population][:identical]
   end
 
+  # A crossover takes the picked parent's activations, so a child with all
+  # of the other parent's weights still differs from both when their
+  # activations differ.
+  def test_a_crossover_with_one_parents_weights_and_the_others_activations_is_not_identical
+    reopen_writing do |writer|
+      [%w[m.ann tanh sigmoid], %w[p.ann sigmoid_cached sigmoid_cached]].each_with_index do |(child, hidden, output), i|
+        writer.record_birth(generation: 3, child:, operator: 'initial', seed: i, genome: "p#{i}",
+                            act_hidden: hidden, act_output: output)
+      end
+      [['0.ann', 'sigmoid_cached', 0], ['1.ann', 'tanh', 1]].each_with_index do |(child, hidden, seed), i|
+        writer.record_birth(generation: 4, child:, first_parent: 'm.ann', second_parent: 'p.ann', operator: 'crossover',
+                            parent: 'second', activation_changed: false, differs_from_first: 0,
+                            differs_from_second: 3, seed:, genome: "c#{i}", act_hidden: hidden,
+                            act_output: hidden == 'tanh' ? 'sigmoid' : 'sigmoid_cached')
+      end
+      writer.save_state(4, { 'round' => 0, 'players' => PLAYERS, 'ranking' => [] })
+    end
+    # 0.ann has m.ann's weights and p.ann's activations; 1.ann is m.ann.
+    assert_equal 1, @stats.generation(4)[:population][:identical]
+  end
+
   # The population figures of a generation 4 whose births are the given
   # [first, second, operator, differs_from_first, differs_from_second, parent].
   def population_of(*births)
