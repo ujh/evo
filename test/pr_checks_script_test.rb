@@ -16,8 +16,8 @@ class PrChecksScriptTest < Minitest::Test
       'startedAt' => '2026-09-24T19:03:47Z' }
   end
 
-  def view(rollup, head_ref: head)
-    { 'headRefOid' => head_ref, 'statusCheckRollup' => rollup }
+  def view(rollup, head_ref: head, merge_state: 'CLEAN')
+    { 'headRefOid' => head_ref, 'mergeStateStatus' => merge_state, 'statusCheckRollup' => rollup }
   end
 
   def run_checks(*views)
@@ -54,6 +54,21 @@ class PrChecksScriptTest < Minitest::Test
     _out, err, status = run_checks(view([success], head_ref: 'def456'))
     assert_equal 1, status
     assert_includes err, 'PR 7 is at def456'
+  end
+
+  def test_branch_behind_main_fails_with_how_to_update
+    out, err, status = run_checks(view([success], merge_state: 'BEHIND'))
+    assert_equal 1, status
+    assert_includes err, 'PR 7 is behind main'
+    assert_includes err, 'gh pr update-branch 7'
+    refute_includes out, 'All checks passed'
+  end
+
+  def test_merge_conflicts_fail
+    out, err, status = run_checks(view([success], merge_state: 'DIRTY'))
+    assert_equal 1, status
+    assert_includes err, 'PR 7 has merge conflicts with main'
+    refute_includes out, 'All checks passed'
   end
 
   def test_gh_failure_fails_instead_of_reading_as_green

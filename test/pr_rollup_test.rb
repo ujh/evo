@@ -4,7 +4,7 @@ require 'open3'
 
 # scripts/pr-rollup.jq decides whether `mise run pr-checks` reports a PR as
 # green. These cases use the shape of `gh pr view --json
-# headRefOid,statusCheckRollup`.
+# headRefOid,mergeStateStatus,statusCheckRollup`.
 class PrRollupTest < Minitest::Test
   FILTER = File.expand_path('../scripts/pr-rollup.jq', __dir__)
   HEAD = 'abc123'.freeze
@@ -20,8 +20,8 @@ class PrRollupTest < Minitest::Test
       'startedAt' => '2026-09-24T19:03:47Z' }
   end
 
-  def run_filter(rollup, head: HEAD)
-    input = JSON.generate('headRefOid' => head, 'statusCheckRollup' => rollup)
+  def run_filter(rollup, head: HEAD, merge_state: 'CLEAN')
+    input = JSON.generate('headRefOid' => head, 'mergeStateStatus' => merge_state, 'statusCheckRollup' => rollup)
     out, status = Open3.capture2('jq', '-rn', '--arg', 'head', HEAD, '-f', FILTER, stdin_data: input)
     assert status.success?, 'jq failed'
     out.lines(chomp: true)
@@ -52,6 +52,19 @@ class PrRollupTest < Minitest::Test
   def test_every_check_that_did_not_pass_is_listed
     assert_equal ["FAILURE\tbuild-and-test", "PENDING\tlint"],
                  run_filter([check_run('FAILURE'), check_run('', name: 'lint'), check_run('SUCCESS', name: 'docs')])
+  end
+
+  def test_branch_behind_main_is_reported_before_checks
+    assert_equal ['BEHIND'], run_filter([check_run('SUCCESS')], merge_state: 'BEHIND')
+  end
+
+  def test_merge_conflicts_are_reported_before_checks
+    assert_equal ['CONFLICTS'], run_filter([check_run('SUCCESS')], merge_state: 'DIRTY')
+  end
+
+  def test_merge_states_github_is_still_computing_do_not_fail
+    assert_empty run_filter([check_run('SUCCESS')], merge_state: 'UNKNOWN')
+    assert_empty run_filter([check_run('SUCCESS')], merge_state: 'CLEAN')
   end
 
   def test_empty_or_missing_rollup_means_no_checks

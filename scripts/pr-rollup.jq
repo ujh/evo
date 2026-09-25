@@ -1,7 +1,11 @@
-# Reads `gh pr view --json headRefOid,statusCheckRollup` and prints one line
-# for each reason the PR is not green on $head. No output means every check
-# passed on that commit. Run it with `jq -n`: `input` then fails on blank
-# input instead of printing nothing, which would read as green.
+# Reads `gh pr view --json headRefOid,mergeStateStatus,statusCheckRollup` and
+# prints one line for each reason the PR is not green on $head. No output
+# means the PR can merge as far as CI goes. Run it with `jq -n`: `input` then
+# fails on blank input instead of printing nothing, which would read as green.
+#
+# The repository only merges a PR that is up to date with main, so BEHIND
+# (out of date) and DIRTY (conflicts) fail before any check is looked at.
+# GitHub computes the merge state lazily, so UNKNOWN is not a failure.
 #
 # Check runs report their result in `conclusion`, status contexts in `state`.
 # `status` only says whether a check has finished. An empty result means the
@@ -11,6 +15,10 @@
 input
 | if .headRefOid != $head then
   "HEAD MOVED\t\(.headRefOid)"
+elif .mergeStateStatus == "BEHIND" then
+  "BEHIND"
+elif .mergeStateStatus == "DIRTY" then
+  "CONFLICTS"
 elif ((.statusCheckRollup // []) | length) == 0 then
   "NO CHECKS"
 else
