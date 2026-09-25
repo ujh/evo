@@ -1,7 +1,8 @@
-# Runs shell commands on a fixed number of threads. The commands are games
-# (gogui-twogtp), so the threads spend their time in `system`, which releases
-# the interpreter lock; plain threads run them just as much in parallel as
-# Ractors would, without their deadlocks.
+# Runs shell commands on a fixed number of threads. The commands play games
+# (one gogui-twogtp game, or a chunk of games in the arena), so the threads
+# spend their time in `system`, which releases the interpreter lock; plain
+# threads run them just as much in parallel as Ractors would, without their
+# deadlocks.
 class WorkerPool
   def initialize(size)
     raise ArgumentError, "a worker pool needs at least 1 thread, got #{size}" if size < 1

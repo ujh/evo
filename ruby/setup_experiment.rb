@@ -80,7 +80,8 @@ class SetupExperiment
   # Early networks are far too weak for GNU Go, at any level, and its games
   # set most of a generation's wall time, so it stays out of the tournament
   # until networks beat these (see the opponent ladder in PROJECT_NOTES.md).
-  # GNU Go still referees. scripts/smoke-external-tools.sh plays each
+  # GNU Go still referees the games with a bot; games between two networks
+  # are scored by the arena. scripts/smoke-external-tools.sh plays each
   # opponent and each benchmark bot; add new ones there.
   DEFAULT_OPPONENTS = [
     { name: 'Brown', command: 'brown', copies: 5 },
