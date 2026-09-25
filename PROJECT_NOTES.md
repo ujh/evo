@@ -115,11 +115,7 @@ Fix each with a test that fails before the fix.
 
 | Location | Problem | Effect |
 | --- | --- | --- |
-| [`stats:65`](stats), [`ranking:37`](ranking) | Result lines are split on whitespace, so an empty column (GoGui leaves `RES_B` or `RES_W` empty when a program gives no score) shifts `RES_R` and `LEN`. Anything not starting with `B` counts as a White win. | Reported win rates and game lengths can be wrong. Reuse `ruby/game_result.rb`, which the runner uses. |
-| [`engine/generate_move.c:114`](engine/generate_move.c) | A network whose size does not match the board calls `exit(1)` inside `genmove`. | The process dies mid-game instead of returning a GTP error. `boardsize` should reject a size the loaded network cannot play. |
-| [`engine/interface.c:153`](engine/interface.c) | The engine reports its name as `Brown`. | SGF files and GoGui output cannot tell Evo apart from the real Brown opponent. |
-| [`stats:95`](stats) | `'average' => median(...)`. | The reported average is the median. |
-| [`stats:73`](stats) | Archives each generation's `.dat` files into `data.tar.bz2` and deletes them as a side effect of displaying statistics. | Opening a viewer destroys evidence. |
+| [`stats`](stats) `stats_for` | Archives each generation's `.dat` files into `data.tar.bz2` and deletes them as a side effect of displaying statistics. | Opening a viewer destroys evidence. |
 | [`multi:19`](multi) | References the undefined variable `next_input`. | A mistyped experiment name raises `NameError` instead of the intended message. |
 | `engine/main.c`, `initial-population/main.c`, `evolve/evolve.c` | RNG seeded with `time(NULL)` and the address of the global `rng`. | Runs cannot be reproduced, and processes started in the same second rely on address randomization for different seeds. Seeds should be passed in and recorded. |
 

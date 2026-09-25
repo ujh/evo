@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 require 'json'
+require_relative 'ruby/game_result'
 
 experiment_name = ARGV.first
 
@@ -33,11 +34,7 @@ def average(array)
 end
 
 def compute_game_lengths
-  Dir["*.dat"].map do |file_name|
-    result = File.readlines(file_name).last.split
-    game_length = result[6]
-    game_length.to_i
-  end
+  Dir["*.dat"].filter_map { |file_name| GameResult.read(File.basename(file_name, ".dat")).length }
 end
 
 Dir.chdir(experiment_dir) do

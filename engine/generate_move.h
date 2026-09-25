@@ -33,4 +33,5 @@
  * without prior written authorization of the copyright holder.  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+int ann_fits_board(int size);
 void generate_move(int *i, int *j, int color);

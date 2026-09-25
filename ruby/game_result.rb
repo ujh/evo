@@ -7,11 +7,13 @@ class GameResult
   # The .dat file is tab-separated and columns can be empty, so the line must
   # be split on tabs, not whitespace.
   RES_R = 3
+  LEN = 6
   ERR = 11
   ERR_MSG = 12
   MOVE_LIMIT = 'move limit exceeded'.freeze
 
-  attr_reader :winner, :failure
+  # length is the number of moves played, or nil without a game line.
+  attr_reader :winner, :failure, :length
 
   def self.read(prefix)
     dat = "#{prefix}.dat"
@@ -25,29 +27,32 @@ class GameResult
   end
 
   def self.parse(line, stderr = '')
+    fields = line.split("\t", -1)
+    length = Integer(fields[LEN], exception: false)
+
     # twogtp says which program died only on stderr; the .dat file just says
     # "The Go program terminated unexpectedly."
-    return new(winner: :white, crashed: true) if stderr.include?('Black program died')
-    return new(winner: :black, crashed: true) if stderr.include?('White program died')
+    return new(winner: :white, crashed: true, length:) if stderr.include?('Black program died')
+    return new(winner: :black, crashed: true, length:) if stderr.include?('White program died')
 
-    fields = line.split("\t", -1)
     error = fields[ERR]
     message = fields[ERR_MSG]
-    return new(failure: "error: #{message}") if error != '0' && message != MOVE_LIMIT
+    return new(failure: "error: #{message}", length:) if error != '0' && message != MOVE_LIMIT
 
     referee = fields[RES_R]
     case referee
-    when /\AB\+/ then new(winner: :black)
-    when /\AW\+/ then new(winner: :white)
-    when '0' then new
-    else new(failure: "no referee score: #{referee}")
+    when /\AB\+/ then new(winner: :black, length:)
+    when /\AW\+/ then new(winner: :white, length:)
+    when '0' then new(length:)
+    else new(failure: "no referee score: #{referee}", length:)
     end
   end
 
-  def initialize(winner: nil, failure: nil, crashed: false)
+  def initialize(winner: nil, failure: nil, crashed: false, length: nil)
     @winner = winner
     @failure = failure
     @crashed = crashed
+    @length = length
   end
 
   # True when the loser lost by crashing rather than on the board.
