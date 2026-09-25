@@ -118,6 +118,46 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  def test_stores_and_exports_networks
+    with_store do |store|
+      store.record_network(2, '0.ann', "\x00\x01weights".b)
+      store.record_network(2, '1.ann', 'other'.b)
+      store.record_network(3, '0.ann', 'next'.b)
+      Dir.mktmpdir do |dir|
+        assert_equal %w[0.ann 1.ann], store.export_networks(2, dir)
+        assert_equal "\x00\x01weights".b, File.binread(File.join(dir, '0.ann'))
+        assert_equal 'other'.b, File.binread(File.join(dir, '1.ann'))
+      end
+      assert_equal %w[0.ann], store.network_names(3)
+    end
+  end
+
+  def test_recording_a_network_again_replaces_it
+    with_store do |store|
+      store.record_network(2, '0.ann', 'old'.b)
+      store.record_network(2, '0.ann', 'new'.b)
+      Dir.mktmpdir { |dir| store.export_networks(2, dir) && assert_equal('new', File.binread(File.join(dir, '0.ann'))) }
+    end
+  end
+
+  def test_saving_a_state_can_retire_another_generations_networks_in_the_same_transaction
+    with_store do |store|
+      store.record_network(1, '0.ann', 'parent'.b)
+      store.record_network(2, '0.ann', 'child'.b)
+      store.save_state(2, STATE, retire_networks_of: 1)
+      assert_empty store.network_names(1)
+      assert_equal %w[0.ann], store.network_names(2)
+    end
+  end
+
+  def test_a_failed_save_keeps_the_networks
+    with_store do |store|
+      store.record_network(1, '0.ann', 'parent'.b)
+      assert_raises(StandardError) { store.save_state(2, STATE.merge('ranking' => nil), retire_networks_of: 1) }
+      assert_equal %w[0.ann], store.network_names(1)
+    end
+  end
+
   def test_a_read_only_store_does_not_create_a_database
     Dir.mktmpdir do |dir|
       path = File.join(dir, 'missing.sqlite3')

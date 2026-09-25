@@ -31,11 +31,11 @@ class StatsTest < Minitest::Test
       store = ExperimentDatabase.new(File.join(experiment, 'experiment.sqlite3'))
       players = { '0001.ann' => { 'command' => '../evo 0001.ann' }, '0002.ann' => { 'command' => '../evo 0002.ann' },
                   'Brown1' => { 'command' => 'brown', 'external' => true } }
-      store.save_state(0, 'round' => 3, 'setup_complete' => true, 'players' => players, 'games' => [],
+      store.save_state(0, { 'round' => 3, 'setup_complete' => true, 'players' => players, 'games' => [],
                           'ranking' => [{ 'name' => '0002.ann', 'score' => 2 }, { 'name' => 'Brown1', 'score' => 0 },
-                                        { 'name' => '0001.ann', 'score' => 1 }])
+                                        { 'name' => '0001.ann', 'score' => 1 }] })
       # stats reports finished generations only, so generation 1 has to exist.
-      store.save_state(1, 'round' => 0, 'players' => players, 'ranking' => [], 'games' => [])
+      store.save_state(1, { 'round' => 0, 'players' => players, 'ranking' => [], 'games' => [] })
       GAMES.each { |black, white, outcome| store.record(**game(black, white, **outcome)) }
       # Rounds are part of the key, so the second game against the same
       # opponent goes in another round.

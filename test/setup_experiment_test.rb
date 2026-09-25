@@ -16,7 +16,7 @@ class SetupExperimentTest < Minitest::Test
     settings = SetupExperiment.settings_from_arguments(REQUIRED)
     assert_equal '9', settings['board_size']
     assert_equal '3', settings['tournament_size']
-    assert_equal '10', settings['sgf_every']
+    assert_equal '10', settings['keep_every']
     assert_match(/\A\d+\z/, settings['seed'])
     assert_equal SetupExperiment::SETTINGS.keys.sort, settings.keys.sort
   end

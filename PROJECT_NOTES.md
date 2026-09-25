@@ -48,9 +48,9 @@ Cached sigmoid outputs also create artificial score ties, which favor earlier in
 
 ### 5. Long runs need recoverable evidence
 
-`clean_up_generation` deletes every network from the previous generation, and SGFs are kept only for every `sgf_every`-th generation. That saves space but prevents comparisons with early ancestors. Runs cannot yet be safely resumed or tied to a build: the code revision is not recorded, executables are symlinks to the current build, and the generation transition is not crash-safe. The fixes are listed under [Code cleanup](#code-cleanup).
+Networks and SGFs are kept only for every `keep_every`-th generation. That saves space but limits comparisons with early ancestors to those generations. Runs cannot yet be tied to a build: the code revision is not recorded, and executables are symlinks to the current build. The fixes are listed under [Code cleanup](#code-cleanup).
 
-**Proposed response:** preserve generation zero and a spaced archive of champions, for example as networks stored in the experiment database.
+**Proposed response:** also keep each generation's top-ranked network, if the `keep_every` generations turn out too sparse.
 
 ### 6. Test the assumptions with the recorded data
 
@@ -120,7 +120,6 @@ Fix each with a test that fails before the fix.
 
 - **One copy of each shared file.** `genann.c` and `genann.h` exist in identical copies in `lib/`, `engine/`, `evolve/`, and `initial-population/`, and `minctest.h` in `lib/`, `engine/`, and `evolve/`. Every Makefile compiles its local copy. `lib/` is unused. Build shared code once from `lib/` (as a static library or shared object files) so a fix cannot land in one copy only.
 - **Typed, validated settings.** The settings table stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment still needs (code revision, opponent panel, scoring rules).
-- **Move the networks into the experiment database.** The settings and the tournament state are there already. The networks (`.ann` files) still live in per-generation directories. Store them in `experiment.sqlite3` too, keeping all networks of generation 0 and every Nth generation (a setting, like `sgf_every`) plus whatever the next generation needs. The experiment directory then holds only the database and a scratch directory where the generation being played puts its working files (the networks it plays with and breeds from, and each game's `.dat`, `.sgf`, and `.err` until the game is stored), emptied as they are stored. Breed the next generation and retire the previous one in one transaction, so a crash in between cannot lose the parents.
 - **Move notifications out of `stats`.** `stats` still sends the `ntfy` notification, which belongs in the runner or a separate command, and builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
 - **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
@@ -148,7 +147,7 @@ The largest structural change suggested by the timing sample is a C program that
 1. Add characterization tests for crossover and mutation statistics, the file round trip, and a short scripted GTP game.
 2. Fix the result-changing defects above, one change at a time, each with its test.
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
-4. Move the networks into the experiment's database (no accumulating files), type the settings, record the code revision, and copy the binaries.
+4. Type the settings, record the code revision, and copy the binaries.
 5. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
 Steps 1–2 are prerequisites for trusting any new experiment. Steps 3–5 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.

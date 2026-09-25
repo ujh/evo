@@ -20,6 +20,7 @@ module RunGenerationHelpers
     'max_moves' => '200',
     'tournament_rounds' => '1',
     'seed' => '1',
+    'keep_every' => '10',
     'concurrency' => 1
   }.freeze
 

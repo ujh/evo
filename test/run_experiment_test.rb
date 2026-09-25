@@ -29,13 +29,13 @@ class RunExperimentTest < Minitest::Test
 
   def test_resumes_with_the_last_generation_in_the_database
     database = ExperimentDatabase.new(':memory:')
-    (0..2).each { |g| database.save_state(g, 'round' => 0, 'players' => {}, 'ranking' => [], 'games' => []) }
+    (0..2).each { |g| database.save_state(g, { 'round' => 0, 'players' => {}, 'ranking' => [], 'games' => [] }) }
     assert_equal ['2'], generations_run(database, {})
   end
 
   def test_moves_on_when_the_last_generation_is_already_done
     database = ExperimentDatabase.new(':memory:')
-    (0..2).each { |g| database.save_state(g, 'round' => 1, 'players' => {}, 'ranking' => [], 'games' => []) }
+    (0..2).each { |g| database.save_state(g, { 'round' => 1, 'players' => {}, 'ranking' => [], 'games' => [] }) }
     assert_equal %w[2 3], generations_run(database, { '2' => :already_done })
   end
 
