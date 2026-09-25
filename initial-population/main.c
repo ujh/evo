@@ -25,6 +25,7 @@ SOFTWARE.
 */
 
 #include <errno.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,19 @@ static uint64_t parse_seed(const char *text) {
   return value;
 }
 
+// A gene is a finite decimal number; anything else is an error. Whether it
+// lies in its range is checked once the network's size is known.
+static double parse_gene(const char *name, const char *text) {
+  char *end;
+  errno = 0;
+  double value = strtod(text, &end);
+  if (errno != 0 || end == text || *end != '\0' || !isfinite(value)) {
+    fprintf(stderr, "%s must be a finite number, got %s\n", name, text);
+    exit(1);
+  }
+  return value;
+}
+
 int main(int argc, char **argv) {
 
   // Do not buffer stdout
@@ -54,14 +68,15 @@ int main(int argc, char **argv) {
 
   int population_size, board_size, hidden_layers, hidden;
 
-  if (argc != 5 && argc != 6) {
-    fprintf(stderr, "4 arguments required: population_size, board size, no. hidden layers, no. neurons per layer, and optionally a seed!\n");
+  if (argc != 10 && argc != 11) {
+    fprintf(stderr, "9 arguments required: population_size, board size, no. hidden layers, no. neurons per layer, "
+                    "copy_chance, weight_changes, weight_step, activation_rate, structure_rate, and optionally a seed!\n");
     exit(1);
   }
 
   // Without a seed the networks differ on every run.
-  if (argc == 6) {
-    pcg32_srandom(parse_seed(argv[5]), 54u);
+  if (argc == 11) {
+    pcg32_srandom(parse_seed(argv[10]), 54u);
   } else {
     pcg32_srandom(time(NULL), (intptr_t)&rng);
   }
@@ -70,6 +85,14 @@ int main(int argc, char **argv) {
   board_size = atoi(argv[2]);
   hidden_layers = atoi(argv[3]);
   hidden = atoi(argv[4]);
+  // Every network starts with the same genes.
+  ann_genes genes = {
+    .copy_chance = parse_gene("copy_chance", argv[5]),
+    .weight_changes = parse_gene("weight_changes", argv[6]),
+    .weight_step = parse_gene("weight_step", argv[7]),
+    .activation_rate = parse_gene("activation_rate", argv[8]),
+    .structure_rate = parse_gene("structure_rate", argv[9]),
+  };
 
   printf(
     "population_size = %d, board_size = %d, hidden_layers = %d, hidden = %d\n",
@@ -86,27 +109,45 @@ int main(int argc, char **argv) {
   int outputs = (board_size * board_size) + 1;
 
   for(int i = 1; i <= population_size; i++) {
-    printf("\r%d/%d", i, population_size);
     snprintf(buffer, sizeof(buffer), "%04d.ann", i);
 
     genann *ann = genann_init(inputs, hidden_layers, hidden, outputs);
     if (ann == NULL) {
-      fprintf(stderr, "\nCannot build a network with %d hidden layers of %d\n", hidden_layers, hidden);
+      fprintf(stderr, "Cannot build a network with %d hidden layers of %d\n", hidden_layers, hidden);
+      exit(1);
+    }
+    const char *bad = ann_genes_invalid(&genes, ann->total_weights);
+    if (bad) {
+      fprintf(stderr, "%s is out of range for a network of %d weights\n", bad, ann->total_weights);
       exit(1);
     }
     FILE *fd = fopen(buffer, "wb");
     if (fd == NULL) {
-      fprintf(stderr, "\nCould not open %s: %s\n", buffer, strerror(errno));
+      fprintf(stderr, "Could not open %s: %s\n", buffer, strerror(errno));
       exit(1);
     }
-    int written = ann_binary_write(ann, fd);
-    genann_free(ann);
+    int written = ann_binary_write(ann, &genes, fd);
     // A half-written network is removed, so the runner never stores one.
     if (fclose(fd) != 0 || written != 0) {
-      fprintf(stderr, "\nCould not write %s\n", buffer);
+      fprintf(stderr, "Could not write %s\n", buffer);
       remove(buffer);
       exit(1);
     }
+    // One machine-readable line per network, in file order. The width is 0
+    // without hidden layers, as in the file.
+    printf(
+      "genes layers=%d width=%d act_hidden=%s act_output=%s copy_chance=%.17g weight_changes=%.17g "
+      "weight_step=%.17g activation_rate=%.17g structure_rate=%.17g\n",
+      ann->hidden_layers,
+      ann->hidden_layers ? ann->hidden : 0,
+      ann_activation_name(ann->activation_hidden),
+      ann_activation_name(ann->activation_output),
+      genes.copy_chance,
+      genes.weight_changes,
+      genes.weight_step,
+      genes.activation_rate,
+      genes.structure_rate
+    );
+    genann_free(ann);
   }
-  printf("\n");
 }

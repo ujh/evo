@@ -36,6 +36,13 @@ network() {
     printf '\032\000\000\000'   # 26 outputs
     printf '\001\000\000\000'   # hidden activation: sigmoid (unused)
     printf '\004\000\000\000'   # output activation: linear
+    # The genes (unused by the arena): copy_chance 0.01, weight_changes 1,
+    # weight_step 0.5, activation_rate 0.02, structure_rate 0.02.
+    printf '\173\024\256\107\341\172\204\077'
+    printf '\000\000\000\000\000\000\360\077'
+    printf '\000\000\000\000\000\000\340\077'
+    printf '\173\024\256\107\341\172\224\077'
+    printf '\173\024\256\107\341\172\224\077'
     # 25 point outputs of 27 weights each (bias, komi, 25 points), all 0.
     head -c $((25 * 27 * 8)) /dev/zero
     printf "$2$3"
@@ -172,7 +179,8 @@ if [ ! -x "$generator" ]; then
   printf 'build %s first (make from the repository root)\n' "$generator" >&2
   exit 1
 fi
-(cd "$population" && "$generator" 3 5 1 10 42 >/dev/null)
+# The default genes (weight_changes is 1 for 556 weights); play ignores them.
+(cd "$population" && "$generator" 3 5 1 10 0.01 1 0.5 0.02 0.02 42 >/dev/null)
 same_as_evo 9 6.5 60 example.ann
 same_as_evo 9 -6.5 60 example.ann
 same_as_evo 5 6.5 40 "$tmp/komi.ann"

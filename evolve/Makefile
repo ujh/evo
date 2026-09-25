@@ -26,7 +26,11 @@ evolvetest: evolve
 	test ! -e child-dir.ann
 	! ./evolve 0.9 ../engine/example.ann ../engine/example.ann
 	rm -rf parents && mkdir parents
-	cd parents && ../../initial-population/initial-population 2 9 1 5 42 > /dev/null
+	# Two parents with different genes (as are all their weights).
+	cd parents && ../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.02 0.02 42 > /dev/null
+	mkdir parents/other
+	cd parents/other && ../../../initial-population/initial-population 2 9 1 5 0.02 2 0.25 0.04 0.03 42 > /dev/null
+	mv parents/other/0002.ann parents/0002.ann
 	# Rate 1 always crosses over. The same seed gives the same child, another
 	# seed another one. Random parents differ in all 907 weights, and each of
 	# the child's weights comes from one of them, so the counts add up to 907.
@@ -35,13 +39,18 @@ evolvetest: evolve
 	./evolve 1 parents/0001.ann parents/0002.ann cross-c.ann 8 > /dev/null
 	cmp cross-a.ann cross-b.ann
 	! cmp -s cross-a.ann cross-c.ann
+	# The child keeps the genes of the parent whose weights come first
+	# (its first weight, as the cut point of seed 7 is not 0).
+	if cmp -s -n 82 cross-a.ann parents/0001.ann; then :; else cmp -n 82 cross-a.ann parents/0002.ann; fi
 	set -- $$(sed -n 's/^summary operator=\([a-z]*\) differs_from_first=\([0-9]*\) differs_from_second=\([0-9]*\)$$/\1 \2 \3/p' cross-a.out) && test "$$1" = crossover && test $$(($$2 + $$3)) -eq 907
 	# Rate 0 always mutates: a copy of one parent with a few changed weights,
-	# and a count of 0 means a byte-identical copy.
+	# and a count of 0 means a byte-identical copy, genes included. The
+	# child keeps its parent's genes.
 	./evolve 0 parents/0001.ann parents/0002.ann mutated.ann 7 > mutated.out
 	set -- $$(sed -n 's/^summary operator=\([a-z]*\) differs_from_first=\([0-9]*\) differs_from_second=\([0-9]*\)$$/\1 \2 \3/p' mutated.out) && test "$$1" = mutation && test "$$3" -eq 0 && test "$$2" -eq 907 && cmp mutated.ann parents/0002.ann
 	./evolve 0 parents/0001.ann parents/0002.ann mutated.ann 8 > mutated.out
 	set -- $$(sed -n 's/^summary operator=\([a-z]*\) differs_from_first=\([0-9]*\) differs_from_second=\([0-9]*\)$$/\1 \2 \3/p' mutated.out) && test "$$1" = mutation && test "$$2" -gt 0 && test "$$2" -le 5 && test "$$3" -eq 907
+	cmp -n 74 mutated.ann parents/0001.ann
 	! ./evolve 0.5 ../engine/example.ann child.ann seeded-c.ann not-a-seed
 	rm -rf parents cross-a.ann cross-b.ann cross-c.ann cross-a.out mutated.ann mutated.out
 

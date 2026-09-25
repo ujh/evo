@@ -43,14 +43,14 @@ void seed() {
 
 // Exits with an error, instead of returning NULL, when the file cannot be
 // opened or does not hold a network.
-static genann *load_nn(char *name) {
+static genann *load_nn(char *name, ann_genes *genes) {
   printf("Loading %s ...", name);
   FILE *fd = fopen(name, "rb");
   if (fd == NULL) {
     fprintf(stderr, "\nCould not open %s: %s\n", name, strerror(errno));
     exit(1);
   }
-  genann *ann = ann_binary_read(fd);
+  genann *ann = ann_binary_read(fd, genes);
   fclose(fd);
   if (ann == NULL) {
     fprintf(stderr, "\nCould not read a network from %s\n", name);
@@ -60,10 +60,10 @@ static genann *load_nn(char *name) {
   return ann;
 }
 
-genann **load_nns(char *ann1_name, char *ann2_name) {
+genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2]) {
   genann **anns = malloc(2 * sizeof(genann *));
-  anns[0] = load_nn(ann1_name);
-  anns[1] = load_nn(ann2_name);
+  anns[0] = load_nn(ann1_name, &genes[0]);
+  anns[1] = load_nn(ann2_name, &genes[1]);
   return anns;
 }
 
@@ -111,10 +111,11 @@ void check_nns(genann **nns) {
   printf("Sanity check passed\n");
 }
 
-genann *child_from_cross_over(genann **nns) {
+genann *child_from_cross_over(genann **nns, int *picked) {
   printf("Cross over\n");
   // Pick order in which to use the NNs
   int i = pcg32_boundedrand(2);
+  *picked = i;
   genann *first_parent = nns[i];
   genann *second_parent = nns[(i+1) % 2];
   // Find weight at which to cross over
@@ -131,10 +132,11 @@ genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_p
   return child;
 }
 
-genann *child_from_mutation(genann **nns) {
+genann *child_from_mutation(genann **nns, int *picked) {
   printf("Mutation\n");
   // Pick a NN to use
-  genann *parent = nns[pcg32_boundedrand(2)];
+  *picked = pcg32_boundedrand(2);
+  genann *parent = nns[*picked];
   // Do the mutations
   return mutate(parent);
 }

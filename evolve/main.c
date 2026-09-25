@@ -82,19 +82,23 @@ int main(int argc, char **argv) {
     ann2_name
   );
 
-  genann **anns = load_nns(ann1_name, ann2_name);
+  ann_genes genes[2];
+  genann **anns = load_nns(ann1_name, ann2_name, genes);
   check_nns(anns);
 
   genann *child = NULL;
   const char *operator_name;
+  int picked;
 
   if (GENANN_RANDOM() < cross_over_rate) {
-    child = child_from_cross_over(anns);
+    child = child_from_cross_over(anns, &picked);
     operator_name = "crossover";
   } else {
-    child = child_from_mutation(anns);
+    child = child_from_mutation(anns, &picked);
     operator_name = "mutation";
   }
+  // The genes do not evolve yet: the child keeps its parent's.
+  ann_genes child_genes = genes[picked];
 
   printf("Saving output to %s ...", output_name);
   FILE *fd = fopen(output_name, "wb");
@@ -103,7 +107,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
   // A half-written child is removed, so the runner never finds one.
-  int written = ann_binary_write(child, fd);
+  int written = ann_binary_write(child, &child_genes, fd);
   if (fclose(fd) != 0 || written != 0) {
     fprintf(stderr, "\nCould not write %s: %s\n", output_name, strerror(errno));
     remove(output_name);

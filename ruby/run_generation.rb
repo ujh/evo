@@ -339,13 +339,32 @@ class RunGeneration
     exit if $stop_now
   end
 
+  # The genes every generation-0 network starts with, in initial-population's
+  # order: copy_chance, weight_changes, weight_step, activation_rate, and
+  # structure_rate. They are today's hard-coded mutation values, and
+  # weight_changes is today's 0.0004 changes per weight, at least 1.
+  def initial_genes
+    [0.01, [1.0, 0.0004 * initial_total_weights].max, 0.5, 0.02, 0.02]
+  end
+
+  # The number of weights of a generation-0 network, as GENANN counts them:
+  # each neuron has a bias and one weight per neuron of the layer before.
+  def initial_total_weights
+    points = settings['board_size']**2 + 1
+    layers = settings['hidden_layers']
+    width = settings['layer_size']
+    return points * (points + 1) if layers.zero?
+
+    (width * (points + 1)) + ((layers - 1) * width * (width + 1)) + (points * (width + 1))
+  end
+
   def setup_initial_population
     return if data['setup_complete']
 
     puts 'Generating initial population ...'
     seed = Seeds.derive(experiment_seed, 'initial-population')
     command = "../initial-population #{settings['population_size']} #{settings['board_size']} " \
-              "#{settings['hidden_layers']} #{settings['layer_size']} #{seed}"
+              "#{settings['hidden_layers']} #{settings['layer_size']} #{initial_genes.join(' ')} #{seed}"
     # Stop before storing anything, so generation 0 never starts short of
     # networks, as breeding does when evolve fails.
     raise "initial-population failed: #{command}" unless system(command)

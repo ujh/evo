@@ -32,10 +32,13 @@ SOFTWARE.
 extern pcg32_random_t rng;
 
 void seed();
-genann **load_nns(char *ann1_name, char *ann2_name);
+// Reads both parents and their genes; exits 1 if either cannot be read.
+genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2]);
 bool nns_compatible(genann **nns);
 void check_nns(genann **nns);
-genann *child_from_cross_over(genann **nns);
-genann *child_from_mutation(genann **nns);
+// Both store in *picked which parent (0 or 1) the child is built from: the
+// one mutated, or the one whose weights come first in a crossover.
+genann *child_from_cross_over(genann **nns, int *picked);
+genann *child_from_mutation(genann **nns, int *picked);
 genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_point);
 genann *mutate(genann *parent);

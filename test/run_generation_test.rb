@@ -875,11 +875,36 @@ class ReproducibleRoundsTest < Minitest::Test
       end
       capture_io { gen.send(:setup_initial_population) }
       seed = Seeds.derive(1, 'initial-population')
-      assert_equal ["../initial-population 2 9 1 10 #{seed}"], commands
+      # Today's default genes; 1732 weights would give 0.69 weight changes,
+      # raised to 1.
+      assert_equal ["../initial-population 2 9 1 10 0.01 1.0 0.5 0.02 0.02 #{seed}"], commands
       assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
       assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]
       assert_equal %w[0001.ann 0002.ann], store.network_names(0)
+    end
+  end
+
+  # weight_changes is 0.0004 per weight of the generation-0 shape, at least 1.
+  def test_the_initial_weight_changes_follow_the_network_size
+    {
+      [9, 3, 400] => 0.0004 * ((400 * 83) + (2 * 400 * 401) + (82 * 401)),
+      [9, 0, 10] => 0.0004 * (82 * 83),
+      [5, 1, 10] => 1.0
+    }.each do |(board_size, layers, width), expected|
+      in_experiment(generation: '0') do
+        gen = build_generation(generation: '0', store: database,
+                               settings: { 'board_size' => board_size, 'hidden_layers' => layers, 'layer_size' => width })
+        commands = []
+        gen.define_singleton_method(:system) do |cmd|
+          commands << cmd
+          %w[0001.ann 0002.ann].each { |name| File.write(name, name) }
+          true
+        end
+        capture_io { gen.send(:setup_initial_population) }
+        assert_equal expected, Float(commands.first.split[6]), [board_size, layers, width].inspect
+      end
+      @database = nil
     end
   end
 
