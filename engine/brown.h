@@ -71,6 +71,10 @@ static int deltaj[4] = {0, 0, -1, 1};
 
 void init_brown(void);
 void clear_board(void);
+// Starts a game: an empty board and no ko point. clear_board alone keeps
+// the ko point of the last move played; that cannot affect the next game,
+// since every move resets it, but new_game does not rely on that.
+void new_game(void);
 int board_empty(void);
 int get_board(int i, int j);
 int get_string(int i, int j, int *stonei, int *stonej);
@@ -81,6 +85,5 @@ int get_final_status(int i, int j);
 void set_final_status(int i, int j, int status);
 int valid_fixed_handicap(int handicap);
 void place_fixed_handicap(int handicap);
-void place_free_handicap(int handicap);
 int suicide(int i, int j, int color);
 int on_board(int i, int j);

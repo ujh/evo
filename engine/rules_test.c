@@ -7,8 +7,8 @@
 #include <string.h>
 
 #include "brown.h"
+#include "ann.h"
 #include "generate_move.h"
-#include "interface.h"
 #include "minctest.h"
 
 // Sets up a position from rows of 'X' (black), 'O' (white) and '.', on a
@@ -132,6 +132,36 @@ void test_simple_ko() {
   lok(legal_move(1, 2, BLACK));
 }
 
+// new_game leaves an empty board and no ko point, whatever the last game
+// left behind: a game in which the same shape arises through other moves
+// may retake at the old ko point at once. (clear_board alone passes this
+// too, since every move resets the ko point and the ko check needs an
+// opponent stone next to it; the test pins the behavior, not new_game.)
+void test_new_game_forgets_the_ko() {
+  const char *start[] = {".XO..", "X.XO.", ".XO..", ".....", "....."};
+  setup(start);
+  play_move(1, 1, WHITE); // ko: black may not retake at (1,2) now
+  lok(!legal_move(1, 2, BLACK));
+
+  new_game();
+  lok(board_empty());
+  // Every point is open to both colors on the empty board.
+  for (int i = 0; i < board_size; i++)
+    for (int j = 0; j < board_size; j++)
+      lok(legal_move(i, j, BLACK) && legal_move(i, j, WHITE));
+  // The ko shape again, with white's last stone placed without a capture.
+  const char *rebuilt[] = {".XO..", "XO.O.", ".XO..", ".....", "....."};
+  const int moves[][3] = {
+    {0, 1, BLACK}, {0, 2, WHITE}, {1, 0, BLACK}, {1, 3, WHITE},
+    {2, 1, BLACK}, {2, 2, WHITE}, {1, 1, WHITE}};
+  for (int k = 0; k < 7; k++) {
+    lok(legal_move(moves[k][0], moves[k][1], moves[k][2]));
+    play_move(moves[k][0], moves[k][1], moves[k][2]);
+  }
+  lok(board_is(rebuilt));
+  lok(legal_move(1, 2, BLACK)); // captures (1,1): no ko applies
+}
+
 // Capturing two stones makes no ko, even when the capturing stone is left
 // with a single liberty: black may take it back at once.
 void test_no_ko_after_capturing_two_stones() {
@@ -167,8 +197,7 @@ static void predict(double *prediction, int points, int best, int second, int pa
 // opponent stone. It passes when nothing is allowed or pass scores at least
 // as high.
 void test_the_move_filter() {
-  genann *saved = ann;
-  ann = genann_init(26, 0, 0, 26);
+  genann *ann = genann_init(26, 0, 0, 26);
   double prediction[26];
   int i, j;
 
@@ -176,19 +205,19 @@ void test_the_move_filter() {
   const char *occupied[] = {"X....", ".....", ".....", ".....", "....."};
   setup(occupied);
   predict(prediction, 25, POS(0, 0), POS(2, 2), 0);
-  find_and_set_best_move(&i, &j, WHITE, prediction);
+  find_and_set_best_move(ann, &i, &j, WHITE, prediction);
   lok(i == 2 && j == 2);
 
   // Suicide: skipped.
   const char *eye[] = {".X...", "X....", ".....", ".....", "....."};
   setup(eye);
   predict(prediction, 25, POS(0, 0), POS(3, 3), 0);
-  find_and_set_best_move(&i, &j, WHITE, prediction);
+  find_and_set_best_move(ann, &i, &j, WHITE, prediction);
   lok(i == 3 && j == 3);
 
   // Black's own eye is white's suicide point, and touches no white stone:
   // black does not fill it.
-  find_and_set_best_move(&i, &j, BLACK, prediction);
+  find_and_set_best_move(ann, &i, &j, BLACK, prediction);
   lok(i == 3 && j == 3);
 
   // White's suicide point is still played when it touches a white stone:
@@ -197,7 +226,7 @@ void test_the_move_filter() {
   setup(atari);
   lok(suicide(0, 1, WHITE));
   predict(prediction, 25, POS(0, 1), POS(3, 3), 0);
-  find_and_set_best_move(&i, &j, BLACK, prediction);
+  find_and_set_best_move(ann, &i, &j, BLACK, prediction);
   lok(i == 0 && j == 1);
 
   // Illegal ko recapture: skipped.
@@ -205,30 +234,29 @@ void test_the_move_filter() {
   setup(ko);
   play_move(1, 1, WHITE);
   predict(prediction, 25, POS(1, 2), POS(4, 4), 0);
-  find_and_set_best_move(&i, &j, BLACK, prediction);
+  find_and_set_best_move(ann, &i, &j, BLACK, prediction);
   lok(i == 4 && j == 4);
 
   // Pass scores highest: pass.
   setup(occupied);
   predict(prediction, 25, POS(2, 2), -1, 1);
-  find_and_set_best_move(&i, &j, BLACK, prediction);
+  find_and_set_best_move(ann, &i, &j, BLACK, prediction);
   lok(i == -1 && j == -1);
 
   // A tie with pass passes too, as saturated cached sigmoid outputs do.
   predict(prediction, 25, POS(2, 2), -1, 0);
   prediction[25] = prediction[POS(2, 2)];
-  find_and_set_best_move(&i, &j, BLACK, prediction);
+  find_and_set_best_move(ann, &i, &j, BLACK, prediction);
   lok(i == -1 && j == -1);
 
   // Nothing allowed: pass.
   const char *full[] = {"XXXXX", "XXXXX", "XX.XX", "XXXXX", "XXXX."};
   setup(full);
   predict(prediction, 25, POS(2, 2), POS(4, 4), 0);
-  find_and_set_best_move(&i, &j, BLACK, prediction);
+  find_and_set_best_move(ann, &i, &j, BLACK, prediction);
   lok(i == -1 && j == -1);
 
   genann_free(ann);
-  ann = saved;
 }
 
 int main(void) {
@@ -244,6 +272,7 @@ int main(void) {
   lrun("suicide_many", test_suicide_removes_the_friendly_string);
   lrun("capture_ok", test_a_capture_is_not_suicide);
   lrun("ko", test_simple_ko);
+  lrun("new_game", test_new_game_forgets_the_ko);
   lrun("no_ko_two", test_no_ko_after_capturing_two_stones);
   lrun("no_ko_libs", test_no_ko_when_the_capturing_stone_has_liberties_left);
   lrun("move_filter", test_the_move_filter);

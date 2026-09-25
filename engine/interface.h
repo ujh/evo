@@ -37,4 +37,3 @@
 
 int boot(int argc, char **argv);
 extern genann *ann;
-extern double *ann_inputs;

@@ -83,6 +83,23 @@ if [ "$got" != "$want" ]; then
   failed=1
 fi
 
+# Free handicap stones are the network's moves, so place_free_handicap is
+# refused like genmove until a fitting boardsize, and then lists the stones.
+handicap=$(./evo example.ann 2>/dev/null <<'EOF'
+place_free_handicap 3
+boardsize 9
+clear_board
+place_free_handicap 3
+quit
+EOF
+) || true
+got=$(printf '%s\n' "$handicap" | grep -v '^$' | sed 's/ *$//' | tr '\n' '|')
+want='? network does not fit the board|=|=|= A8 F6 D4|=|'
+if [ "$got" != "$want" ]; then
+  printf 'handicap session: expected %s\n                  got %s\n' "$want" "$got" >&2
+  failed=1
+fi
+
 # A network file that is missing or does not hold a network must stop evo
 # with exit status 1 and a message naming the file, not crash it.
 refuses() {

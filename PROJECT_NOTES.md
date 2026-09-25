@@ -127,7 +127,7 @@ GENANN's hidden layers must all have the same width; revisit that only if an exp
 
 ### A C arena for network games
 
-The largest structural change for speed is a C program that loads a set of networks once and plays the scheduled network-against-network games in one process. It would reuse Brown's board code, score with an explicit rule set (Tromp–Taylor area scoring is simple and well defined when a game ends by two passes or the move limit), vary openings or seeds deliberately, and write one result line per game with an explicit outcome (win, loss, draw, or error). Ruby would still orchestrate generations, selection, and benchmarks. This removes JVM startup and the GNU Go referee from most games. With no GNU Go opponents, that overhead is nearly all of a generation's game time, and network-against-network games took 35 s of the profile's 63 s. Before switching, check on a sample of games that arena results agree with the GoGui/GNU Go results.
+The largest structural change for speed is a C program that loads a set of networks once and plays the scheduled network-against-network games in one process. It would reuse Brown's board code, score with an explicit rule set (Tromp–Taylor area scoring is simple and well defined when a game ends by two passes or the move limit), vary openings or seeds deliberately, and write one result line per game with an explicit outcome (win, loss, draw, or error). Ruby would still orchestrate generations, selection, and benchmarks. This removes JVM startup and the GNU Go referee from most games. With no GNU Go opponents, that overhead is nearly all of a generation's game time, and network-against-network games took 35 s of the profile's 63 s.
 
 ### Suggested cleanup order
 

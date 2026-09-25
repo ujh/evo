@@ -37,34 +37,37 @@
 #include <stdlib.h>
 
 #include "brown.h"
-#include "ann.h"
-#include "interface.h"
+#include "generate_move.h"
+
+// The network's inputs: komi, then one per point. Large enough for any
+// board Brown supports; generate_move only runs networks that fit the board.
+static double ann_inputs[MAX_BOARD * MAX_BOARD + 1];
 
 // Build input for the neural network. Use 1 for stone of own color, -1 for other color
-void generate_ann_inputs(int color) {
+static void generate_ann_inputs(double *inputs, int color) {
   int ai, aj;
   int input_index = 1;
 
   // Set komi as the first input
-  ann_inputs[0] = komi * (color == WHITE ? 1.0 : -1.0);
+  inputs[0] = komi * (color == WHITE ? 1.0 : -1.0);
   // Set all stones as inputs
   for (ai = 0; ai < board_size; ai++)
     for (aj = 0; aj < board_size; aj++) {
       int v = get_board(ai, aj);
       if (v == EMPTY) {
-        ann_inputs[input_index] = 0.0;
+        inputs[input_index] = 0.0;
       } else {
         if (v == color) {
-          ann_inputs[input_index] = 1.0;
+          inputs[input_index] = 1.0;
         } else {
-          ann_inputs[input_index] = -1.0;
+          inputs[input_index] = -1.0;
         }
       }
       input_index++;
     }
 }
 
-void find_and_set_best_move(int *i, int *j, int color, const double *prediction) {
+void find_and_set_best_move(genann const *ann, int *i, int *j, int color, const double *prediction) {
   int pred_index, ai, aj, k;
   int best_index = -1;
   for(pred_index = 0; pred_index < ann->outputs - 1; pred_index++) {
@@ -101,15 +104,14 @@ void find_and_set_best_move(int *i, int *j, int color, const double *prediction)
   }
 }
 
-int ann_fits_board(int size) {
+int ann_fits_board(genann const *ann, int size) {
   int points = size * size;
   // One input per point plus komi, one output per point plus pass.
   return ann->inputs == points + 1 && ann->outputs == points + 1;
 }
 
-// Callers must check ann_fits_board(board_size) first.
-void generate_move(int *i, int *j, int color) {
-  generate_ann_inputs(color);
+void generate_move(genann const *ann, int *i, int *j, int color) {
+  generate_ann_inputs(ann_inputs, color);
   double const *prediction = genann_run(ann, ann_inputs);
-  find_and_set_best_move(i, j, color, prediction);
+  find_and_set_best_move(ann, i, j, color, prediction);
 }

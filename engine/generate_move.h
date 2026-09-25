@@ -33,8 +33,17 @@
  * without prior written authorization of the copyright holder.  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-int ann_fits_board(int size);
-void generate_move(int *i, int *j, int color);
+#include "ann.h"
+
+// The move policy. It reads Brown's board, board_size, and komi, and needs
+// nothing from the GTP code, so any program can link it with brown.o.
+
+// Whether `ann` has one input per point plus komi and one output per point
+// plus pass for a board of `size`.
+int ann_fits_board(genann const *ann, int size);
+// The move `ann` plays for `color` on the current board. Callers must check
+// ann_fits_board(ann, board_size) first.
+void generate_move(genann const *ann, int *i, int *j, int color);
 // Picks the highest-scoring allowed point in `prediction` (one score per
-// point, then pass), or pass.
-void find_and_set_best_move(int *i, int *j, int color, const double *prediction);
+// point of `ann`'s outputs, then pass), or pass.
+void find_and_set_best_move(genann const *ann, int *i, int *j, int color, const double *prediction);

@@ -15,6 +15,7 @@ test: pcg lib
 	cd engine; $(MAKE) enginetest
 	cd engine; $(MAKE) test
 	cd initial-population; $(MAKE) test
+	cd engine; $(MAKE) arenatest
 	cd evolve; $(MAKE) test
 	cd evolve; $(MAKE) evolvetest
 
