@@ -185,6 +185,6 @@ There is precedent for training substantial neural policies with genetic algorit
 - What hardware, compute budget, and unattended runtime are comfortable for a single experiment?
 - Is it acceptable for network-against-network games to use the project's own Tromp–Taylor scoring instead of the GNU Go referee, with GNU Go kept for benchmarks?
 - Should the harness stay in Ruby, or should orchestration move into the C code along with the arena?
-- Which board size, benchmark, and first opponent would make a satisfying initial milestone?
+- Which board size and first opponent would make a satisfying initial milestone?
 - For the opponent ladder: what promotes a network to the next bot (for example, a win rate over a number of games in both colors, sustained for some generations), whether beaten bots leave the panel, and which bots fill the gaps?
 - How much built-in Go knowledge (features, search) is acceptable before improvement no longer counts as coming from evolution?
