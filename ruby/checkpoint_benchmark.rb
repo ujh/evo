@@ -36,13 +36,13 @@ class CheckpointBenchmark
   end
 
   # Plays the games not yet in the database, so a resumed benchmark only
-  # plays what is missing.
+  # plays what is missing. Returns whether it played any game.
   def call
     FileUtils.mkdir_p(DIRECTORY)
     played = store.benchmark_games(generation).to_set { |row| row.values_at(:opponent, :opening, :network_color) }
     all = games
     pending = all.reject { |game| played.include?([game.opponent.name, game.opening, game.color]) }
-    return if pending.empty?
+    return false if pending.empty?
 
     pending.each { |game| pool.submit(command(game), game) }
     pending.size.times do |i|
@@ -54,6 +54,7 @@ class CheckpointBenchmark
       print "\rBenchmark ... Game: #{all.size - pending.size + i + 1}/#{all.size}".ljust(70)
     end
     puts "\rBenchmark ... done".ljust(70)
+    true
   end
 
   private

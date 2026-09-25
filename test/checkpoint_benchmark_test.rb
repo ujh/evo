@@ -32,7 +32,10 @@ class CheckpointBenchmarkTest < Minitest::Test
       copy_dat(pick ? pick.call(game) : fixture, game.prefix)
       File.write("#{game.prefix}-0.sgf", '(;SZ[9])')
     end
-    capture_io { CheckpointBenchmark.new(generation, SETTINGS.merge('benchmark_games' => 2).merge(settings), pool, database).call }
+    capture_io do
+      @played_any = CheckpointBenchmark.new(generation, SETTINGS.merge('benchmark_games' => 2).merge(settings), pool,
+                                            database).call
+    end
     pool
   end
 
@@ -47,6 +50,7 @@ class CheckpointBenchmarkTest < Minitest::Test
       assert_equal [['AmiGo', 0, 'black', nil], ['AmiGo', 0, 'white', nil], ['Brown', 0, 'black', nil],
                     ['Brown', 0, 'white', nil], ['GnuGoLevel0', 0, 'black', nil], ['GnuGoLevel0', 0, 'white', nil]],
                    played(0)
+      assert @played_any
     end
   end
 
@@ -207,6 +211,7 @@ class CheckpointBenchmarkTest < Minitest::Test
         database.record_benchmark_game(generation: 0, opponent: 'Brown', opening: 0, network_color: color, network: 'b.ann')
       end
       assert_empty run_benchmark(0).commands
+      refute @played_any
     end
   end
 

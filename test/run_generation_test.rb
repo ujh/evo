@@ -672,7 +672,8 @@ class GenerationBenchmarkTest < Minitest::Test
   # Runs a whole generation, with its networks already bred and a panel of
   # Brown alone, and returns what call returned and the benchmark's rows.
   # `round` 1 means the tournament is already over, as on a resume.
-  def run_generation(generation, round:, settings: {})
+  # With `benchmarked`, the benchmark's games are stored already.
+  def run_generation(generation, round:, settings: {}, benchmarked: false)
     in_experiment do
       store = ExperimentDatabase.new(':memory:')
       store.save_benchmark_opponents([{ name: 'Brown', kind: 'bot', command: 'brown' }])
@@ -680,6 +681,11 @@ class GenerationBenchmarkTest < Minitest::Test
       store.save_state(generation, { 'setup_complete' => true, 'round' => round, 'games' => [],
                                      'players' => { 'a.ann' => {}, 'b.ann' => {} },
                                      'ranking' => [{ 'name' => 'b.ann', 'score' => 1 }, { 'name' => 'a.ann', 'score' => 0 }] })
+      if benchmarked
+        { 'black' => 'network', 'white' => 'opponent' }.each do |color, winner|
+          store.record_benchmark_game(generation:, opponent: 'Brown', opening: 0, network_color: color, network: 'b.ann', winner:)
+        end
+      end
       gen = build_generation(generation: generation.to_s, settings: { 'benchmark_games' => 2 }.merge(settings), store:)
       gen.instance_variable_set(:@pool, FakePool.new { |game| copy_dat('black_wins', game.prefix) })
       result = nil
@@ -712,8 +718,15 @@ class GenerationBenchmarkTest < Minitest::Test
     end
   end
 
+  # Not :already_done, so a one-generation run stops after this generation
+  # instead of playing the next one too.
   def test_a_resumed_checkpoint_finishes_its_benchmark
-    assert_equal [:already_done, [%w[b.ann black network], %w[b.ann white opponent]]], run_generation(10, round: 1)
+    assert_equal [nil, [%w[b.ann black network], %w[b.ann white opponent]]], run_generation(10, round: 1)
+  end
+
+  def test_a_resumed_checkpoint_with_a_finished_benchmark_is_already_done
+    played = [%w[b.ann black network], %w[b.ann white opponent]]
+    assert_equal [:already_done, played], run_generation(10, round: 1, benchmarked: true)
   end
 
   def test_other_generations_are_not_benchmarked

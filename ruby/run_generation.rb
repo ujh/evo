@@ -24,8 +24,10 @@ class RunGeneration
       result = play_games
       # After the tournament, whose final ranking names the network to
       # benchmark, and on resume too, so a checkpoint finishes its benchmark.
-      CheckpointBenchmark.call(generation.to_i, settings, pool, store) if keep?(generation.to_i)
-      result
+      benchmarked = keep?(generation.to_i) && CheckpointBenchmark.call(generation.to_i, settings, pool, store)
+      # A generation that played no game is done, and a one-generation run
+      # moves on to the next one; one that finished its benchmark is not.
+      benchmarked ? nil : result
     end
   end
 
