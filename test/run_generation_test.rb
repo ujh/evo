@@ -169,18 +169,15 @@ end
 class EvolveFromPreviousPopulationTest < Minitest::Test
   include RunGenerationHelpers
 
-  # Sets up generation 0 with the given networks, an SGF, and twogtp stderr files, then runs the breeding
-  # step for generation 1 with `../evolve` replaced by the given block. The block returns what
-  # run_evolve does: [success, stdout]. `stale_child` is left in 0.ann, as an interrupted earlier run would.
+  # Stores generation 0's networks and state in the database, then runs the breeding step for
+  # generation 1 in the current directory (the scratch directory) with `../evolve` replaced by the
+  # given block. The block returns what run_evolve does: [success, stdout]. `stale_child` is left in
+  # 0.ann, as an interrupted earlier run would. keep_every 0 retires generation 0 after breeding.
   def breed(scores:, settings: {}, stale_child: nil, &evolve)
-    in_experiment do |dir|
+    settings = { 'keep_every' => '0' }.merge(settings)
+    in_experiment do
       File.write('0.ann', stale_child) if stale_child
-      gen0 = File.join(dir, '0')
-      FileUtils.mkdir_p(gen0)
-      scores.each_key { |name| File.write(File.join(gen0, name), name) }
-      File.write(File.join(gen0, 'game.sgf'), '')
-      File.write(File.join(gen0, 'quiet.err'), '')
-      File.write(File.join(gen0, 'crashed.err'), "Black program died\n")
+      scores.each_key { |name| database.record_network(0, name, name) }
       write_data({
                    'players' => scores.keys.to_h { |name| [name, {}] },
                    'ranking' => scores.map { |name, score| { 'name' => name, 'score' => score } }
@@ -203,7 +200,9 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
         commands: commands,
         error: error,
         children: Dir['*.ann'].sort.to_h { |f| [f, File.read(f)] },
-        previous_files: Dir.children(gen0).sort,
+        parent_files: Dir['parents/*'].sort,
+        previous_networks: database.network_names(0),
+        networks: database.network_names(1),
         data: database.state(1),
         births: store.births(1)
       }
@@ -218,7 +217,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     [true, SUMMARY]
   end
 
-  PARENTS = %r{\A\.\./evolve 0\.5 \.\./0/000[12]\.ann \.\./0/000[12]\.ann}
+  PARENTS = %r{\A\.\./evolve 0\.5 parents/000[12]\.ann parents/000[12]\.ann}
 
   def test_breeds_children_from_selected_parents_and_deletes_the_parents
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
@@ -226,7 +225,9 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_equal 2, state[:commands].size
     state[:commands].each_with_index { |cmd, i| assert_match(/#{PARENTS} #{i}\.ann #{Seeds.derive(1, 'birth', 1, i)}\z/, cmd) }
     assert_equal %w[0.ann 1.ann], state[:children].keys
-    assert_equal ['crashed.err'], state[:previous_files]
+    assert_equal %w[0.ann 1.ann], state[:networks]
+    assert_equal %w[parents/0001.ann parents/0002.ann], state[:parent_files]
+    assert_empty state[:previous_networks]
     assert state[:data]['setup_complete']
     assert_equal 0, state[:data]['round']
   end
@@ -240,14 +241,14 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   def test_evolve_failing_stops_breeding_before_the_parents_are_deleted
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [false, ''] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
-    assert_includes state[:previous_files], '0001.ann'
+    assert_includes state[:previous_networks], '0001.ann'
     assert_nil state[:data]
   end
 
   def test_evolve_writing_nothing_stops_breeding
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [true, SUMMARY] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
-    assert_includes state[:previous_files], '0001.ann'
+    assert_includes state[:previous_networks], '0001.ann'
   end
 
   def test_child_left_by_an_interrupted_run_is_not_reused
@@ -271,7 +272,20 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   def test_evolve_without_a_summary_stops_breeding
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) && [true, "Loading ...\n"] }
     assert_match(/no summary/, state[:error].message)
-    assert_includes state[:previous_files], '0001.ann'
+    assert_includes state[:previous_networks], '0001.ann'
+  end
+
+  def test_parents_of_a_kept_generation_stay_in_the_database
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'keep_every' => '10' }) { |cmd| write_child(cmd) }
+    assert_equal %w[0001.ann 0002.ann], state[:previous_networks]
+  end
+
+  def test_children_are_stored_with_their_bytes
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
+    Dir.mktmpdir do |dir|
+      database.export_networks(1, dir)
+      assert_equal state[:children]['0.ann'], File.read(File.join(dir, '0.ann'))
+    end
   end
 
   def test_skips_breeding_once_setup_is_complete
@@ -314,7 +328,7 @@ class GamesFromRankingTest < Minitest::Test
   def test_game_keys_become_strings_after_saving
     in_experiment do
       gen = build_generation
-      gen.send(:save_data, 'games' => games(%w[a.ann b.ann]))
+      gen.send(:save_data, { 'games' => games(%w[a.ann b.ann]) })
       assert_equal %w[black white], gen.send(:data)['games'].first.keys
     end
   end
@@ -397,7 +411,7 @@ class PlayRoundTest < Minitest::Test
     end
   end
 
-  def test_keeps_the_sgf_every_sgf_every_generations
+  def test_keeps_the_sgf_every_keep_every_generations
     in_experiment(generation: '10') do
       setup_round(generation: 10)
       store = database
@@ -483,6 +497,7 @@ class ReproducibleRoundsTest < Minitest::Test
       assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
       assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]
+      assert_equal %w[0001.ann 0002.ann], store.network_names(0)
     end
   end
 
@@ -494,6 +509,19 @@ class ReproducibleRoundsTest < Minitest::Test
       store = database
       assert_equal :already_done, build_generation(store:).send(:play_games)
       assert_equal [[1, 'a.ann', 1]], store.ranking(1).map { |r| r.values_at(:rank, :name, :score) }
+    end
+  end
+
+  def test_a_resumed_generation_plays_with_its_stored_networks_in_a_fresh_work_directory
+    in_experiment do
+      FileUtils.mkdir_p('work')
+      File.write('work/stale.ann', 'left over')
+      database.record_network(2, '0.ann', 'weights of 0')
+      database.record_network(2, '1.ann', 'weights of 1')
+      write_data({ 'setup_complete' => true, 'round' => 0 }, generation: 2)
+      seen = nil
+      build_generation(generation: '2').send(:setup) { seen = Dir.children('.').sort.to_h { |f| [f, File.read(f)] } }
+      assert_equal({ '0.ann' => 'weights of 0', '1.ann' => 'weights of 1' }, seen)
     end
   end
 

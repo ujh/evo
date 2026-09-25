@@ -20,6 +20,7 @@ module RunGenerationHelpers
     'max_moves' => '200',
     'tournament_rounds' => '1',
     'seed' => '1',
+    'keep_every' => '10',
     'concurrency' => 1
   }.freeze
 
@@ -34,8 +35,9 @@ module RunGenerationHelpers
     gen
   end
 
-  # Runs the block inside a fresh experiment directory, chdir'd into the given
-  # generation directory, the way RunGeneration#setup does.
+  # Runs the block inside a fresh directory named after the generation.
+  # Tests of RunGeneration#setup see it as the experiment directory, since
+  # setup creates work/ inside it; other tests use it as work/ itself.
   def in_experiment(generation: '1')
     Dir.mktmpdir('evo-test') do |dir|
       path = File.join(dir, generation)

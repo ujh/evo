@@ -22,7 +22,7 @@ class SetupExperiment
     'max_moves' => ['Max moves', nil],
     'tournament_rounds' => ['Rounds (tournament)', nil],
     'tournament_size' => ['Tournament size for parent selection', '3'],
-    'sgf_every' => ['Keep the SGF of every game in every Nth generation (0 for never)', '10'],
+    'keep_every' => ['Keep the SGFs and networks of every Nth generation (0 for never)', '10'],
     'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }]
   }.freeze
 

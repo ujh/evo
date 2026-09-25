@@ -47,11 +47,32 @@ class ExperimentDatabase
     @db.transaction { read_state(generation) }
   end
 
+  # A network's .ann bytes. Storing it again replaces it.
+  def record_network(generation, name, weights)
+    @db[:networks].insert_conflict(:replace).insert(generation:, name:, weights: Sequel.blob(weights))
+  end
+
+  def network_names(generation)
+    @db[:networks].where(generation:).order(:name).select_map(:name)
+  end
+
+  # Writes the generation's networks into `directory` as .ann files, for the
+  # programs that read them, and returns their names.
+  def export_networks(generation, directory)
+    @db[:networks].where(generation:).order(:name).map do |row|
+      File.binwrite(File.join(directory, row[:name]), row[:weights])
+      row[:name]
+    end
+  end
+
   # Replaces the generation's whole state in one transaction, so a crash
-  # leaves either the old state or the new one.
-  def save_state(generation, state)
+  # leaves either the old state or the new one. `retire_networks_of` deletes
+  # that generation's networks in the same transaction, so parents are only
+  # dropped once the generation bred from them is saved.
+  def save_state(generation, state, retire_networks_of: nil)
     players = state.fetch('players', {})
     @db.transaction do
+      @db[:networks].where(generation: retire_networks_of).delete if retire_networks_of
       @db[:generations].insert_conflict(:replace).insert(
         generation:, round: state.fetch('round', 0), setup_complete: state.fetch('setup_complete', false)
       )

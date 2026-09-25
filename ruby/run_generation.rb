@@ -28,14 +28,21 @@ class RunGeneration
 
   attr_accessor :generation, :settings, :pool, :store
 
+  # The scratch directory the generation works in. It is emptied at the
+  # start of every generation; everything worth keeping is in the database.
+  WORK = 'work'.freeze
+
   def setup
-    FileUtils.mkdir(generation) unless File.exist?(generation)
-    Dir.chdir(generation) do
+    FileUtils.rm_rf(WORK)
+    FileUtils.mkdir(WORK)
+    Dir.chdir(WORK) do
       if generation == '0'
         setup_initial_population
       else
         evolve_from_previous_population
       end
+      # On resume the networks come from the database, not from breeding.
+      store.export_networks(generation.to_i, '.')
       yield
     end
   end
@@ -173,7 +180,7 @@ class RunGeneration
 
   # Writes the game to the experiment database, then deletes the files gogui-twogtp
   # left, so an experiment does not pile up three files per game. The SGF is
-  # kept for every sgf_every-th generation only. A crash between the two
+  # kept for every keep_every-th generation only. A crash between the two
   # steps replays the game, and its row is replaced.
   def store_game(game, scored)
     prefix = prefix_from(game)
@@ -192,8 +199,14 @@ class RunGeneration
   end
 
   def keep_sgf?
-    every = settings.fetch('sgf_every', '10').to_i
-    every.positive? && (generation.to_i % every).zero?
+    keep?(generation.to_i)
+  end
+
+  # SGFs and networks are kept for every keep_every-th generation (0 keeps
+  # none), so lineages can be revisited at regular points.
+  def keep?(generation_number)
+    every = settings.fetch('keep_every', '10').to_i
+    every.positive? && (generation_number % every).zero?
   end
 
   def external?(player)
@@ -212,8 +225,8 @@ class RunGeneration
 
   # Replaces the state in one transaction, so a crash leaves the old state or
   # the new one, never half of it.
-  def save_data(hash)
-    store.save_state(generation.to_i, hash)
+  def save_data(hash, retire_networks_of: nil)
+    store.save_state(generation.to_i, hash, retire_networks_of:)
     @data = nil
     exit if $stop_now
   end
@@ -225,6 +238,7 @@ class RunGeneration
     seed = Seeds.derive(experiment_seed, 'initial-population')
     system("../initial-population #{settings['population_size']} #{settings['board_size']} #{settings['hidden_layers']} #{settings['layer_size']} #{seed}")
     Dir['*.ann'].sort.each do |network|
+      store.record_network(0, network, File.binread(network))
       store.record_birth(generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
                          differs_from_first: nil, differs_from_second: nil, seed:,
                          genome: Digest::SHA256.file(network).hexdigest)
@@ -238,6 +252,8 @@ class RunGeneration
     previous_generation = generation.to_i - 1
     previous_data = store.state(previous_generation)
     candidates = parent_candidates(previous_data)
+    FileUtils.mkdir_p(PARENTS)
+    store.export_networks(previous_generation, PARENTS)
     # Generate the new population
     total = settings['population_size'].to_i
     total.times do |i|
@@ -245,9 +261,14 @@ class RunGeneration
       breed_child(previous_generation, candidates, i)
     end
     puts "\rGenerating population ... done         "
-    clean_up_generation(previous_generation)
-    save_data(setup_tournament)
+    # The parents are dropped in the same transaction that saves the new
+    # generation, unless their generation is one to keep.
+    save_data(setup_tournament, retire_networks_of: keep?(previous_generation) ? nil : previous_generation)
   end
+
+  # The previous generation's networks, written out for evolve. They are
+  # named like this generation's children, so they need their own directory.
+  PARENTS = 'parents'.freeze
 
   # Writes one child straight to `child`. A file left there by an interrupted
   # run is removed first, so a child exists only if this evolve wrote it. On
@@ -257,13 +278,14 @@ class RunGeneration
     FileUtils.rm_f(child)
     parents = Array.new(2) { select_parent(candidates) }
     seed = Seeds.derive(experiment_seed, 'birth', generation.to_i, index)
-    command = "../evolve #{settings['cross_over_rate']} #{parents.map { |p| "../#{previous_generation}/#{p}" }.join(' ')} #{child} #{seed}"
+    command = "../evolve #{settings['cross_over_rate']} #{parents.map { |p| "#{PARENTS}/#{p}" }.join(' ')} #{child} #{seed}"
     success, output = run_evolve(command)
     raise "evolve failed to breed #{child}: #{command}" unless success && File.exist?(child)
 
     summary = output.match(/^summary operator=(\w+) differs_from_first=(\d+) differs_from_second=(\d+)$/)
     raise "evolve printed no summary for #{child}: #{command}" unless summary
 
+    store.record_network(generation.to_i, child, File.binread(child))
     store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
                        operator: summary[1], differs_from_first: summary[2].to_i, differs_from_second: summary[3].to_i,
                        seed:, genome: Digest::SHA256.file(child).hexdigest)
@@ -293,23 +315,6 @@ class RunGeneration
 
   def rng
     @rng ||= Random.new(Seeds.derive(experiment_seed, 'selection', generation.to_i))
-  end
-
-  def clean_up_generation(g)
-    Dir.chdir("../#{g}") do
-      # stdout, stderr, status = Open3.capture3('find . -name "*.ann" -print | tar cvfj anns.tar.bz2 -T -')
-      # if status.success?
-      FileUtils.rm(Dir['*.ann'])
-      # else
-      #   puts 'Failed to tar *.ann files'
-      #   puts stdout
-      #   puts stderr
-      #   exit(1)
-      # end
-      FileUtils.rm(Dir['*.sgf'])
-      # Keep twogtp stderr only where a program said something, such as a crash.
-      FileUtils.rm(Dir['*.err'].select { |f| File.zero?(f) })
-    end
   end
 
   AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp' }
