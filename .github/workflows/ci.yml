@@ -29,10 +29,14 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - uses: jdx/mise-action@v4
+    # Cached gems and tools are compiled, so they are only valid on the runner
+    # image that built them. ImageOS is not readable in a cache key directly.
+    - id: image
+      run: echo "os=$ImageOS" >> "$GITHUB_OUTPUT"
     - uses: actions/cache@v6
       with:
         path: vendor/bundle
-        key: gems-${{ runner.os }}-${{ hashFiles('Gemfile.lock', 'mise.toml') }}
+        key: gems-${{ runner.os }}-${{ steps.image.outputs.os }}-${{ hashFiles('Gemfile.lock', 'mise.toml') }}
     - name: Install gems
       run: bundle install
     - name: Ruby tests
@@ -45,16 +49,20 @@ jobs:
       with:
         submodules: true
     - uses: jdx/mise-action@v4
+    # Cached gems and tools are compiled, so they are only valid on the runner
+    # image that built them. ImageOS is not readable in a cache key directly.
+    - id: image
+      run: echo "os=$ImageOS" >> "$GITHUB_OUTPUT"
     - uses: actions/cache@v6
       with:
         path: vendor/bundle
-        key: gems-${{ runner.os }}-${{ hashFiles('Gemfile.lock', 'mise.toml') }}
+        key: gems-${{ runner.os }}-${{ steps.image.outputs.os }}-${{ hashFiles('Gemfile.lock', 'mise.toml') }}
     # The installer skips downloading and building when it finds its own
     # completed install, so a cache hit skips both.
     - uses: actions/cache@v6
       with:
         path: .local/evo-tools
-        key: evo-tools-${{ runner.os }}-${{ hashFiles('scripts/install-external-tools.sh', 'scripts/external-tools.txt', 'scripts/patches/**') }}
+        key: evo-tools-${{ runner.os }}-${{ steps.image.outputs.os }}-${{ hashFiles('scripts/install-external-tools.sh', 'scripts/external-tools.txt', 'scripts/patches/**') }}
     - name: Setup experiments
       run: mise run setup-experiments
     - name: Check external programs
