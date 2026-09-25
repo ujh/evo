@@ -23,6 +23,8 @@ module RunGenerationHelpers
     'tournament_size' => 3,
     'seed' => 1,
     'keep_every' => 10,
+    'benchmark_games' => 20,
+    'benchmark_opening_moves' => 4,
     'concurrency' => 1
   }.freeze
 
