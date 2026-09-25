@@ -91,8 +91,10 @@ class ScoreGameTest < Minitest::Test
   end
 end
 
-class ParentPoolTest < Minitest::Test
+class ParentSelectionTest < Minitest::Test
   include RunGenerationHelpers
+
+  PICKS = 30_000
 
   def previous_data(scores)
     {
@@ -103,20 +105,57 @@ class ParentPoolTest < Minitest::Test
     }
   end
 
-  def test_each_network_appears_score_cubed_times_and_external_players_are_excluded
-    pool = build_generation.send(:parent_pool, previous_data('a.ann' => 3, 'Brown1' => 5, 'b.ann' => 2, 'c.ann' => 0))
-    assert_equal({ 'a.ann' => 27, 'b.ann' => 8 }, pool.tally)
+  # Returns how often each network was picked, as a share of PICKS.
+  def shares(scores, settings: {})
+    gen = build_generation(settings: settings)
+    candidates = gen.send(:parent_candidates, previous_data(scores))
+    picks = Array.new(PICKS) { gen.send(:select_parent, candidates) }
+    picks.tally.transform_values { |n| n.fdiv(PICKS) }
   end
 
-  def test_pool_size_grows_with_the_cube_of_the_score_defect
-    pool = build_generation.send(:parent_pool, previous_data('a.ann' => 20))
-    assert_equal 8000, pool.size
+  def assert_shares(expected, actual)
+    assert_equal expected.keys.sort, actual.keys.sort
+    expected.each { |name, share| assert_in_delta share, actual[name], 0.015, name }
   end
 
-  def test_all_zero_scores_give_an_empty_pool_defect
-    pool = build_generation.send(:parent_pool, previous_data('a.ann' => 0, 'b.ann' => 0))
-    assert_empty pool
-    assert_nil pool.sample
+  def test_external_players_are_never_candidates
+    candidates = build_generation.send(:parent_candidates, previous_data('a.ann' => 3, 'Brown1' => 5, 'b.ann' => 0))
+    assert_equal %w[a.ann b.ann], candidates.map { |c| c['name'] }
+  end
+
+  def test_better_ranks_win_more_of_their_draws
+    # With k = 3 and ranks A > B > C, A wins 19/27, B 7/27, C 1/27.
+    assert_shares({ 'a.ann' => 19 / 27.0, 'b.ann' => 7 / 27.0, 'c.ann' => 1 / 27.0 },
+                  shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }))
+  end
+
+  def test_only_the_order_of_scores_matters
+    assert_shares(shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }),
+                  shares({ 'a.ann' => 4, 'b.ann' => 3, 'c.ann' => 1 }))
+  end
+
+  def test_all_zero_scores_pick_uniformly
+    assert_shares({ 'a.ann' => 1 / 3.0, 'b.ann' => 1 / 3.0, 'c.ann' => 1 / 3.0 },
+                  shares({ 'a.ann' => 0, 'b.ann' => 0, 'c.ann' => 0 }))
+  end
+
+  def test_tied_networks_share_their_wins
+    tied = (1 - (1 / 3.0)**3) / 2
+    assert_shares({ 'a.ann' => tied, 'b.ann' => tied, 'c.ann' => 1 / 27.0 },
+                  shares({ 'a.ann' => 5, 'b.ann' => 5, 'c.ann' => 0 }))
+  end
+
+  def test_tournament_size_sets_the_selection_pressure
+    assert_shares({ 'a.ann' => 1 / 3.0, 'b.ann' => 1 / 3.0, 'c.ann' => 1 / 3.0 },
+                  shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }, settings: { 'tournament_size' => '1' }))
+    assert_shares({ 'a.ann' => 5 / 9.0, 'b.ann' => 3 / 9.0, 'c.ann' => 1 / 9.0 },
+                  shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }, settings: { 'tournament_size' => '2' }))
+  end
+
+  def test_tournament_size_below_one_is_rejected
+    gen = build_generation(settings: { 'tournament_size' => '0' })
+    candidates = gen.send(:parent_candidates, previous_data('a.ann' => 1))
+    assert_raises(ArgumentError) { gen.send(:select_parent, candidates) }
   end
 end
 
@@ -166,19 +205,21 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     File.write('child.ann', cmd)
   end
 
-  def test_breeds_children_from_the_pool_and_deletes_the_parents
+  def test_breeds_children_from_selected_parents_and_deletes_the_parents
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
     assert_nil state[:error]
-    assert_equal ['../evolve 0.5 ../0/0001.ann ../0/0001.ann'] * 2, state[:commands]
+    assert_equal 2, state[:commands].size
+    state[:commands].each { |cmd| assert_match %r{\A\.\./evolve 0\.5 \.\./0/000[12]\.ann \.\./0/000[12]\.ann\z}, cmd }
     assert_equal %w[0.ann 1.ann], state[:children].keys
     assert_equal ['crashed.err', 'data.json'], state[:previous_files]
     assert state[:data]['setup_complete']
     assert_equal 0, state[:data]['round']
   end
 
-  def test_all_zero_scores_call_evolve_without_parent_files_defect
+  def test_all_zero_scores_still_breed_from_real_parents
     state = breed(scores: { '0001.ann' => 0, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
-    assert_equal ['../evolve 0.5 ../0/ ../0/'] * 2, state[:commands]
+    assert_nil state[:error]
+    state[:commands].each { |cmd| assert_match %r{\A\.\./evolve 0\.5 \.\./0/000[12]\.ann \.\./0/000[12]\.ann\z}, cmd }
   end
 
   def test_stale_child_is_reused_when_evolve_writes_nothing_defect
