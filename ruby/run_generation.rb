@@ -458,7 +458,8 @@ class RunGeneration
     parents = Array.new(2) { select_parent(candidates) }
     seed = Seeds.derive(experiment_seed, 'birth', generation.to_i, index)
     command = "../evolve #{evolve_arguments.join(' ')} #{parents.map { |p| "#{PARENTS}/#{p}" }.join(' ')} #{child} #{seed}"
-    success, output = run_evolve(command)
+    success, output, status = run_evolve(command)
+    stop_breeding(child, status) unless success
     raise "evolve failed to breed #{child}: #{command}" unless success && File.exist?(child)
 
     summary = output.match(EVOLVE_SUMMARY)
@@ -504,9 +505,19 @@ class RunGeneration
   end
 
   # Returns [success, stdout]; evolve's last stdout line is its summary.
+  # [success, stdout, Process::Status].
   def run_evolve(command)
     output, status = Open3.capture2(command)
-    [status.success?, output]
+    [status.success?, output, status]
+  end
+
+  # Ctrl-C reaches the running evolve too. Stop as the tournament does,
+  # without an error: the generation's setup is saved only after the last
+  # child, so a resume breeds every child again, with the same seeds. evolve
+  # can be back before the trap has set the flag; its status tells.
+  def stop_breeding(child, status)
+    exit if $stop_now
+    WorkerPool.exit_interrupted("breeding #{child}", 'breeding starts over on resume') if WorkerPool.interrupted?(status)
   end
 
   def parent_candidates(previous_data)

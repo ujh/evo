@@ -197,15 +197,18 @@ class ExperimentStats
   # networks: the most children one parent got, how many got none, and how
   # many got any. A crossover counts for both parents (both were
   # selected and crossed), a mutation or a copy only for the parent evolve
-  # picked. nil for the initial population. Unlike distinct_parents, this
-  # counts selection, not whose weights survive.
+  # picked. nil for the initial population, and for births from before
+  # migration 010, which do not name the picked parent. Unlike
+  # distinct_parents, this counts selection, not whose weights survive.
   def parents(generation, births)
     bred = births.reject { |birth| birth[:operator] == 'initial' }
-    return nil if generation.zero? || bred.empty?
+    return nil if generation.zero? || bred.empty? || bred.any? { |birth| birth[:parent].nil? }
 
     children = bred.flat_map do |birth|
       first, second = birth.values_at(:first_parent, :second_parent)
-      next [first, second] if birth[:operator] == 'crossover'
+      # A network crossed with itself (selection draws with replacement)
+      # has one child, not two.
+      next [first, second].uniq if birth[:operator] == 'crossover'
 
       [birth[:parent] == 'second' ? second : first]
     end.tally

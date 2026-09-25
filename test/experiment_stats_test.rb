@@ -300,6 +300,21 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal({ max_children: 3, childless: 1, used: 2 }, parents)
   end
 
+  # Selection draws with replacement, so a network can be crossed with
+  # itself: that is one child for it, not two.
+  def test_a_crossover_of_a_network_with_itself_counts_once
+    parents = figures_of({ first_parent: 'a.ann', second_parent: 'a.ann', operator: 'crossover', parent: 'first' },
+                         { first_parent: 'b.ann', second_parent: 'c.ann', operator: 'mutation', parent: 'first' })[:parents]
+    assert_equal({ max_children: 1, childless: 1, used: 2 }, parents)
+  end
+
+  # Births from before migration 010 do not say which parent a mutation
+  # came from.
+  def test_children_per_parent_are_nil_without_the_picked_parent
+    assert_nil figures_of({ first_parent: 'a.ann', second_parent: 'b.ann', operator: 'crossover', parent: nil },
+                          { first_parent: 'b.ann', second_parent: 'c.ann', operator: 'mutation', parent: nil })[:parents]
+  end
+
   def test_children_per_parent_in_the_fixture
     assert_equal({ max_children: 3, childless: 0, used: 3 }, @stats.generation(1)[:parents])
     assert_nil @stats.generation(0)[:parents]
