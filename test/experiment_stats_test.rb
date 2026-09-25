@@ -233,6 +233,120 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal 1, @stats.generation(4)[:population][:identical]
   end
 
+  def test_genes_of_a_generation_by_median_and_range
+    assert_equal(
+      { 'copy_chance' => { min: 0.005, median: 0.01, max: 0.02 },
+        'weight_changes' => { min: 1.0, median: 2.5, max: 4.0 },
+        'weight_step' => { min: 0.4, median: 0.5, max: 0.6 },
+        'activation_rate' => { min: 0.02, median: 0.02, max: 0.02 },
+        'structure_rate' => { min: 0.01, median: 0.02, max: 0.03 } },
+      @stats.generation(1)[:genes]
+    )
+  end
+
+  # Total weights for 9x9: 82 inputs and 82 outputs.
+  def test_shapes_of_a_generation
+    assert_equal(
+      { layers: { min: 1, median: 1, max: 1 }, width: { min: 10, median: 10, max: 11 }, weights: { min: 1732, median: 1732, max: 1897 },
+        counts: { '1x10' => 2, '1x11' => 1 } },
+      @stats.generation(1)[:shape]
+    )
+  end
+
+  # Without hidden layers the network is one layer of (inputs + 1) x
+  # outputs weights; with two, the second hidden layer adds (width + 1) x
+  # width.
+  def test_total_weights_of_other_depths
+    shape = figures_of({ layers: 0, width: 0 }, { layers: 2, width: 10 }, { layers: 2, width: 10 })[:shape]
+    assert_equal({ min: 1842, median: 1842, max: 6806 }, shape[:weights])
+    assert_equal({ '0x0' => 1, '2x10' => 2 }, shape[:counts])
+    assert_equal({ min: 0, median: 2, max: 2 }, shape[:layers])
+  end
+
+  def test_activations_count_every_name
+    activation = @stats.generation(1)[:activation]
+    assert_equal({ 'sigmoid' => 0, 'sigmoid_cached' => 2, 'threshold' => 0, 'linear' => 0, 'tanh' => 1, 'relu' => 0 },
+                 activation[:hidden])
+    assert_equal({ 'sigmoid' => 0, 'sigmoid_cached' => 2, 'threshold' => 0, 'linear' => 0, 'tanh' => 0, 'relu' => 1 },
+                 activation[:output])
+    assert_equal 3, @stats.generation(0)[:activation][:hidden]['sigmoid_cached']
+  end
+
+  # The initial population is not bred, so it has no structure counts.
+  def test_structure_counts_every_operation_of_the_bred_children
+    assert_equal({ 'none' => 2, 'widen' => 1, 'narrow' => 0, 'add_layer' => 0, 'remove_layer' => 0 },
+                 @stats.generation(1)[:structure])
+    assert_nil @stats.generation(0)[:structure]
+  end
+
+  def test_a_generation_without_births_has_no_genome_figures
+    figures = @stats.generation(2)
+    assert_equal({ min: nil, median: nil, max: nil }, figures[:genes]['weight_step'])
+    assert_equal({ min: nil, median: nil, max: nil }, figures[:shape][:layers])
+    assert_equal({ min: nil, median: nil, max: nil }, figures[:shape][:weights])
+    assert_empty figures[:shape][:counts]
+    assert_nil figures[:activation]
+    assert_nil figures[:structure]
+    assert_nil figures[:parents]
+  end
+
+  # Of generation 0's a, b, and c: a crossover counts for both parents, a
+  # mutation or a copy only for the parent evolve picked, so b.ann has one
+  # child, a.ann three, and c.ann none.
+  def test_children_per_parent_of_the_previous_generation
+    parents = figures_of({ first_parent: 'a.ann', second_parent: 'b.ann', operator: 'crossover', parent: 'second' },
+                         { first_parent: 'c.ann', second_parent: 'a.ann', operator: 'mutation', parent: 'second' },
+                         { first_parent: 'a.ann', second_parent: 'b.ann', operator: 'copy', parent: 'first' })[:parents]
+    assert_equal({ max_children: 3, childless: 1, used: 2 }, parents)
+  end
+
+  def test_children_per_parent_in_the_fixture
+    assert_equal({ max_children: 3, childless: 0, used: 3 }, @stats.generation(1)[:parents])
+    assert_nil @stats.generation(0)[:parents]
+  end
+
+  # Brown1 is the only bot. In generation 1 all three networks score more
+  # than its 0; in generation 0 its 5 is the best score.
+  def test_bot_ranks_in_the_fixture
+    assert_equal({ best_rank: 4, networks_above: 3, 'Brown' => { best_rank: 4, networks_above: 3 }, 'AmiGo' => nil },
+                 @stats.generation(1)[:bots])
+    assert_equal({ best_rank: 1, networks_above: 0, 'Brown' => { best_rank: 1, networks_above: 0 }, 'AmiGo' => nil },
+                 @stats.generation(0)[:bots])
+  end
+
+  # By score: a bot tied with a network ranks with it, and only networks
+  # with more points count as above it. A group is the stored opponent
+  # whose name the copy's name starts with, followed by its copy number.
+  def test_bot_ranks_per_group_by_their_best_copy
+    players = PLAYERS.merge('Brown2' => { 'external' => true }, 'AmiGo1' => { 'external' => true },
+                            'AmiGo2' => { 'external' => true })
+    ranking = [['AmiGo2', 6], ['c.ann', 6], ['Brown2', 5], ['a.ann', 5], ['Brown1', 3], ['AmiGo1', 1], ['b.ann', 0]]
+    reopen_writing do |writer|
+      writer.save_state(4, { 'round' => 0, 'players' => players,
+                             'ranking' => ranking.map { |name, score| { 'name' => name, 'score' => score } } })
+    end
+    assert_equal({ best_rank: 1, networks_above: 0, 'Brown' => { best_rank: 3, networks_above: 1 },
+                   'AmiGo' => { best_rank: 1, networks_above: 0 } }, @stats.generation(4)[:bots])
+  end
+
+  def test_bot_groups_are_the_stored_opponents
+    assert_equal %w[Brown AmiGo], @stats.bot_groups
+  end
+
+  # The figures of a generation 4 whose births have the given columns, on
+  # top of a mutation of 1x10 networks with default genes.
+  def figures_of(*births)
+    reopen_writing do |writer|
+      births.each_with_index do |birth, i|
+        writer.record_birth(generation: 4, child: "#{i}.ann", first_parent: 'a.ann', second_parent: 'b.ann',
+                            operator: 'mutation', parent: 'first', seed: i, genome: "x#{i}", structure: 'none',
+                            layers: 1, width: 10, **StatsFixture::GENES, **birth)
+      end
+      writer.save_state(4, { 'round' => 0, 'players' => PLAYERS, 'ranking' => [] })
+    end
+    @stats.generation(4)
+  end
+
   # The population figures of a generation 4 whose births are the given
   # [first, second, operator, differs_from_first, differs_from_second, parent].
   def population_of(*births)
