@@ -67,7 +67,9 @@ genann **load_nns(char *ann1_name, char *ann2_name) {
   return anns;
 }
 
-void check_nns(genann **nns) {
+// Prints each difference between the parents that makes them impossible to
+// breed, and returns whether there was none.
+bool nns_compatible(genann **nns) {
   genann *nn1 = nns[0];
   genann *nn2 = nns[1];
   bool failed = false;
@@ -88,8 +90,21 @@ void check_nns(genann **nns) {
     printf("nn1.hidden = %d, nn2.hidden = %d\n", nn1->hidden, nn2->hidden);
     failed = true;
   }
+  if (nn1->activation_hidden != nn2->activation_hidden) {
+    printf("nn1.activation_hidden = %s, nn2.activation_hidden = %s\n",
+           ann_activation_name(nn1->activation_hidden), ann_activation_name(nn2->activation_hidden));
+    failed = true;
+  }
+  if (nn1->activation_output != nn2->activation_output) {
+    printf("nn1.activation_output = %s, nn2.activation_output = %s\n",
+           ann_activation_name(nn1->activation_output), ann_activation_name(nn2->activation_output));
+    failed = true;
+  }
+  return !failed;
+}
 
-  if (failed) {
+void check_nns(genann **nns) {
+  if (!nns_compatible(nns)) {
     printf("Sanity check failed!\n");
     exit(1);
   }

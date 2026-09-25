@@ -102,9 +102,11 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\nCould not open %s: %s\n", output_name, strerror(errno));
     exit(1);
   }
-  ann_binary_write(child, fd);
-  if (fclose(fd) != 0) {
+  // A half-written child is removed, so the runner never finds one.
+  int written = ann_binary_write(child, fd);
+  if (fclose(fd) != 0 || written != 0) {
     fprintf(stderr, "\nCould not write %s: %s\n", output_name, strerror(errno));
+    remove(output_name);
     exit(1);
   }
   printf("\n");

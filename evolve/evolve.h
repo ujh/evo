@@ -25,6 +25,7 @@ SOFTWARE.
 */
 
 #include <pcg_variants.h>
+#include <stdbool.h>
 
 #include "ann.h"
 
@@ -32,6 +33,7 @@ extern pcg32_random_t rng;
 
 void seed();
 genann **load_nns(char *ann1_name, char *ann2_name);
+bool nns_compatible(genann **nns);
 void check_nns(genann **nns);
 genann *child_from_cross_over(genann **nns);
 genann *child_from_mutation(genann **nns);
