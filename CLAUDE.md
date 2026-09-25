@@ -46,7 +46,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
   - `engine/example.ann` is a 9×9 test fixture with 2×2 hidden neurons and 418 weights. It is not a trained player.
 - Move choice takes the highest output. It is deterministic for a given network and position.
   - `initial-population` and `evolve` take an optional seed as their last argument; the same seed gives byte-identical output. Without one they seed from `time(NULL)` plus an address.
-- Runs are reproducible from the experiment seed (the `seed` setting; `SetupExperiment` generates and saves one if it is missing). `ruby/seeds.rb` derives every other seed from it and a label: the initial population, each child (`birth`, generation, index), parent selection, tie order and colors per round, and a per-game GNU Go `--seed` for GNU Go players and the referee. Two runs with the same seed, even with parallel games, produce the same networks, pairings, moves, and rankings; only the date in the SGF headers differs. Losing a game on time would still differ.
+- Runs are reproducible from the experiment seed (the `seed` setting; `SetupExperiment` generates and saves one if it is missing). `ruby/seeds.rb` derives every other seed from it and a label: the initial population, each child (`birth`, generation, index), parent selection, tie order and colors per round, and a per-game GNU Go `--seed` for the referee (and GNU Go players, if any). Two runs with the same seed, even with parallel games, produce the same networks, pairings, moves, and rankings; only the date in the SGF headers differs. Losing a game on time would still differ.
 - Besides `games`, the experiment database records `births` (each network's parents, operator, differing weights, seed, and SHA-256 of its `.ann`; generation 0 has operator `initial`) and `rankings` (each generation's standings, kept current after every game; final once the generation is done).
 - Brown's own `final_score` is unreliable on arbitrary positions: an empty 9×9 board scores `W+87.5`. Use the referee's result.
 - The build uses `-march=native`. Binaries are for the local machine only.
@@ -91,10 +91,12 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ### Performance
 
-- One generation profiled on macOS (25 Sep 2026, 8 cores, patched GNU Go): 9×9, 20 networks with 1 hidden layer of 100, the 19 bots, 10 rounds, `max_moves` 200, seed 1, concurrency 4. It played 190 games in 58 s of wall time, about 200 games a minute. The games' `duration` summed to 142 s, of which 87 s was the players' own time, nearly all of it GNU Go.
-  - Average `duration` per pairing: GNU Go level 10 against a network 7.2 s (89 moves); GNU Go against another bot 1.9–3.6 s; every game without GNU Go, networks included, 0.22–0.39 s (48–128 moves).
+- The bots are only Brown and AmiGo. GNU Go referees but no longer plays: GNU Go opponents, at level 0 as much as level 10, set most of a generation's wall time while early networks are far too weak for them. It comes back through the opponent ladder in `PROJECT_NOTES.md`.
+- One generation profiled on macOS (25 Sep 2026, 8 cores, patched GNU Go): 9×9, 20 networks with 1 hidden layer of 100, 10 rounds, `max_moves` 200, seed 1, concurrency 4.
+  - With the 15 Brown and AmiGo copies: 170 games in 25 s of wall time, about 400 games a minute. Median `duration` 0.29 s, 90th percentile 0.41 s. The slowest games (up to 4 s) were network games that ended early, after 29–67 moves, where the referee scores an unfinished position.
+  - With GNU Go levels 0 and 10 in the panel as well: 190 games in 58 s. GNU Go against a network took about 7 s at either level (up to 13.7 s against AmiGo), and each round waited for such a game.
   - A network answers in under a tenth of a second, so its `time_black`/`time_white` read 0.0, and a network game's whole `duration` is overhead: JVM, referee, and process starts.
-  - Each round waits for its slowest game, usually one against GNU Go level 10. The per-round lower bound, max(slowest game, summed durations / concurrency), adds up to 53.5 of the 58 s, so better queue order gains little.
+  - Each round waits for its slowest game. The per-round lower bound, max(slowest game, summed durations / concurrency), came to 19.8 of the 25 s; the rest is setup (the initial population; the profile was generation 0, so no breeding), per-game bookkeeping, and games packing unevenly onto the workers.
   - Engine inference is negligible: a 9×9 network with 3 hidden layers of 400 neurons (about 387k weights) answered 1,000 `genmove` commands in 0.21 s (24 Sep 2026). Engine start and exit took about 10 ms.
 
 ## Working conventions
