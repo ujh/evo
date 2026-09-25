@@ -692,6 +692,26 @@ class GenerationBenchmarkTest < Minitest::Test
     assert_equal [nil, [%w[b.ann black network], %w[b.ann white opponent]]], run_generation(10, round: 0)
   end
 
+  # b.ann leads before the tournament, and a.ann takes the lead by beating
+  # it, so benchmarking before the tournament would pick b.ann.
+  def test_a_checkpoint_benchmarks_the_leader_after_its_tournament
+    in_experiment do
+      store = ExperimentDatabase.new(':memory:')
+      store.save_scoring(SetupExperiment::DEFAULT_SCORING)
+      store.save_benchmark_opponents([{ name: 'Brown', kind: 'bot', command: 'brown' }])
+      %w[a.ann b.ann].each { |name| store.record_network(10, name, name) }
+      store.save_state(10, { 'setup_complete' => true, 'round' => 0, 'games' => [{ 'black' => 'a.ann', 'white' => 'b.ann' }],
+                             'players' => { 'a.ann' => { 'command' => '../evo a.ann' }, 'b.ann' => { 'command' => '../evo b.ann' } },
+                             'ranking' => [{ 'name' => 'b.ann', 'score' => 0 }, { 'name' => 'a.ann', 'score' => 0 }] })
+      gen = build_generation(generation: '10', settings: { 'benchmark_games' => 2 }, store:)
+      gen.instance_variable_set(:@pool, FakePool.new do |game|
+        copy_dat('black_wins', game.is_a?(Hash) ? gen.send(:prefix_from, game) : game.prefix)
+      end)
+      capture_io { gen.call }
+      assert_equal %w[a.ann a.ann], store.benchmark_games(10).map { |row| row[:network] }
+    end
+  end
+
   def test_a_resumed_checkpoint_finishes_its_benchmark
     assert_equal [:already_done, [%w[b.ann black network], %w[b.ann white opponent]]], run_generation(10, round: 1)
   end

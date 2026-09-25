@@ -146,8 +146,9 @@ class Benchmark
     { winner: network_won ? 'network' : 'opponent', failure: nil }
   end
 
-  # Writes the game's row, then deletes the files twogtp left. A crash
-  # between the two replays the game, and its row is replaced.
+  # Writes the game's row, then deletes the files twogtp left. After a crash
+  # between the two, the row is stored, so a resume skips the game, and the
+  # files left behind go when work/ is emptied.
   def store_game(game, duration)
     prefix = game.prefix
     result = GameResult.read(prefix)
