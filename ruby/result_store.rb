@@ -19,6 +19,8 @@ class ResultStore
     @db = Sequel.sqlite(path, readonly:, timeout: 5_000)
     Sequel::Migrator.run(@db, MIGRATIONS) unless readonly
     @games = @db[:games]
+    @births = @db[:births]
+    @rankings = @db[:rankings]
   end
 
   def record(**game)
@@ -28,6 +30,32 @@ class ResultStore
   # Every game of a generation, as hashes with the keys of `record`.
   def games(generation)
     @games.where(generation:).order(:round, :black, :white).select(*COLUMNS).all
+  end
+
+  BIRTH_COLUMNS = %i[
+    generation child first_parent second_parent operator differs_from_first differs_from_second seed genome
+  ].freeze
+
+  # A child bred again after a crash replaces its row.
+  def record_birth(**birth)
+    @births.insert_conflict(:replace).insert(birth.slice(*BIRTH_COLUMNS))
+  end
+
+  def births(generation)
+    @births.where(generation:).order(:child).select(*BIRTH_COLUMNS).all
+  end
+
+  # Replaces the generation's ranking, so recording it again is harmless.
+  # `entries` are hashes with rank, name, score, and external.
+  def record_ranking(generation, entries)
+    @db.transaction do
+      @rankings.where(generation:).delete
+      @rankings.multi_insert(entries.map { |entry| entry.merge(generation:) })
+    end
+  end
+
+  def ranking(generation)
+    @rankings.where(generation:).order(:rank).select(:rank, :name, :score, :external, :generation).all
   end
 
   def close

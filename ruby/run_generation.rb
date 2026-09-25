@@ -1,4 +1,7 @@
+require 'digest'
+require 'open3'
 require_relative 'game_result'
+require_relative 'seeds'
 
 class RunGeneration
   def self.call(generation, settings, pool, store)
@@ -38,7 +41,12 @@ class RunGeneration
   end
 
   def play_games
-    return :already_done if data['round'] >= settings['tournament_rounds'].to_i
+    if data['round'] >= settings['tournament_rounds'].to_i
+      # The runner can stop between saving the last round and storing the
+      # ranking; storing it again only replaces the same rows.
+      record_final_ranking
+      return :already_done
+    end
 
     loop do
       play_round
@@ -46,21 +54,45 @@ class RunGeneration
 
       break if data['round'] >= settings['tournament_rounds'].to_i
     end
+    record_final_ranking
     puts "\rPlaying ... done".ljust(70)
   end
 
+  def record_final_ranking
+    entries = data['ranking'].each_with_index.map do |entry, i|
+      { rank: i + 1, name: entry['name'], score: entry['score'], external: external?(entry['name']) }
+    end
+    store.record_ranking(generation.to_i, entries)
+  end
+
   def setup_next_round
-    games = if data['round'].succ >= settings['tournament_rounds'].to_i
+    round = data['round'] + 1
+    ranking = shuffle_ties(data['ranking'], round)
+    games = if round >= settings['tournament_rounds'].to_i
               []
             else
-              games_from_ranking(data['ranking'])
+              games_from_ranking(ranking, colors_rng(round))
             end
 
-    new_data = data.merge(
-      'round' => data['round'] + 1,
-      'games' => games
-    )
-    save_data(new_data)
+    save_data(data.merge('round' => round, 'games' => games, 'ranking' => ranking))
+  end
+
+  # Orders tied players with a generator seeded for this round, so the same
+  # scores always give the same pairings.
+  def shuffle_ties(ranking, round)
+    random = Random.new(Seeds.derive(experiment_seed, 'ranking', generation.to_i, round))
+    ranking.sort_by { |s| s['name'] }
+           .group_by { |s| s['score'] }
+           .sort_by { |score, _| -score }
+           .flat_map { |_, tied| tied.shuffle(random:) }
+  end
+
+  def colors_rng(round)
+    Random.new(Seeds.derive(experiment_seed, 'colors', generation.to_i, round))
+  end
+
+  def experiment_seed
+    settings.fetch('seed')
   end
 
   def play_round
@@ -96,11 +128,10 @@ class RunGeneration
       else
         s
       end
-    end # .sort_by {|s| -s['score'] }
-    # Group by same score
-    new_ranking = new_ranking.group_by { |s| s['score'] }
-    # Randomize within the same score and flatten again
-    new_ranking = new_ranking.keys.sort.reverse.flat_map { |s| new_ranking[s].shuffle }
+    end
+    # A stable order while the round is played; ties are shuffled once per
+    # round in setup_next_round, so the order games finish in does not matter.
+    new_ranking = new_ranking.sort_by { |s| [-s['score'], s['name']] }
     new_data = data.merge(
       'games' => data['games'].reject { |g| g == game },
       'ranking' => new_ranking
@@ -125,15 +156,22 @@ class RunGeneration
   end
 
   def prepare_game(game)
-    black = data['players'][game['black']]['command']
-    white = data['players'][game['white']]['command']
+    # GNU Go, as a player and as the referee, picks moves at random unless it
+    # gets a seed; one per game makes every game repeatable.
+    seed = Seeds.gnugo(experiment_seed, 'game', generation.to_i, data['round'], game['black'], game['white'])
+    black = with_gnugo_seed(data['players'][game['black']]['command'], seed)
+    white = with_gnugo_seed(data['players'][game['white']]['command'], seed)
     size = settings['board_size']
     maxmoves = settings['max_moves']
     prefix = prefix_from(game)
     time = settings['game_length']
-    cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves} 2> #{prefix}.err)
+    cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp --seed #{seed}" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves} 2> #{prefix}.err)
 
     { 'command' => cmd, 'identifier' => game }
+  end
+
+  def with_gnugo_seed(command, seed)
+    command.start_with?('gnugo ') ? "#{command} --seed #{seed}" : command
   end
 
   def score_game(game)
@@ -199,7 +237,13 @@ class RunGeneration
     return if data['setup_complete']
 
     puts 'Generating initial population ...'
-    system("../initial-population #{settings['population_size']} #{settings['board_size']} #{settings['hidden_layers']} #{settings['layer_size']}")
+    seed = Seeds.derive(experiment_seed, 'initial-population')
+    system("../initial-population #{settings['population_size']} #{settings['board_size']} #{settings['hidden_layers']} #{settings['layer_size']} #{seed}")
+    Dir['*.ann'].sort.each do |network|
+      store.record_birth(generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
+                         differs_from_first: nil, differs_from_second: nil, seed:,
+                         genome: Digest::SHA256.file(network).hexdigest)
+    end
     save_data(setup_tournament)
   end
 
@@ -213,7 +257,7 @@ class RunGeneration
     total = settings['population_size'].to_i
     total.times do |i|
       print "\rGenerating population ... #{i + 1}/#{total}"
-      breed_child(previous_generation, candidates, "#{i}.ann")
+      breed_child(previous_generation, candidates, i)
     end
     puts "\rGenerating population ... done         "
     clean_up_generation(previous_generation)
@@ -223,13 +267,27 @@ class RunGeneration
   # Writes one child straight to `child`. A file left there by an interrupted
   # run is removed first, so a child exists only if this evolve wrote it. On
   # failure, breeding stops before the parents are deleted.
-  def breed_child(previous_generation, candidates, child)
+  def breed_child(previous_generation, candidates, index)
+    child = "#{index}.ann"
     FileUtils.rm_f(child)
-    parents = Array.new(2) { "../#{previous_generation}/#{select_parent(candidates)}" }
-    command = "../evolve #{settings['cross_over_rate']} #{parents.join(' ')} #{child}"
-    return if system(command, out: File::NULL) && File.exist?(child)
+    parents = Array.new(2) { select_parent(candidates) }
+    seed = Seeds.derive(experiment_seed, 'birth', generation.to_i, index)
+    command = "../evolve #{settings['cross_over_rate']} #{parents.map { |p| "../#{previous_generation}/#{p}" }.join(' ')} #{child} #{seed}"
+    success, output = run_evolve(command)
+    raise "evolve failed to breed #{child}: #{command}" unless success && File.exist?(child)
 
-    raise "evolve failed to breed #{child}: #{command}"
+    summary = output.match(/^summary operator=(\w+) differs_from_first=(\d+) differs_from_second=(\d+)$/)
+    raise "evolve printed no summary for #{child}: #{command}" unless summary
+
+    store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
+                       operator: summary[1], differs_from_first: summary[2].to_i, differs_from_second: summary[3].to_i,
+                       seed:, genome: Digest::SHA256.file(child).hexdigest)
+  end
+
+  # Returns [success, stdout]; evolve's last stdout line is its summary.
+  def run_evolve(command)
+    output, status = Open3.capture2(command)
+    [status.success?, output]
   end
 
   def parent_candidates(previous_data)
@@ -249,7 +307,7 @@ class RunGeneration
   end
 
   def rng
-    @rng ||= Random.new
+    @rng ||= Random.new(Seeds.derive(experiment_seed, 'selection', generation.to_i))
   end
 
   def clean_up_generation(g)
@@ -287,16 +345,16 @@ class RunGeneration
       'players' => setup_players,
       'setup_complete' => true
     }
-    data['ranking'] = data['players'].keys.map { |player| { 'name' => player, 'score' => 0 } }.shuffle
-    data['games'] = games_from_ranking(data['ranking'])
+    data['ranking'] = shuffle_ties(data['players'].keys.map { |player| { 'name' => player, 'score' => 0 } }, 0)
+    data['games'] = games_from_ranking(data['ranking'], colors_rng(0))
     data
   end
 
-  def games_from_ranking(ranking)
+  def games_from_ranking(ranking, random = colors_rng(0))
     games = []
     ranked_players = ranking.map { |r| r['name'] }
     loop do
-      players = ranked_players.shift(2).shuffle
+      players = ranked_players.shift(2).shuffle(random:)
       break if players.empty?
 
       players << nil if players.length == 1

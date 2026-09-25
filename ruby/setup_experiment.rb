@@ -1,5 +1,6 @@
 require 'fileutils'
 require 'json'
+require_relative 'seeds'
 
 class SetupExperiment
   def self.call(experiment_dir)
@@ -18,7 +19,13 @@ class SetupExperiment
 
   def self.settings
     if File.exist?("settings.json")
-      JSON.load_file("settings.json")
+      settings = JSON.load_file("settings.json")
+      # Every seed in the experiment derives from this one, so it is saved.
+      unless settings["seed"]
+        settings["seed"] = Seeds.new_experiment_seed.to_s
+        File.write("settings.json", JSON.pretty_generate(settings))
+      end
+      settings
     else
       settings = {}
       print "Board Size: "
@@ -43,6 +50,9 @@ class SetupExperiment
       print "Keep the SGF of every game in every Nth generation (default 10, 0 for never): "
       sgf_every = STDIN.gets.chomp
       settings["sgf_every"] = sgf_every.empty? ? "10" : sgf_every
+      print "Seed (default random): "
+      seed = STDIN.gets.chomp
+      settings["seed"] = seed.empty? ? Seeds.new_experiment_seed.to_s : seed
       File.open("settings.json", "w") do |f|
         f.puts JSON.pretty_generate(settings)
       end
