@@ -44,7 +44,7 @@ class SetupExperiment
     'hidden_layers' => ['Number of hidden layers', nil, integer(0)],
     'layer_size' => ['Number of neurons per layer', nil, integer(1)],
     'cross_over_rate' => ['Cross over rate', nil, number(0, 1)],
-    'game_length' => ['Game length (time)', nil, integer(1)],
+    'game_length' => ['Time per player per game, in minutes', nil, integer(1)],
     'max_moves' => ['Max moves', nil, integer(1)],
     'tournament_rounds' => ['Rounds (tournament)', nil, integer(1)],
     'tournament_size' => ['Tournament size for parent selection', '3', integer(1)],
@@ -57,14 +57,14 @@ class SetupExperiment
   # Opens the experiment's database and yields its settings and the database.
   def self.call(experiment_dir)
     puts "Setting up ... ✔"
-    provenance = copy_executables(experiment_dir)
-    Dir.chdir(experiment_dir) do
-      database = ExperimentDatabase.new(File.expand_path(DATABASE))
-      database.save_provenance(provenance) if provenance
-      yield settings(database), database
-    ensure
-      database&.close
-    end
+    FileUtils.mkdir_p(experiment_dir)
+    database = ExperimentDatabase.new(File.expand_path(DATABASE, experiment_dir))
+    # The settings come first, so aborting their prompts leaves nothing.
+    settings = settings(database)
+    install_executables(experiment_dir, database)
+    Dir.chdir(experiment_dir) { yield settings, database }
+  ensure
+    database&.close
   end
 
   # Creates an experiment from command-line options, so it can be started
@@ -126,16 +126,23 @@ class SetupExperiment
   end
 
   # Copies the executables into a new experiment, so a later rebuild cannot
-  # change it, and returns where they came from. An experiment that has its
-  # executables keeps them and returns nil. Runs in the checkout, like the
-  # rest of the runner.
-  def self.copy_executables(experiment_dir)
-    FileUtils.mkdir_p(experiment_dir)
+  # change it, and records where they came from. The provenance is saved
+  # after the copies, so a crash in between copies them again next time.
+  # Once it is saved the experiment keeps its executables, and a missing
+  # one stops the run rather than being replaced by a different build.
+  # Runs in the checkout, like the rest of the runner.
+  def self.install_executables(experiment_dir, database)
     targets = EXECUTABLES.map { |path| File.join(experiment_dir, File.basename(path)) }
-    return nil if targets.all? { |target| File.exist?(target) }
+    unless database.provenance.empty?
+      missing = targets.reject { |target| File.exist?(target) }
+      raise "#{missing.join(', ')} missing; this experiment cannot run with other executables" if missing.any?
 
+      return
+    end
+
+    provenance = current_provenance
     EXECUTABLES.zip(targets) { |source, target| FileUtils.cp(source, target, preserve: true) }
-    current_provenance
+    database.save_provenance(provenance)
   end
 
   def self.current_provenance

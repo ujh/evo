@@ -189,6 +189,31 @@ class SetupExperimentTest < Minitest::Test
     end
   end
 
+  def test_an_experiment_missing_an_executable_is_not_given_new_ones
+    in_tmpdir do
+      fake_checkout
+      capture_io { run_setup }
+      File.delete('experiments/x/evolve')
+      File.write('engine/evo', 'evo v2')
+      error = assert_raises(RuntimeError) { capture_io { run_setup } }
+      assert_includes error.message, 'evolve'
+      assert_equal 'evo v1', File.read('experiments/x/evo')
+      refute File.exist?('experiments/x/evolve')
+    end
+  end
+
+  def test_aborting_the_prompts_copies_nothing
+    in_tmpdir do
+      fake_checkout
+      FileUtils.rm_rf('experiments/x')
+      with_stdin("9\n") do
+        assert_raises(SetupExperiment::PromptAborted) { SetupExperiment.call('experiments/x') { flunk } }
+      end
+      refute File.exist?('experiments/x/evo')
+      assert_empty ExperimentDatabase.new('experiments/x/experiment.sqlite3').provenance
+    end
+  end
+
   def test_uncommitted_changes_are_recorded
     in_tmpdir do
       fake_checkout
