@@ -35,3 +35,6 @@
 
 int ann_fits_board(int size);
 void generate_move(int *i, int *j, int color);
+// Picks the highest-scoring allowed point in `prediction` (one score per
+// point, then pass), or pass.
+void find_and_set_best_move(int *i, int *j, int color, const double *prediction);

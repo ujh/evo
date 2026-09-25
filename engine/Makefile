@@ -3,7 +3,7 @@ LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
 OBJS = brown.o gtp.o generate_move.o interface.o
 
-.PHONY: enginetest clean
+.PHONY: enginetest test clean
 
 default: evo
 
@@ -17,9 +17,14 @@ evo: $(OBJS) main.o ../lib/libann.a
 enginetest: evo
 	sh enginetest.sh
 
+# The Go rules: Brown's board code and the move filter.
+test: $(OBJS) rules_test.o ../lib/libann.a
+	$(CC) $(CFLAGS) -o rules_test $^ $(LDLIBS)
+	./rules_test
+
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 clean:
 	$(RM) *.o *.dep
-	$(RM) evo
+	$(RM) evo rules_test
