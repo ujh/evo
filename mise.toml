@@ -32,7 +32,11 @@ run = "bundle exec ruby -e 'Dir[\"test/**/*_test.rb\"].sort.each { |f| require F
 
 [tasks.verify]
 description = "Run tests and check the programs needed for experiments"
-run = [{ task = "test" }, { task = "doctor" }, "sh scripts/smoke-external-tools.sh"]
+run = [{ task = "test" }, { task = "doctor" }, { task = "smoke" }]
+
+[tasks.smoke]
+description = "Play one refereed GoGui match with each external opponent and Evo"
+run = "sh scripts/smoke-external-tools.sh"
 
 [tasks.clean]
 description = "Remove generated C build and test files"

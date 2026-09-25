@@ -25,10 +25,12 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    Brown, AmiGoGtp, GNU Go levels 0 and 10, and Evo each play. It fails if a
    program crashes or the GNU Go referee returns no score.
 
-CI runs the same setup and verification tasks. For development without the
+CI runs the same tasks as separate jobs (C tests, Ruby tests, and the
+refereed matches), so a failure shows which kind of check broke. For
+development without the
 external programs, use `mise run setup` and `mise run test` (or `test-c` and
 `test-ruby` on their own). Other useful tasks are `mise run build`,
-`mise run clean`, and `mise run doctor`.
+`mise run clean`, `mise run doctor`, and `mise run smoke`.
 
 ## Running the evolution of the neural net
 

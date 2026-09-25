@@ -6,10 +6,30 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# One job per kind of check, so a failure shows which kind broke.
 jobs:
-  build-and-test:
+  c-tests:
     runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: true
+    - uses: jdx/mise-action@v4
+    - name: C tests
+      run: mise run test-c
 
+  ruby-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: jdx/mise-action@v4
+    - name: Install gems
+      run: bundle install
+    - name: Ruby tests
+      run: mise run test-ruby
+
+  smoke-matches:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
       with:
@@ -17,5 +37,7 @@ jobs:
     - uses: jdx/mise-action@v4
     - name: Setup experiments
       run: mise run setup-experiments
-    - name: Verify
-      run: mise run verify
+    - name: Check external programs
+      run: mise run doctor
+    - name: Refereed matches
+      run: mise run smoke

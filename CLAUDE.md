@@ -14,7 +14,7 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 | Install external Go programs | `mise run setup-experiments` (downloads with pinned checksums and builds under `.local/evo-tools/`) |
 | Build | `mise run build` (root `make`; builds `pcg-c` first) |
 | Tests (C and Ruby) | `mise run test` (or `test-c`, `test-ruby` alone) |
-| Full check, same as CI | `mise run verify` (tests, `doctor`, and refereed GoGui matches with every bot and Evo) |
+| Full check, same as CI | `mise run verify` (tests, `doctor`, and `smoke`: refereed GoGui matches with every bot and Evo) |
 | Run/resume experiment | `mise run run NAME [CONCURRENCY [one-generation]]` |
 
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
@@ -96,4 +96,4 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 - Branches: `fix/…`, `chore/…`, `docs/…`.
 - PRs: this is a personal repo with no Jira, so titles and bodies carry no ticket key. The body is one short paragraph that starts with the why, plus a line on how the change was verified.
 - Open and update every PR by following `docs/pull-requests.md`: tests, the sweep for stale text, the review loop and its rules, and the CI check.
-- CI (`.github/workflows/ci.yml`) runs on Ubuntu: `mise run setup-experiments`, then `mise run verify`. Local setup is usually macOS with Apple clang, so code that builds GNU Go or other external tools has to work with both clang and GCC. A green local `verify` says nothing about Linux; wait for CI.
+- CI (`.github/workflows/ci.yml`) runs on Ubuntu, with one job per kind of check: `c-tests` (`test-c`), `ruby-tests` (`test-ruby`), and `smoke-matches` (`setup-experiments`, `doctor`, `smoke`). Branch protection on `main` requires these jobs by name, so renaming or adding a job also needs the protection rule updated. Local setup is usually macOS with Apple clang, so code that builds GNU Go or other external tools has to work with both clang and GCC. A green local `verify` says nothing about Linux; wait for CI.
