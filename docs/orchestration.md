@@ -17,9 +17,9 @@ Write the plan to `plans/NAME.md` in the repository root. The directory is gitig
 
 Have a fresh subagent review the plan itself before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here.
 
-Fold the review's findings into the plan, then show the plan to the owner and wait for their approval before any code is written. This is the last stop before the report at the end.
-
 Plan PRs that can merge in order. A PR may be stacked on another branch: CI runs on every pull request, whatever its base. Once the base merges, GitHub retargets the stacked PR to `main`; merge `origin/main` into it and push, and `mise run pr-checks` then checks it against `main`.
+
+Fold the review's findings into the plan, then show the plan to the owner and wait for their approval before any code is written. After that, stop only where section 5 says to.
 
 ## 3. Run each step through a subagent
 
