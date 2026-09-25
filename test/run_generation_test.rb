@@ -717,6 +717,21 @@ class PlayRoundTest < Minitest::Test
     end
   end
 
+  # Under LANG=C, File.read gives US-ASCII, and scrubbing that would turn
+  # the arena's UTF-8 into question marks.
+  def test_the_chunks_output_is_read_as_utf8_whatever_the_locale
+    in_experiment do
+      verbose, $VERBOSE = $VERBOSE, nil
+      external = Encoding.default_external
+      Encoding.default_external = Encoding::US_ASCII
+      rows, = play_broken_chunk(->(text) { text.lines.first }, stderr: 'Zugriff verweigert: Größe')
+      assert_equal 'Zugriff verweigert: Größe', rows['c.ann'].last
+    ensure
+      Encoding.default_external = external
+      $VERBOSE = verbose
+    end
+  end
+
   # Eight networks and no bot, so every game is played in the arena. The
   # alphabetically first network of a game wins it.
   EIGHT = %w[a.ann b.ann c.ann d.ann e.ann f.ann g.ann h.ann].freeze
@@ -792,7 +807,8 @@ class PlayRoundTest < Minitest::Test
         @database = nil
         setup_round(TWO_ARENA_GAMES)
         gen = build_with(FakePool.new(status:, arena_output: ->(text) { text.lines.first }))
-        capture_io { assert_raises(SystemExit, how) { gen.send(:play_round) } }
+        _, err = capture_io { assert_equal 130, assert_raises(SystemExit, how) { gen.send(:play_round) }.status, how }
+        assert_includes err, 'arena chunk arena-0 (axbR0, cxdR0) was interrupted; its games stay pending', how
         assert_empty database.games(1), how
         assert_equal 2, database.state(1)['games'].size, how
       end
@@ -806,7 +822,8 @@ class PlayRoundTest < Minitest::Test
         setup_round([['a.ann', 'Brown1']])
         pool = FakePool.new(status:) { |game| File.write("#{prefix(game)}.err", 'Interrupted') }
         gen = build_with(pool)
-        capture_io { assert_raises(SystemExit, how) { gen.send(:play_round) } }
+        _, err = capture_io { assert_equal 130, assert_raises(SystemExit, how) { gen.send(:play_round) }.status, how }
+        assert_includes err, 'game axBrown1R0 was interrupted; it stays pending', how
         assert_empty database.games(1), how
         assert_equal [{ 'black' => 'a.ann', 'white' => 'Brown1' }], database.state(1)['games'], how
       end

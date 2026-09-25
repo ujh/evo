@@ -255,7 +255,9 @@ class CheckpointBenchmarkTest < Minitest::Test
         only_opponents('Brown')
         store_generations(0)
         pool = FakePool.new(status:) { |game| copy_dat('black_wins', game.prefix) }
-        capture_io { assert_raises(SystemExit) { CheckpointBenchmark.new(0, SETTINGS.merge('benchmark_games' => 2), pool, database).call } }
+        benchmark = CheckpointBenchmark.new(0, SETTINGS.merge('benchmark_games' => 2), pool, database)
+        _, err = capture_io { assert_equal 130, assert_raises(SystemExit) { benchmark.call }.status }
+        assert_includes err, 'benchmark game benchmark/Brown-0-black was interrupted; it stays pending'
         assert_empty database.benchmark_games(0)
       end
     end

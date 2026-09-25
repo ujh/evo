@@ -40,6 +40,14 @@ class WorkerPool
     STOPPING.include?(status.termsig) || STOPPING.map { |signal| 128 + signal }.include?(status.exitstatus)
   end
 
+  # Stops the run for a job that `interrupted?` calls interrupted while no
+  # Ctrl-C was seen (the trap may not have run yet, or someone killed one
+  # game), saying so, with the status a shell gives a command Ctrl-C ended.
+  def self.exit_interrupted(job, pending)
+    warn "\n#{job} was interrupted; #{pending}. Stopping."
+    exit 130
+  end
+
   # Keeps queued commands from starting; running ones finish. Only sets a
   # flag, so it is safe to call from a signal trap. Without it, a thread whose
   # game was killed by Ctrl-C would start the next queued game, which never

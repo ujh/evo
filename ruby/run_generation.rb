@@ -121,12 +121,21 @@ class RunGeneration
       # Ctrl-C also stops the running games. Leave them unscored so that
       # resuming plays them again instead of counting a killed game. The
       # game can be back before the trap has set the flag; its status tells.
-      exit if $stop_now || WorkerPool.interrupted?(status)
+      exit if $stop_now
+      exit_interrupted(finished) if WorkerPool.interrupted?(status)
       if finished.is_a?(ArenaChunk)
         finish_chunk(finished, duration)
       else
         finish_game(finished, duration)
       end
+    end
+  end
+
+  def exit_interrupted(job)
+    if job.is_a?(ArenaChunk)
+      WorkerPool.exit_interrupted("arena chunk #{job.name} (#{job.games.keys.join(', ')})", 'its games stay pending')
+    else
+      WorkerPool.exit_interrupted("game #{prefix_from(job)}", 'it stays pending')
     end
   end
 
@@ -172,9 +181,10 @@ class RunGeneration
   # before the files are deleted replays the games not yet scored.
   def finish_chunk(chunk, duration)
     # A dying arena may leave bytes that are not text; they match no line.
-    output = File.exist?(chunk.out) ? File.read(chunk.out).scrub : ''
+    # UTF-8 whatever the locale, which under LANG=C would be US-ASCII.
+    output = File.exist?(chunk.out) ? File.read(chunk.out, encoding: 'UTF-8').scrub : ''
     results = ArenaResult.chunk(output, chunk.games.keys).results
-    stderr = File.exist?(chunk.err) ? File.read(chunk.err).scrub : ''
+    stderr = File.exist?(chunk.err) ? File.read(chunk.err, encoding: 'UTF-8').scrub : ''
     # The chunk's time beyond its games' (starting the arena, loading the
     # networks) is shared out equally, so the rows add up to the worker's time.
     played = results.values.sum { |result| result.duration || 0 }

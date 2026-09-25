@@ -66,7 +66,8 @@ class CheckpointBenchmark
       game, duration, status = pool.next_finished
       # As in the tournament: a game killed by Ctrl-C stays unscored and is
       # replayed on resume, also when it is back before the trap has run.
-      exit if $stop_now || WorkerPool.interrupted?(status)
+      exit if $stop_now
+      WorkerPool.exit_interrupted("benchmark game #{game.prefix}", 'it stays pending') if WorkerPool.interrupted?(status)
       store_game(game, duration)
       print "\rBenchmark ... Game: #{all.size - pending.size + i + 1}/#{all.size}".ljust(70)
     end
