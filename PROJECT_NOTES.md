@@ -22,7 +22,7 @@ Cubing scores makes a score of 10 worth 1,000 times as much reproductive probabi
 
 **Proposed response:** consider rank-based selection or a small parent-selection tournament, with explicit behavior for zero-score populations. Track unique genomes, distinct parents, and how much reproduction each parent receives. Preserve a small number of elites, while measuring whether selection leaves enough variation.
 
-The owner's earlier elitism and champion-retention changes are parked on the branch [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention). That branch keeps the top player, copies a selected player for about 10% of other births, keeps the previous champion as `best.ann` (with `stats` pruning `best.ann` beyond the last 100 generations), and raises the number of Brown opponents to 10. Decide whether to bring it back once selection is reworked and tested.
+Decide whether to bring back the owner's parked elitism and champion-retention work on [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention) once selection is reworked and tested. Its commit message describes what it changes.
 
 ### 3. Mutation and crossover deserve separate experiments
 
