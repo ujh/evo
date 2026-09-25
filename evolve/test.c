@@ -583,8 +583,34 @@ static bool valid_network(genann const *ann, int layers, int width, genann const
   return valid;
 }
 
+// Whether two networks' outputs agree to a relative tolerance (against each
+// sample's largest output) and pick the same move.
+static bool close_outputs(genann const *a, genann const *b, double tolerance) {
+  double inputs[SAMPLES][INPUTS], a_out[SAMPLES][OUTPUTS], b_out[SAMPLES][OUTPUTS];
+  random_inputs(inputs);
+  run_all(a, inputs, a_out);
+  run_all(b, inputs, b_out);
+  bool close = true;
+  for (int s = 0; s < SAMPLES; s++) {
+    double scale = 0;
+    int a_best = 0, b_best = 0;
+    for (int o = 0; o < OUTPUTS; o++) {
+      scale = fmax(scale, fabs(a_out[s][o]));
+      if (a_out[s][o] > a_out[s][a_best]) a_best = o;
+      if (b_out[s][o] > b_out[s][b_best]) b_best = o;
+    }
+    for (int o = 0; o < OUTPUTS; o++) {
+      if (!(fabs(a_out[s][o] - b_out[s][o]) <= tolerance * scale)) close = false;
+    }
+    if (a_best != b_best) close = false;
+  }
+  return close;
+}
+
 // Widening changes no output, whatever the activations and the depth, and
-// the new neurons get random incoming weights.
+// the new neurons get random incoming weights. The new weights add exact
+// zeros, but a compiler may sum a longer row in another order (GCC
+// vectorizes GENANN's loops), so the outputs agree up to rounding.
 void test_widen_keeps_the_outputs() {
   pcg32_srandom(20, 54u);
   int different = 0, invalid = 0, nonzero_new = 0, out_of_range = 0;
@@ -594,7 +620,7 @@ void test_widen_keeps_the_outputs() {
         genann *parent = random_network(layers, 3, ANN_ACTIVATIONS[h].function, ANN_ACTIVATIONS[o].function);
         genann *child = widen(parent);
         if (!valid_network(child, layers, 4, parent)) invalid++;
-        if (!same_outputs(parent, child)) different++;
+        if (!close_outputs(parent, child, 1e-12)) different++;
         // The first layer's new row: bias and one weight per input.
         double const *row = child->weight + 3 * (INPUTS + 1);
         for (int k = 0; k <= INPUTS; k++) {
@@ -784,6 +810,40 @@ void test_add_then_remove_round_trips() {
   genann_free(back);
   genann_free(added);
   genann_free(flat);
+}
+
+// The operators draw only their own numbers: building the reshaped network
+// draws nothing. After each, the generator is where replaying just those
+// draws leaves it.
+void test_structure_operators_draw_only_their_own_numbers() {
+  pcg32_srandom(30, 54u);
+  int wrong = 0;
+  for (int layers = 1; layers <= 3; layers++) {
+    genann *parent = random_network(layers, 3, genann_act_tanh, genann_act_linear);
+    for (int op = 0; op < 4; op++) {
+      pcg32_srandom(31 + op, 54u);
+      genann *child = NULL;
+      switch (op) {
+        case 0: child = remove_layer(parent); break;
+        case 1: child = add_layer(parent, 5); break;
+        case 2: child = widen(parent); break;
+        default: child = narrow(parent); break;
+      }
+      uint32_t after = pcg32_random();
+      pcg32_srandom(31 + op, 54u);
+      if (op == 2) {
+        // The new first-layer row, then a row of width + 2 per later layer.
+        int draws = (INPUTS + 1) + (layers - 1) * (3 + 2);
+        for (int d = 0; d < draws; d++) pcg32_random();
+      } else if (op == 3) {
+        for (int h = 0; h < layers; h++) pcg32_boundedrand(3);
+      }
+      if (pcg32_random() != after) wrong++;
+      genann_free(child);
+    }
+    genann_free(parent);
+  }
+  lequal(wrong, 0);
 }
 
 // The bounds allow widen below max_layer_size, narrow above width 1 (both
@@ -1022,6 +1082,7 @@ int main(int argc, char **argv) {
   lrun("add_first_layer", test_add_layer_to_no_hidden_layers);
   lrun("remove_layer_linear", test_remove_layer_folds_a_linear_layer);
   lrun("add_remove_round_trip", test_add_then_remove_round_trips);
+  lrun("structure_draws", test_structure_operators_draw_only_their_own_numbers);
   lrun("allowed_structure", test_allowed_structure_changes);
   lrun("mutate_structure_gene", test_mutate_changes_the_structure_by_the_gene);
   lrun("mutate_structure_bounds", test_mutate_keeps_the_structure_in_bounds);

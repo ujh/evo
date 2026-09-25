@@ -71,10 +71,14 @@ typedef struct {
 int allowed_structure_changes(genann const *ann, shape_bounds const *bounds, structure_change changes[4]);
 
 // The structural operators. Each returns a new network with the parent's
-// activations and leaves the parent alone.
+// activations and leaves the parent alone. They draw only what is said
+// below: widen its new neurons' weights in weight order, narrow one neuron
+// index per layer in order, add_layer its random weights (only without
+// hidden layers), remove_layer nothing.
 // Appends a neuron to every hidden layer. Its incoming weights are random in
 // GENANN's initial range, [-0.5, 0.5); its weights into the next layer's
-// other neurons and into the outputs are 0, so the outputs stay the same.
+// other neurons and into the outputs are 0, so the outputs stay the same up
+// to rounding (a compiler may reorder the longer sums).
 genann *widen(genann const *parent);
 // Removes from every hidden layer a neuron drawn uniformly, independently per
 // layer, with its row and its column in the next layer. Needs width 2.

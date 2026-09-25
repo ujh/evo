@@ -227,17 +227,36 @@ int allowed_structure_changes(genann const *ann, shape_bounds const *bounds, str
   return count;
 }
 
-// A network of the given shape with the parent's activations. genann_init
-// fills it with random weights, which every caller overwrites, so the
-// generator is put back: building a network draws nothing.
+// A network of the given shape with the parent's activations and all
+// weights 0. genann_init would fill it with random weights, drawing from the
+// generator, so it is laid out here as genann_init lays it out (and as
+// genann_copy and genann_free expect): building a network draws nothing.
 static genann *blank(genann const *parent, int hidden_layers, int hidden) {
-  pcg32_random_t saved = rng;
-  genann *ann = genann_init(parent->inputs, hidden_layers, hidden_layers ? hidden : 0, parent->outputs);
-  rng = saved;
+  int inputs = parent->inputs, outputs = parent->outputs;
+  if (hidden_layers == 0) hidden = 0;
+  long long hidden_weights = hidden_layers
+    ? (long long)(inputs + 1) * hidden + (long long)(hidden_layers - 1) * (hidden + 1) * hidden : 0;
+  long long output_weights = (long long)(hidden_layers ? hidden + 1 : inputs + 1) * outputs;
+  long long total_weights = hidden_weights + output_weights;
+  long long total_neurons = (long long)inputs + (long long)hidden * hidden_layers + outputs;
+  genann *ann = NULL;
+  // The same limit as genann_init's, so the sizes fit its int counters.
+  if (total_weights <= INT_MAX / 32 && total_neurons <= INT_MAX / 32) {
+    ann = calloc(1, sizeof(genann) + sizeof(double) * (total_weights + total_neurons + (total_neurons - inputs)));
+  }
   if (ann == NULL) {
     fprintf(stderr, "Could not build a network with %d hidden layers of %d\n", hidden_layers, hidden);
     exit(1);
   }
+  ann->inputs = inputs;
+  ann->hidden_layers = hidden_layers;
+  ann->hidden = hidden;
+  ann->outputs = outputs;
+  ann->total_weights = (int)total_weights;
+  ann->total_neurons = (int)total_neurons;
+  ann->weight = (double *)((char *)ann + sizeof(genann));
+  ann->output = ann->weight + ann->total_weights;
+  ann->delta = ann->output + ann->total_neurons;
   ann->activation_hidden = parent->activation_hidden;
   ann->activation_output = parent->activation_output;
   return ann;
