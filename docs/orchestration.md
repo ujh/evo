@@ -17,6 +17,8 @@ Write the plan to `plans/NAME.md` in the repository root. The directory is gitig
 
 Have a fresh subagent review the plan itself before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here.
 
+Fold the review's findings into the plan, then show the plan to the owner and wait for their approval before any code is written. This is the last stop before the report at the end.
+
 Plan PRs that can merge in order. A PR may be stacked on another branch: CI runs on every pull request, whatever its base. Once the base merges, GitHub retargets the stacked PR to `main`; merge `origin/main` into it and push, and `mise run pr-checks` then checks it against `main`.
 
 ## 3. Run each step through a subagent
@@ -39,4 +41,4 @@ Follow `docs/pull-requests.md` for each PR: the whole-branch review loop, then p
 
 ## 5. Notify the owner
 
-Report once, when the PRs are open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, and anything left open. Do not stop for approval between steps, except where `docs/pull-requests.md` says to stop and ask (a third review round that is still not clean, or a finding only the owner can decide), and do not merge unless the owner says so.
+Report once, when the PRs are open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, and anything left open. Once the owner has approved the plan, do not stop for approval between steps, except where `docs/pull-requests.md` says to stop and ask (a third review round that is still not clean, or a finding only the owner can decide), and do not merge unless the owner says so.
