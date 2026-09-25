@@ -497,6 +497,7 @@ class ReproducibleRoundsTest < Minitest::Test
       assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
       assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]
+      assert_equal %w[0001.ann 0002.ann], store.network_names(0)
     end
   end
 
@@ -508,6 +509,19 @@ class ReproducibleRoundsTest < Minitest::Test
       store = database
       assert_equal :already_done, build_generation(store:).send(:play_games)
       assert_equal [[1, 'a.ann', 1]], store.ranking(1).map { |r| r.values_at(:rank, :name, :score) }
+    end
+  end
+
+  def test_a_resumed_generation_plays_with_its_stored_networks_in_a_fresh_work_directory
+    in_experiment do
+      FileUtils.mkdir_p('work')
+      File.write('work/stale.ann', 'left over')
+      database.record_network(2, '0.ann', 'weights of 0')
+      database.record_network(2, '1.ann', 'weights of 1')
+      write_data({ 'setup_complete' => true, 'round' => 0 }, generation: 2)
+      seen = nil
+      build_generation(generation: '2').send(:setup) { seen = Dir.children('.').sort.to_h { |f| [f, File.read(f)] } }
+      assert_equal({ '0.ann' => 'weights of 0', '1.ann' => 'weights of 1' }, seen)
     end
   end
 
