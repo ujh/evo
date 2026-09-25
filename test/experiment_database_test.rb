@@ -45,6 +45,22 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # stats and ranking open the store read-only, which runs no migrations, so
+  # they must still read a database the runner has not migrated yet.
+  def test_a_read_only_store_reads_games_from_before_the_timing_columns
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 4)
+      old_game = GAME.except(:duration, :time_black, :time_white)
+      db[:games].insert(old_game)
+      db.disconnect
+      reader = ExperimentDatabase.new(path, readonly: true)
+      assert_equal [old_game], reader.games(3)
+      reader.close
+    end
+  end
+
   BIRTH = {
     generation: 2, child: '0.ann', first_parent: '../1/3.ann', second_parent: '../1/5.ann', operator: 'mutation',
     differs_from_first: 0, differs_from_second: 907, seed: 2**62 + 5, genome: 'ab' * 32
