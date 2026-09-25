@@ -22,7 +22,7 @@ Cubing scores makes a score of 10 worth 1,000 times as much reproductive probabi
 
 **Proposed response:** consider rank-based selection or a small parent-selection tournament, with explicit behavior for zero-score populations. Track unique genomes, distinct parents, and how much reproduction each parent receives. Preserve a small number of elites, while measuring whether selection leaves enough variation.
 
-The owner's earlier elitism and champion-retention changes are parked on the branch [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention). That branch keeps the top player, copies a selected player for about 10% of other births, keeps the previous champion as `best.ann`, and raises the number of Brown opponents to 10. Decide whether to bring it back once selection is reworked and tested.
+The owner's earlier elitism and champion-retention changes are parked on the branch [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention). That branch keeps the top player, copies a selected player for about 10% of other births, keeps the previous champion as `best.ann` (with `stats` pruning `best.ann` beyond the last 100 generations), and raises the number of Brown opponents to 10. Decide whether to bring it back once selection is reworked and tested.
 
 ### 3. Mutation and crossover deserve separate experiments
 
@@ -50,7 +50,7 @@ Cached sigmoid outputs also create artificial score ties, which favor earlier in
 
 ### 5. Long runs need recoverable evidence
 
-`clean_up_generation` deletes non-champion networks and every SGF from the previous generation, and `stats` later deletes older `best.ann` files. That saves space but prevents comparisons with early ancestors and inspection of interesting games. Runs also cannot be reproduced or safely resumed: seeds and code revision are not recorded, executables are symlinks to the current build, and the generation transition is not crash-safe. The fixes are listed under [Code cleanup](#code-cleanup).
+`clean_up_generation` deletes every network and every SGF from the previous generation, and `stats` archives and deletes the result files. That saves space but prevents comparisons with early ancestors and inspection of interesting games. Runs also cannot be reproduced or safely resumed: seeds and code revision are not recorded, executables are symlinks to the current build, and the generation transition is not crash-safe. The fixes are listed under [Code cleanup](#code-cleanup).
 
 **Proposed response:** preserve generation zero and a spaced archive of champions, retain selected SGFs, and keep evidence retention independent of viewing statistics.
 
@@ -115,7 +115,7 @@ Fix each with a test that fails before the fix.
 | [`engine/generate_move.c:114`](engine/generate_move.c) | A network whose size does not match the board calls `exit(1)` inside `genmove`. | The process dies mid-game instead of returning a GTP error. `boardsize` should reject a size the loaded network cannot play. |
 | [`engine/interface.c:153`](engine/interface.c) | The engine reports its name as `Brown`. | SGF files and GoGui output cannot tell Evo apart from the real Brown opponent. |
 | [`stats:95`](stats) | `'average' => median(...)`. | The reported average is the median. |
-| [`stats:145`](stats) | Deletes `best.ann` from all but the last 99 generations while displaying statistics, and archives and deletes `.dat` files as a side effect. | Opening a viewer destroys evidence. |
+| [`stats:73`](stats) | Archives each generation's `.dat` files into `data.tar.bz2` and deletes them as a side effect of displaying statistics. | Opening a viewer destroys evidence. |
 | [`multi:19`](multi) | References the undefined variable `next_input`. | A mistyped experiment name raises `NameError` instead of the intended message. |
 | `engine/main.c`, `initial-population/main.c`, `evolve/evolve.c` | RNG seeded with `time(NULL)` and the address of the global `rng`. | Runs cannot be reproduced, and processes started in the same second rely on address randomization for different seeds. Seeds should be passed in and recorded. |
 

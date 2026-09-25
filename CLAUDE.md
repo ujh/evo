@@ -51,7 +51,7 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 - A GoGui `.dat` file is tab-separated: `GAME RES_B RES_W RES_R ALT DUP LEN TIME_B TIME_W CPU_B CPU_W ERR ERR_MSG`.
   - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` still split on whitespace, so an empty column shifts `RES_R` and `LEN`, and anything not starting with `B` counts as a White win there.
   - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file. Only stderr says which program crashed ("Black program died" or "White program died"). Breeding deletes the empty `.err` files and keeps the rest.
-- Points for beating an opponent: 1 for a network or Brown, 10 for AmiGo, 50 for GNU Go level 0, 100 for level 10 (`EXTERNAL_PLAYERS` in `ruby/run_generation.rb`). Parents are sampled in proportion to the cube of the score.
+- Points for beating an opponent: 1 for a network or Brown, 10 for AmiGo, 50 for GNU Go level 0, 100 for level 10 (`EXTERNAL_PLAYERS` in `ruby/run_generation.rb`). Parents are sampled in proportion to the cube of the score (`parent_pool` in `ruby/run_generation.rb`).
 - Scoring rules (agreed with the owner, in `score_game` and `ruby/game_result.rb`):
   - A referee win (`B+` or `W+`) counts, including games stopped by the move limit. The winner gets the loser's `points`.
   - A draw gives no points.
