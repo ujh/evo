@@ -95,16 +95,5 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 - Commits: imperative, sentence-case subject (for example "Build GNU Go with common symbols on Linux"), with a body that explains why.
 - Branches: `fix/…`, `chore/…`, `docs/…`.
 - PRs: this is a personal repo with no Jira, so titles and bodies carry no ticket key. The body is one short paragraph that starts with the why, plus a line on how the change was verified.
+- Open and update every PR by following `docs/pull-requests.md`: tests, the sweep for stale text, the review loop and its rules, and the CI and feedback checks.
 - CI (`.github/workflows/ci.yml`) runs on Ubuntu: `mise run setup-experiments`, then `mise run verify`. Local setup is usually macOS with Apple clang, so code that builds GNU Go or other external tools has to work with both clang and GCC. A green local `verify` says nothing about Linux; wait for CI.
-
-### Opening a PR
-
-Follow these steps in order for every PR:
-
-1. Run `mise run test`, plus any smoke run the change calls for. Fix failures first. Once a code file changes, earlier results are stale, so run them again.
-2. List what the change makes newly true. Search the whole repository, including files the diff does not touch, for text that still says the old thing, and correct it.
-3. Have the whole branch reviewed (`git diff main...HEAD`) by a reviewer with fresh context, such as a subagent that has not seen the work. Give it the why and ask it to check correctness, repository conventions, and whether the tests would catch a break. Fix what it raises, and review again. Repeat until a review comes back clean. Don't stop for sign-off on findings. Ask the owner only when a finding needs a decision only the owner can make, such as changing scope or approach.
-4. Push and open the PR (see the conventions above).
-5. Run `mise run pr-checks <pr>`. It waits for CI and fails unless every check passed on the local `HEAD`. If a check fails, fix the cause. Do not skip or disable it.
-6. Run `mise run pr-feedback <pr>`. It lists reviews (including summary text and change requests), inline comments, and top-level comments. Fix or answer each one. Reply to an inline comment on its thread, and answer reviews and top-level comments with a new top-level comment (the output shows both commands).
-7. For any later fix, repeat steps 1–3 for the whole branch, push, then repeat steps 5–6.
