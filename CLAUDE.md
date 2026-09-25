@@ -37,10 +37,9 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ### Engine and network files
 
-- `evo` starts at board size 6. Without a file argument it builds a random 5-layer network sized for 6×6. Always pass an `.ann` file and send `boardsize` before `genmove`. A file that is missing or holds no network makes `evo` exit 1 at startup with a message naming it.
+- `evo NETWORK.ann` starts at board size 6, so send `boardsize` before `genmove`. Without exactly one file argument it prints a usage message and exits 1; a file that is missing or holds no network makes it exit 1 at startup with a message naming it.
 - `boardsize` answers `? unacceptable size` for a size the loaded network does not fit, and `genmove` answers `? network does not fit the board` if no fitting `boardsize` came first. The process keeps running. `engine/enginetest.sh` (`make test`) checks a whole GTP session.
 - The engine answers `name` with `Evo`.
-- The startup message reads "total neurons", but the number it prints is `total_weights`.
 - The `.ann` format (`lib/ann.h`) holds everything a GENANN network is: the magic `EVOANN`, a format version (1), the sizes inputs, hidden_layers, hidden, and outputs, a code for the hidden and the output activation (every activation GENANN offers has one, in `ANN_ACTIVATIONS`), then the weights as doubles. All numbers are little-endian and fixed-size, so files are portable. Reading rejects a wrong magic or version, an unknown activation, and a file that is too short or too long. There is no reader for the earlier headerless format.
   - A network for board size N has N²+1 inputs (komi first) and N²+1 outputs (pass last).
   - `engine/example.ann` is a 9×9 test fixture with 2×2 hidden neurons, cached sigmoid activations, and 418 weights. It is not a trained player.

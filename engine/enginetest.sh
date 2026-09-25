@@ -64,6 +64,24 @@ refuses() {
     *) printf '%s: message does not name the file: %s\n' "$file" "$message" >&2; return 1 ;;
   esac
 }
+# Without a network file evo refuses to start instead of making up a network.
+status=0
+message=$(./evo </dev/null 2>&1 >/dev/null) || status=$?
+if [ "$status" -ne 1 ]; then
+  printf 'no file: expected exit status 1, got %s\n' "$status" >&2
+  failed=1
+fi
+case "$message" in
+  *Usage*) ;;
+  *) printf 'no file: expected a usage message, got: %s\n' "$message" >&2; failed=1 ;;
+esac
+
+# The startup message counts the example network's 418 weights as weights.
+case "$(./evo example.ann </dev/null 2>&1 >/dev/null)" in
+  *"418 weights"*) ;;
+  *) printf 'startup message does not report 418 weights\n' >&2; failed=1 ;;
+esac
+
 truncated=$(mktemp)
 printf 'abc' >"$truncated"
 refuses does-not-exist.ann || failed=1
