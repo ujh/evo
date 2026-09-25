@@ -10,10 +10,17 @@ class ExperimentStats
     CLEAR = "\e[2J\e[H".freeze
     # The generation table shows the latest generations only.
     GENERATION_ROWS = 50
-    GENERATION_HEADINGS = ['Gen', 'Finished', 'Games', 'Draws', 'Failures', 'Game time', 'Identical', 'Parents',
-                           'Genomes', 'Score min', 'Median', 'Max'].freeze
+    GENERATION_HEADINGS = %w[Gen Done Games Draws Failed Time Copies Parents Genomes Min Med Max].freeze
+    GENERATION_NOTE = <<~NOTE.freeze
+      Done: rounds and benchmark played. Time: of all games. Copies: bred children identical to a parent.
+      Parents: distinct parents. Genomes: distinct children. Min, Med, Max: the networks' scores.
+    NOTE
+    BENCHMARK_HEADINGS = %w[Gen Network Opponent Games Black White Draws Failed].freeze
+    BENCHMARK_NOTE = <<~NOTE.freeze
+      Games: stored of planned; fewer means the benchmark is still playing or was stopped.
+      Black, White: W-L of the benchmarked network with that color.
+    NOTE
     NO_GENERATIONS = 'No generations yet.'.freeze
-    BENCHMARK_NOTE = "W-L of the benchmarked network by its color (B, W); dN: draws, fN: failed games.\n".freeze
 
     module_function
 
@@ -29,13 +36,15 @@ class ExperimentStats
       end
     end
 
-    def text(figures)
+    # The latest `limit` generations, and the benchmarks of the checkpoints
+    # among them.
+    def text(figures, limit: GENERATION_ROWS)
       return "#{NO_GENERATIONS}\n" if figures.empty?
 
-      shown = figures.last(GENERATION_ROWS)
+      shown = figures.last(limit)
       title = "Generations#{" (latest #{shown.size} of #{figures.size})" if shown.size < figures.size}"
-      out = +"#{title}\n#{table(GENERATION_HEADINGS, shown.map { |f| generation_row(f) })}\n"
-      checkpoints = figures.select { |f| f[:benchmark] }
+      out = +"#{title}\n#{table(GENERATION_HEADINGS, shown.map { |f| generation_row(f) })}\n#{GENERATION_NOTE}"
+      checkpoints = shown.select { |f| f[:benchmark] }
       return out if checkpoints.empty?
 
       out << "\nBenchmark\n#{benchmark_table(checkpoints)}\n#{BENCHMARK_NOTE}"
@@ -85,9 +94,10 @@ class ExperimentStats
       end
     end
 
-    def table(headings, rows)
+    # Numbers right-aligned, the columns numbered in `left` (names) left.
+    def table(headings, rows, left: [])
       table = Terminal::Table.new(headings:, rows:)
-      headings.each_index { |i| table.align_column(i, :right) }
+      headings.each_index { |i| table.align_column(i, left.include?(i) ? :left : :right) }
       table
     end
 
@@ -115,25 +125,18 @@ class ExperimentStats
       minutes < 60 ? format('%dm%02ds', minutes, seconds % 60) : format('%dh%02dm', minutes / 60, minutes % 60)
     end
 
-    # Opponents in the order the checkpoints list them (panel order); a
-    # checkpoint that does not play an opponent shows '-'. A benchmark still
-    # playing is marked incomplete.
+    # One row per checkpoint and opponent it plays, in panel order.
     def benchmark_table(checkpoints)
-      opponents = checkpoints.flat_map { |f| f[:benchmark].keys.grep(String) }.uniq
-      headings = ['Gen', 'Network'] + opponents.flat_map { |name| ["#{name} B", "#{name} W"] }
-      rows = checkpoints.map do |f|
+      rows = checkpoints.flat_map do |f|
         benchmark = f[:benchmark]
-        network = benchmark[:network] || '-'
-        [f[:generation], benchmark[:complete] ? network : "#{network} (incomplete)"] + opponents.flat_map do |name|
-          benchmark[name] ? benchmark[name].values_at(:black, :white).map { |c| results(c) } : ['-', '-']
+        benchmark.keys.grep(String).map do |name|
+          black, white = benchmark[name].values_at(:black, :white)
+          played = [black, white].sum { |counts| counts.values.sum }
+          [f[:generation], benchmark[:network] || '-', name, "#{played}/#{benchmark[:games]}", "#{black[:win]}-#{black[:loss]}",
+           "#{white[:win]}-#{white[:loss]}", black[:draw] + white[:draw], black[:failure] + white[:failure]]
         end
       end
-      table(headings, rows)
-    end
-
-    def results(counts)
-      extra = [("d#{counts[:draw]}" if counts[:draw].positive?), ("f#{counts[:failure]}" if counts[:failure].positive?)]
-      ["#{counts[:win]}-#{counts[:loss]}", *extra.compact].join(' ')
+      table(BENCHMARK_HEADINGS, rows, left: [1, 2])
     end
   end
 end

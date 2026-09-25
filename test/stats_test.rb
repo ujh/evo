@@ -47,8 +47,8 @@ class StatsTest < Minitest::Test
   def test_prints_the_generation_table_once_and_exits
     out, err, status = stats('x')
     assert status.success?, err
-    # Gen, finished, games, draws, failures, game time, identical, parents,
-    # genomes, score min, median, max.
+    # Gen, done, games, draws, failed, game time, copies, parents, genomes,
+    # score min, median, max.
     assert_equal %w[0 no 1 0 0 - - 0 3 1 2 3], row(out, 0).first(12)
     assert_equal %w[1 yes 4 1 1 3.8s 33% 3 3 1 4 4], row(out, 1).first(12)
     assert_equal %w[2 no 0 0 0 - - 0 0 0 2 7], row(out, 2).first(12)
@@ -56,16 +56,39 @@ class StatsTest < Minitest::Test
     refute_includes out, "\e[2J", 'once mode does not clear the screen'
   end
 
-  # Both checkpoints' benchmarks are incomplete; generation 0 has played no
-  # game and plays only the bots.
-  def test_prints_the_benchmark_of_each_checkpoint
+  # One row per checkpoint and opponent. Both checkpoints' benchmarks are
+  # incomplete; generation 0 has played no game and plays only the bots.
+  def test_prints_the_benchmark_of_each_checkpoint_by_opponent
     out, = stats('x')
     benchmark = out[out.index('Benchmark')..]
     header = cells(benchmark.lines.find { |l| l.include?('Network') })
-    assert_equal ['Gen', 'Network', 'Brown B', 'Brown W', 'AmiGo B', 'AmiGo W', 'GnuGoLevel0 B', 'GnuGoLevel0 W',
-                  'Gen0Champion B', 'Gen0Champion W'], header
-    assert_equal ['2', 'c.ann (incomplete)', '0-0 f1', '1-0', '2-0', '0-1 d1', '0-0', '0-0', '0-1', '0-1'], row(benchmark, 2)
-    assert_equal ['0', '- (incomplete)', '0-0', '0-0', '0-0', '0-0', '0-0', '0-0', '-', '-'], row(benchmark, 0)
+    assert_equal %w[Gen Network Opponent Games Black White Draws Failed], header
+    rows = benchmark.lines.select { |l| l.match?(/\A\|\s*\d/) }.map { |l| cells(l) }
+    assert_equal [%w[0 - Brown 0/4 0-0 0-0 0 0], %w[0 - AmiGo 0/4 0-0 0-0 0 0], %w[0 - GnuGoLevel0 0/4 0-0 0-0 0 0],
+                  %w[2 c.ann Brown 2/4 0-0 1-0 0 1], %w[2 c.ann AmiGo 4/4 2-0 0-1 1 0],
+                  %w[2 c.ann GnuGoLevel0 0/4 0-0 0-0 0 0], %w[2 c.ann Gen0Champion 2/4 0-1 0-1 0 0]], rows
+  end
+
+  def test_once_mode_fits_in_100_columns
+    out, = stats('x')
+    long = out.lines.map(&:chomp).select { |l| l.size > 100 }
+    assert_empty long, "lines over 100 characters:\n#{long.join("\n")}"
+  end
+
+  # Only the latest generations, and only the checkpoints among them.
+  def test_the_tables_show_only_the_latest_generations
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
+    figures = ExperimentStats::Report.figures(ExperimentStats.new(database))
+    database.close
+    generations = ->(text) { text.lines.grep(/\A\|\s*\d/).map { |l| cells(l).first }.uniq }
+    text = ExperimentStats::Report.text(figures, limit: 3)
+    assert_includes text, 'latest 3 of 4'
+    generation_table, benchmark = text.split('Benchmark')
+    assert_equal %w[1 2 3], generations.call(generation_table)
+    assert_equal %w[2], generations.call(benchmark)
+    text = ExperimentStats::Report.text(figures, limit: 1)
+    assert_equal %w[3], generations.call(text)
+    refute_includes text, 'Benchmark'
   end
 
   def test_csv_has_one_row_per_generation_with_dotted_keys

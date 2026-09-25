@@ -89,7 +89,8 @@ class ExperimentStats
   end
 
   # nil unless the generation is a checkpoint. Else the benchmarked network
-  # (nil before the first game), whether every game is stored, and, per
+  # (nil before the first game), the games planned per opponent, whether
+  # every game is stored, and, per
   # opponent the checkpoint plays (CheckpointBenchmark.opponents_for), in
   # panel order, the results by the network's color: a win is the
   # network's.
@@ -99,7 +100,8 @@ class ExperimentStats
     rows = database.benchmark_games(generation, columns: %i[opponent network_color network winner failure])
     opponents = CheckpointBenchmark.opponents_for(generation, database.benchmark_opponents, keep_every)
     by_opponent = rows.group_by { |row| row[:opponent] }
-    result = { network: rows.first&.fetch(:network), complete: rows.size == opponents.size * benchmark_games }
+    result = { network: rows.first&.fetch(:network), games: benchmark_games,
+               complete: rows.size == opponents.size * benchmark_games }
     opponents.each_with_object(result) do |opponent, figures|
       games = by_opponent.fetch(opponent[:name], [])
       figures[opponent[:name]] = %w[black white].to_h do |color|

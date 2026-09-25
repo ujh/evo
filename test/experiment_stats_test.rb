@@ -130,6 +130,7 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal(
       {
         network: 'c.ann',
+        games: 4,
         complete: false,
         'Brown' => { black: counts(failure: 1), white: counts(win: 1) },
         'AmiGo' => { black: counts(win: 2), white: counts(loss: 1, draw: 1) },
@@ -138,13 +139,13 @@ class ExperimentStatsTest < Minitest::Test
       },
       benchmark
     )
-    assert_equal [:network, :complete, 'Brown', 'AmiGo', 'GnuGoLevel0', 'Gen0Champion'], benchmark.keys
+    assert_equal [:network, :games, :complete, 'Brown', 'AmiGo', 'GnuGoLevel0', 'Gen0Champion'], benchmark.keys
   end
 
   # Generation 0 plays only the bots.
   def test_benchmark_of_a_checkpoint_without_games_is_incomplete
     assert_equal(
-      { network: nil, complete: false, 'Brown' => { black: counts, white: counts },
+      { network: nil, games: 4, complete: false, 'Brown' => { black: counts, white: counts },
         'AmiGo' => { black: counts, white: counts }, 'GnuGoLevel0' => { black: counts, white: counts } },
       @stats.generation(0)[:benchmark]
     )
