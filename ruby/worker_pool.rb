@@ -18,10 +18,25 @@ class WorkerPool
     @jobs << [command, identifier]
   end
 
-  # Blocks until a command finishes and returns its identifier and the
-  # wall-clock seconds it ran.
+  # Blocks until a command finishes and returns its identifier, the
+  # wall-clock seconds it ran, and its Process::Status.
   def next_finished
     @finished.pop
+  end
+
+  # Signals that stop a run: Ctrl-C (SIGINT) and SIGTERM.
+  STOPPING = [Signal.list['INT'], Signal.list['TERM']].freeze
+
+  # Whether `status` says the command was ended by Ctrl-C or SIGTERM. Ctrl-C
+  # reaches the games as well as the runner, and a killed game can come back
+  # before the runner's trap has run, so the status is what tells that its
+  # result is not one. A program killed by the signal shows as signaled; one
+  # that catches it and exits, like the JVM running gogui-twogtp, exits with
+  # 128 plus the signal, as the shell reports a child killed by a signal.
+  def self.interrupted?(status)
+    return false unless status
+
+    STOPPING.include?(status.termsig) || STOPPING.map { |signal| 128 + signal }.include?(status.exitstatus)
   end
 
   # Keeps queued commands from starting; running ones finish. Only sets a
@@ -52,7 +67,8 @@ class WorkerPool
       command, identifier = job
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       system(command)
-      @finished << [identifier, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
+      # $? belongs to this thread.
+      @finished << [identifier, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, $?]
     end
   end
 end

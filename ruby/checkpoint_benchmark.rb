@@ -2,6 +2,7 @@ require 'fileutils'
 require_relative 'game_result'
 require_relative 'openings'
 require_relative 'seeds'
+require_relative 'worker_pool'
 
 # Measures progress apart from evolution. A tournament score only compares
 # networks of one generation, so at checkpoint generations the generation's
@@ -62,10 +63,10 @@ class CheckpointBenchmark
 
     pending.each { |game| pool.submit(command(game), game) }
     pending.size.times do |i|
-      game, duration = pool.next_finished
+      game, duration, status = pool.next_finished
       # As in the tournament: a game killed by Ctrl-C stays unscored and is
-      # replayed on resume.
-      exit if $stop_now
+      # replayed on resume, also when it is back before the trap has run.
+      exit if $stop_now || WorkerPool.interrupted?(status)
       store_game(game, duration)
       print "\rBenchmark ... Game: #{all.size - pending.size + i + 1}/#{all.size}".ljust(70)
     end

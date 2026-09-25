@@ -4,6 +4,7 @@ require_relative 'arena_result'
 require_relative 'checkpoint_benchmark'
 require_relative 'game_result'
 require_relative 'seeds'
+require_relative 'worker_pool'
 
 class RunGeneration
   def self.call(generation, settings, pool, store)
@@ -116,10 +117,11 @@ class RunGeneration
     end
 
     (jobs.size + gogui.size).times do
-      finished, duration = pool.next_finished
+      finished, duration, status = pool.next_finished
       # Ctrl-C also stops the running games. Leave them unscored so that
-      # resuming plays them again instead of counting a killed game.
-      exit if $stop_now
+      # resuming plays them again instead of counting a killed game. The
+      # game can be back before the trap has set the flag; its status tells.
+      exit if $stop_now || WorkerPool.interrupted?(status)
       if finished.is_a?(ArenaChunk)
         finish_chunk(finished, duration)
       else
@@ -169,9 +171,10 @@ class RunGeneration
   # arena gave none, a failure, then deletes the chunk's files. A crash
   # before the files are deleted replays the games not yet scored.
   def finish_chunk(chunk, duration)
-    output = File.exist?(chunk.out) ? File.read(chunk.out) : ''
+    # A dying arena may leave bytes that are not text; they match no line.
+    output = File.exist?(chunk.out) ? File.read(chunk.out).scrub : ''
     results = ArenaResult.chunk(output, chunk.games.keys).results
-    stderr = File.exist?(chunk.err) ? File.read(chunk.err) : ''
+    stderr = File.exist?(chunk.err) ? File.read(chunk.err).scrub : ''
     # The chunk's time beyond its games' (starting the arena, loading the
     # networks) is shared out equally, so the rows add up to the worker's time.
     played = results.values.sum { |result| result.duration || 0 }

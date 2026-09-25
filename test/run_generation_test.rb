@@ -640,6 +640,178 @@ class PlayRoundTest < Minitest::Test
       $stop_now = false
     end
   end
+
+  # a.ann against b.ann, then c.ann against d.ann, in one chunk.
+  TWO_ARENA_GAMES = [%w[a.ann b.ann], %w[c.ann d.ann]].freeze
+
+  # Plays TWO_ARENA_GAMES in one chunk that the arena left as `arena_output`
+  # makes of its output, killed, with `stderr`. Returns each game's winner,
+  # failure, and stderr by its black player, the scores, and the runner's
+  # stderr.
+  def play_broken_chunk(arena_output, stderr: 'Segmentation fault')
+    store = database
+    setup_round(TWO_ARENA_GAMES)
+    gen = build_with(FakePool.new(arena_output:, arena_stderr: stderr, status: signal_status('KILL')), store:)
+    _, err = capture_io { gen.send(:play_round) }
+    assert_empty gen.send(:data)['games']
+    rows = store.games(1).to_h { |row| [row[:black], row.values_at(:winner, :failure, :stderr)] }
+    [rows, scores(gen).values_at('a.ann', 'b.ann', 'c.ann', 'd.ann'), err]
+  end
+
+  SCORED = ['a.ann', nil, nil].freeze
+  NO_RESULT = [nil, 'arena: no result', 'Segmentation fault'].freeze
+
+  def test_a_game_the_dead_arena_left_out_fails_and_the_others_count
+    in_experiment do
+      rows, points, err = play_broken_chunk(->(text) { text.lines.first })
+      assert_equal({ 'a.ann' => SCORED, 'c.ann' => NO_RESULT }, rows)
+      assert_equal [1, 0, 0, 0], points
+      assert_includes err, 'cxdR0: arena: no result'
+    end
+  end
+
+  def test_a_line_cut_off_mid_field_is_no_result
+    in_experiment do
+      rows, points, = play_broken_chunk(->(text) { text.lines[0] + text.lines[1][0, 30] })
+      assert_equal({ 'a.ann' => SCORED, 'c.ann' => NO_RESULT }, rows)
+      assert_equal [1, 0, 0, 0], points
+    end
+  end
+
+  def test_games_with_valid_lines_count_without_the_trailer
+    in_experiment do
+      rows, points, = play_broken_chunk(->(text) { text.lines[0, 2].join })
+      assert_equal({ 'a.ann' => SCORED, 'c.ann' => ['c.ann', nil, nil] }, rows)
+      assert_equal [1, 0, 1, 0], points
+    end
+  end
+
+  def test_garbage_from_the_arena_is_no_result
+    in_experiment do
+      rows, points, err = play_broken_chunk(->(_text) { "\xff\xfe garbage\nmore\tgarbage\n" })
+      assert_equal({ 'a.ann' => NO_RESULT, 'c.ann' => NO_RESULT }, rows)
+      assert_equal [0, 0, 0, 0], points
+      assert_includes err, 'axbR0: arena: no result'
+      assert_includes err, 'cxdR0: arena: no result'
+    end
+  end
+
+  def test_an_arena_that_wrote_nothing_or_no_file_gives_no_result
+    [->(_text) { '' }, ->(_text) {}].each do |output|
+      in_experiment do
+        @database = nil
+        rows, points, = play_broken_chunk(output, stderr: '')
+        assert_equal({ 'a.ann' => [nil, 'arena: no result', nil], 'c.ann' => [nil, 'arena: no result', nil] }, rows)
+        assert_equal [0, 0, 0, 0], points
+      end
+    end
+  end
+
+  def test_an_errored_and_a_played_game_in_one_chunk_are_both_scored
+    in_experiment do
+      arena = ->(id, _game) { id == 'axbR0' ? arena_errored(id, side: 'both') : arena_errored(id, side: 'black') }
+      gen = play(TWO_ARENA_GAMES, FakePool.new(arena:))
+      assert_equal({ 'a.ann' => [nil, 'arena: neither network can play'], 'c.ann' => ['d.ann', nil] },
+                   database.games(1).to_h { |row| [row[:black], row.values_at(:winner, :failure)] })
+      assert_equal [0, 0, 0, 1], scores(gen).values_at('a.ann', 'b.ann', 'c.ann', 'd.ann')
+    end
+  end
+
+  # Eight networks and no bot, so every game is played in the arena. The
+  # alphabetically first network of a game wins it.
+  EIGHT = %w[a.ann b.ann c.ann d.ann e.ann f.ann g.ann h.ann].freeze
+
+  def arena_by_name
+    ->(id, game) { arena_played(id, result: game['black'] < game['white'] ? 'B+1.5' : 'W+1.5') }
+  end
+
+  def setup_arena_generation
+    players = EIGHT.to_h { |name| [name, { 'command' => "../evo #{name}" }] }
+    write_data('round' => 0, 'players' => players,
+               'games' => EIGHT.each_slice(2).map { |black, white| { 'black' => black, 'white' => white } },
+               'ranking' => EIGHT.map { |name| { 'name' => name, 'score' => 0 } })
+  end
+
+  ARENA_SETTINGS = { 'tournament_rounds' => 3, 'concurrency' => 2 }.freeze
+
+  def play_generation(pool)
+    gen = build_with(pool, settings: ARENA_SETTINGS)
+    capture_io { gen.send(:play_games) }
+    gen
+  end
+
+  # The rows without their timings, which depend on how the games were chunked.
+  def untimed_games
+    database.games(1).map { |row| row.except(:duration, :time_black, :time_white) }
+  end
+
+  def test_rounds_go_on_after_an_arena_that_gave_no_result
+    in_experiment do
+      setup_arena_generation
+      gen = play_generation(FakePool.new(arena_output: ->(_text) { 'garbage' }))
+      assert_equal 3, gen.send(:data)['round']
+      assert_equal 12, database.games(1).size
+      assert(database.games(1).all? { |row| row[:failure] == 'arena: no result' })
+    end
+  end
+
+  def test_a_resumed_generation_plays_only_its_pending_arena_games_and_ends_as_if_uninterrupted
+    in_experiment do
+      setup_arena_generation
+      play_generation(FakePool.new(arena: arena_by_name))
+      @expected = [untimed_games, database.ranking(1)]
+    end
+    @database = nil
+    in_experiment do
+      setup_arena_generation
+      # Ctrl-C kills the second chunk of the first round.
+      interrupted = FakePool.new(arena: arena_by_name,
+                                 status: ->(job) { job.name == 'arena-1' ? signal_status('INT') : exit_status(0) })
+      assert_raises(SystemExit) { play_generation(interrupted) }
+      assert_equal 2, database.games(1).size
+      assert_equal 2, database.state(1)['games'].size
+
+      resumed = FakePool.new(arena: arena_by_name)
+      play_generation(resumed)
+      # The chunks were a.ann-b.ann and e.ann-f.ann, then c.ann-d.ann and
+      # g.ann-h.ann; the second one's games are dealt out again.
+      assert_equal [['cxdR0'], ['gxhR0']], resumed.identifiers.first(2).map { |chunk| chunk.games.keys }
+      assert_equal @expected, [untimed_games, database.ranking(1)]
+    end
+  end
+
+  # What Ruby reports for a command that Ctrl-C (SIGINT) or SIGTERM ended:
+  # killed by the signal, or, for a program that catches it and exits (the
+  # JVM that runs gogui-twogtp), 128 plus the signal.
+  INTERRUPTED = { 'SIGINT' => signal_status('INT'), 'SIGTERM' => signal_status('TERM'),
+                  'exit 130' => exit_status(130), 'exit 143' => exit_status(143) }.freeze
+
+  def test_an_interrupted_chunk_is_left_to_be_replayed_before_the_trap_ran
+    INTERRUPTED.each do |how, status|
+      in_experiment do
+        @database = nil
+        setup_round(TWO_ARENA_GAMES)
+        gen = build_with(FakePool.new(status:, arena_output: ->(text) { text.lines.first }))
+        capture_io { assert_raises(SystemExit, how) { gen.send(:play_round) } }
+        assert_empty database.games(1), how
+        assert_equal 2, database.state(1)['games'].size, how
+      end
+    end
+  end
+
+  def test_an_interrupted_gogui_game_is_left_to_be_replayed_before_the_trap_ran
+    INTERRUPTED.each do |how, status|
+      in_experiment do
+        @database = nil
+        setup_round([['a.ann', 'Brown1']])
+        pool = FakePool.new(status:) { |game| File.write("#{prefix(game)}.err", 'Interrupted') }
+        gen = build_with(pool)
+        capture_io { assert_raises(SystemExit, how) { gen.send(:play_round) } }
+        assert_empty database.games(1), how
+        assert_equal [{ 'black' => 'a.ann', 'white' => 'Brown1' }], database.state(1)['games'], how
+      end
+    end
+  end
 end
 
 class ReproducibleRoundsTest < Minitest::Test

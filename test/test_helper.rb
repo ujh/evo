@@ -85,20 +85,39 @@ def arena_errored(id, side: 'black', message: 'x.ann does not fit a 9x9 board')
   [id, "error=#{side}", "message=#{message}", 'ok'].join("\t")
 end
 
+# A real Process::Status of a shell that exited with `code`, as WorkerPool
+# reports a finished command.
+def exit_status(code)
+  system("exit #{code}")
+  $?
+end
+
+# A real Process::Status of a shell killed by the signal `name` ('INT').
+def signal_status(name)
+  system("kill -#{name} $$")
+  $?
+end
+
 # Stands in for WorkerPool: "runs" a job and hands the jobs back in the
 # order they were queued. A GoGui game is "run" by calling the block, which
 # writes its result file. An arena chunk (one with a schedule) is "run" by
 # writing its stdout: `arena` gives each scheduled game's line from its ID
-# and game (black wins by default), then the trailer; `arena_stderr` is
-# written to its stderr.
+# and game (black wins by default; nil leaves the line out), then the
+# trailer; `arena_output` may rewrite that whole text (nil writes no file),
+# as an arena that died would leave it; `arena_stderr` is written to its
+# stderr. `status` is every job's exit status, or a lambda giving it from
+# the job's identifier; by default the job succeeded.
 class FakePool
   attr_reader :commands, :identifiers
 
-  def initialize(arena: ->(id, _game) { arena_played(id) }, arena_stderr: '', duration: 1.5, &run)
+  def initialize(arena: ->(id, _game) { arena_played(id) }, arena_output: ->(text) { text }, arena_stderr: '',
+                 duration: 1.5, status: exit_status(0), &run)
     @run = run
     @arena = arena
+    @arena_output = arena_output
     @arena_stderr = arena_stderr
     @duration = duration
+    @status = status
     @queued = []
     @commands = []
     @identifiers = []
@@ -114,12 +133,13 @@ class FakePool
   def next_finished
     identifier = @queued.shift
     if identifier.respond_to?(:schedule)
-      lines = identifier.games.map { |id, game| @arena.call(id, game) }
-      File.write(identifier.out, (lines + ["done #{lines.size}"]).map { |l| "#{l}\n" }.join)
+      lines = identifier.games.filter_map { |id, game| @arena.call(id, game) }
+      output = @arena_output.call((lines + ["done #{lines.size}"]).map { |l| "#{l}\n" }.join)
+      File.write(identifier.out, output) if output
       File.write(identifier.err, @arena_stderr)
     else
       @run&.call(identifier)
     end
-    [identifier, @duration]
+    [identifier, @duration, @status.respond_to?(:call) ? @status.call(identifier) : @status]
   end
 end

@@ -40,10 +40,41 @@ class WorkerPoolTest < Minitest::Test
     pool = WorkerPool.new(2)
     pool.submit('sleep 0.3', :slow)
     pool.submit('true', :fast)
-    seconds = Array.new(2) { pool.next_finished }.to_h
+    seconds = Array.new(2) { pool.next_finished.first(2) }.to_h
     pool.stop
     assert_in_delta 0.3, seconds[:slow], 0.2
     assert_operator seconds[:fast], :<, seconds[:slow]
+  end
+
+  def test_reports_each_commands_exit_status
+    pool = WorkerPool.new(2)
+    pool.submit('exit 3', :failed)
+    pool.submit('true > /dev/null', :succeeded)
+    statuses = Array.new(2) { pool.next_finished.values_at(0, 2) }.to_h
+    pool.stop
+    assert_equal 3, statuses[:failed].exitstatus
+    assert statuses[:succeeded].success?
+  end
+
+  def status_of(command)
+    system(command)
+    $?
+  end
+
+  # Ruby sees a command that SIGINT or SIGTERM ended as killed by it, or,
+  # when the program catches the signal and exits (the JVM that runs
+  # gogui-twogtp exits 130 on Ctrl-C), as exiting with 128 plus the signal.
+  def test_a_command_ended_by_ctrl_c_or_sigterm_was_interrupted
+    ['kill -INT $$', 'kill -TERM $$', 'exit 130', 'exit 143'].each do |command|
+      assert WorkerPool.interrupted?(status_of(command)), command
+    end
+  end
+
+  def test_a_command_that_failed_or_crashed_was_not_interrupted
+    ['true', 'exit 1', 'exit 139', 'kill -KILL $$'].each do |command|
+      refute WorkerPool.interrupted?(status_of(command)), command
+    end
+    refute WorkerPool.interrupted?(nil)
   end
 
   def test_stop_waits_for_running_jobs_and_drops_queued_ones

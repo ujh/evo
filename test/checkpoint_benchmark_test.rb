@@ -247,6 +247,20 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
+  # Ctrl-C reaches the game as well as the runner, and the game may be back
+  # before the trap has run: its status says it was interrupted.
+  def test_an_interrupted_game_is_left_to_be_replayed_before_the_trap_ran
+    [signal_status('INT'), exit_status(130)].each do |status|
+      in_experiment do
+        only_opponents('Brown')
+        store_generations(0)
+        pool = FakePool.new(status:) { |game| copy_dat('black_wins', game.prefix) }
+        capture_io { assert_raises(SystemExit) { CheckpointBenchmark.new(0, SETTINGS.merge('benchmark_games' => 2), pool, database).call } }
+        assert_empty database.benchmark_games(0)
+      end
+    end
+  end
+
   # Ruby's benchmark library defines a Benchmark module, so the class has
   # another name. A fresh process, because this one has loaded the class
   # already, and outside Bundler, which hides the gem since Ruby 4.0.
