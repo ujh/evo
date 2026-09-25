@@ -1,4 +1,5 @@
 require 'minitest/autorun'
+require 'fileutils'
 require 'json'
 require 'stringio'
 require 'tmpdir'
@@ -14,15 +15,49 @@ class SetupExperimentTest < Minitest::Test
 
   def test_arguments_give_settings_with_defaults_for_the_rest
     settings = SetupExperiment.settings_from_arguments(REQUIRED)
-    assert_equal '9', settings['board_size']
-    assert_equal '3', settings['tournament_size']
-    assert_equal '10', settings['keep_every']
-    assert_match(/\A\d+\z/, settings['seed'])
+    assert_equal 9, settings['board_size']
+    assert_equal 3, settings['tournament_size']
+    assert_equal 10, settings['keep_every']
+    assert_kind_of Integer, settings['seed']
     assert_equal SetupExperiment::SETTINGS.keys.sort, settings.keys.sort
   end
 
   def test_an_argument_overrides_a_default
-    assert_equal '5', SetupExperiment.settings_from_arguments(REQUIRED + %w[--tournament-size 5])['tournament_size']
+    assert_equal 5, SetupExperiment.settings_from_arguments(REQUIRED + %w[--tournament-size 5])['tournament_size']
+  end
+
+  def test_values_are_parsed_into_numbers
+    settings = SetupExperiment.settings_from_arguments(REQUIRED)
+    assert_equal 0.5, settings['cross_over_rate']
+    assert_equal 200, settings['max_moves']
+  end
+
+  # Each of these used to be taken silently: .to_i or C's atoi and atof
+  # read a prefix or 0, so a typo changed the experiment without a word.
+  BAD_VALUES = [
+    %w[--board-size 9x9], %w[--board-size 1], %w[--board-size 20],
+    %w[--population-size abc], %w[--population-size 0],
+    %w[--hidden-layers -1], %w[--layer-size 0],
+    %w[--cross-over-rate 0,5], %w[--cross-over-rate 1.5], %w[--cross-over-rate -0.1],
+    %w[--game-length 0], %w[--max-moves 2.5], %w[--tournament-rounds ten], %w[--tournament-rounds 0],
+    %w[--tournament-size 0], %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808]
+  ].freeze
+
+  def test_a_bad_value_is_refused_with_its_option_and_value
+    BAD_VALUES.each do |option, value|
+      error = assert_raises(ArgumentError, "#{option} #{value}") do
+        SetupExperiment.settings_from_arguments(REQUIRED + [option, value])
+      end
+      assert_includes error.message, option.delete_prefix('--').tr('-', '_')
+      assert_includes error.message, value
+    end
+  end
+
+  def test_the_edges_of_each_range_are_accepted
+    settings = SetupExperiment.settings_from_arguments(
+      REQUIRED + %w[--board-size 19 --hidden-layers 0 --cross-over-rate 1 --keep-every 0 --seed 0]
+    )
+    assert_equal [19, 0, 1.0, 0, 0], settings.values_at('board_size', 'hidden_layers', 'cross_over_rate', 'keep_every', 'seed')
   end
 
   def test_a_missing_required_setting_is_named
@@ -59,7 +94,9 @@ class SetupExperimentTest < Minitest::Test
     in_tmpdir do
       SetupExperiment.create('experiments/x', REQUIRED)
       database = ExperimentDatabase.new('experiments/x/experiment.sqlite3', readonly: true)
+      # The database keeps strings; loading parses them again.
       assert_equal '9', database.settings['board_size']
+      assert_equal '0.5', database.settings['cross_over_rate']
     end
   end
 
@@ -71,14 +108,96 @@ class SetupExperimentTest < Minitest::Test
   end
 
   def test_the_prompts_ask_for_every_setting
-    answers = SetupExperiment::SETTINGS.keys.map { |key| key == 'seed' ? '' : '1' }.join("\n")
+    answers = SetupExperiment::SETTINGS.keys.map { |key| { 'seed' => '', 'board_size' => '9' }.fetch(key, '1') }.join("\n")
     $stdin = StringIO.new("#{answers}\n")
     settings = nil
     capture_io { settings = SetupExperiment.prompt_for_settings }
     assert_equal SetupExperiment::SETTINGS.keys.sort, settings.keys.sort
-    assert_match(/\A\d+\z/, settings['seed'])
+    assert_kind_of Integer, settings['seed']
   ensure
     $stdin = STDIN
+  end
+
+  def test_a_prompt_asks_again_after_a_bad_answer
+    answers = SetupExperiment::SETTINGS.keys.map { |key| { 'seed' => '', 'board_size' => "9x9\n9" }.fetch(key, '1') }
+    $stdin = StringIO.new("#{answers.join("\n")}\n")
+    settings = nil
+    out, = capture_io { settings = SetupExperiment.prompt_for_settings }
+    assert_equal 9, settings['board_size']
+    assert_includes out, 'board_size must be'
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_loading_parses_the_stored_settings
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED))
+      settings = SetupExperiment.settings(database)
+      assert_equal 9, settings['board_size']
+      assert_equal 0.5, settings['cross_over_rate']
+    end
+  end
+
+  def test_loading_refuses_a_bad_stored_setting
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED).merge('max_moves' => 'lots'))
+      error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+      assert_includes error.message, 'max_moves'
+    end
+  end
+
+  # A fake checkout: the three executables, committed to git, and an
+  # installed external tools release.
+  def fake_checkout
+    { 'engine/evo' => 'evo v1', 'initial-population/initial-population' => 'ip v1', 'evolve/evolve' => 'evolve v1' }.each do |path, text|
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, text)
+    end
+    FileUtils.mkdir_p('.local/evo-tools/releases/tools_r7')
+    File.symlink('releases/tools_r7', '.local/evo-tools/current')
+    git = 'git -c user.name=t -c user.email=t@example.com'
+    system("git init -q . && #{git} add engine initial-population evolve && #{git} commit -q -m init", exception: true)
+    SetupExperiment.create('experiments/x', REQUIRED)
+  end
+
+  def run_setup
+    SetupExperiment.call('experiments/x') { |_settings, database| return database.provenance }
+  end
+
+  def test_the_executables_are_copied_once_and_their_build_recorded
+    in_tmpdir do
+      fake_checkout
+      provenance = nil
+      capture_io { provenance = run_setup }
+      %w[evo initial-population evolve].each do |name|
+        path = "experiments/x/#{name}"
+        refute File.symlink?(path), name
+        assert File.executable?(path) || File.file?(path), name
+      end
+      assert_equal 'evo v1', File.read('experiments/x/evo')
+      assert_equal `git rev-parse HEAD`.strip, provenance['code_revision']
+      assert_equal 'false', provenance['uncommitted_changes']
+      assert_equal 'tools_r7', provenance['external_tools']
+
+      # A rebuild does not reach an experiment that has its executables.
+      File.write('engine/evo', 'evo v2')
+      capture_io { provenance = run_setup }
+      assert_equal 'evo v1', File.read('experiments/x/evo')
+      assert_equal 'false', provenance['uncommitted_changes']
+    end
+  end
+
+  def test_uncommitted_changes_are_recorded
+    in_tmpdir do
+      fake_checkout
+      File.write('engine/evo', 'evo v1 edited')
+      provenance = nil
+      capture_io { provenance = run_setup }
+      assert_equal 'true', provenance['uncommitted_changes']
+      assert_equal 'evo v1 edited', File.read('experiments/x/evo')
+    end
   end
 
   def with_stdin(text)
@@ -115,7 +234,7 @@ class SetupExperimentTest < Minitest::Test
       File.write('settings.json', JSON.generate('board_size' => '19'))
       database = ExperimentDatabase.new('experiment.sqlite3')
       database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED))
-      assert_equal '9', SetupExperiment.settings(database)['board_size']
+      assert_equal 9, SetupExperiment.settings(database)['board_size']
       assert File.exist?('settings.json')
     end
   end

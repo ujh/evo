@@ -5,7 +5,7 @@ require_relative '../ruby/all'
 $stop_now = false
 
 class RunExperimentTest < Minitest::Test
-  SETTINGS = { 'concurrency' => '2', 'one_generation' => true }.freeze
+  SETTINGS = { 'concurrency' => 2, 'one_generation' => true }.freeze
 
   # Replaces RunGeneration.call with `stub` for the duration of the block.
   def with_generation(stub)

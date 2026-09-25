@@ -35,6 +35,15 @@ class ExperimentDatabase
     end
   end
 
+  # Where the experiment's executables came from; see migration 006.
+  def provenance
+    @db[:provenance].to_hash(:key, :value)
+  end
+
+  def save_provenance(provenance)
+    @db[:provenance].multi_insert(provenance.map { |key, value| { key: key.to_s, value: value.to_s } })
+  end
+
   def generations
     @db[:generations].order(:generation).select_map(:generation)
   end

@@ -3,11 +3,15 @@ require "bundler/setup"
 require_relative "ruby/all"
 
 experiment_name = ARGV[0]
-concurrency = ARGV[1] || 2
+concurrency = Integer(ARGV[1] || 2, exception: false)
 one_generation = ARGV[2] == "one-generation"
 
 if experiment_name.nil?
   puts "Name of experiment required as argument!"
+  exit 1
+end
+if concurrency.nil? || concurrency < 1
+  puts "Concurrency must be a whole number of at least 1, got #{ARGV[1]}"
   exit 1
 end
 

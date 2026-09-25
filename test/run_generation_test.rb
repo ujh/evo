@@ -143,9 +143,9 @@ class ParentSelectionTest < Minitest::Test
 
   def test_tournament_size_sets_the_selection_pressure
     assert_shares({ 'a.ann' => 1 / 3.0, 'b.ann' => 1 / 3.0, 'c.ann' => 1 / 3.0 },
-                  shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }, settings: { 'tournament_size' => '1' }))
+                  shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }, settings: { 'tournament_size' => 1 }))
     assert_shares({ 'a.ann' => 5 / 9.0, 'b.ann' => 3 / 9.0, 'c.ann' => 1 / 9.0 },
-                  shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }, settings: { 'tournament_size' => '2' }))
+                  shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }, settings: { 'tournament_size' => 2 }))
   end
 
   def test_parent_selection_is_seeded_by_experiment_seed_and_generation
@@ -154,13 +154,13 @@ class ParentSelectionTest < Minitest::Test
       candidates = gen.send(:parent_candidates, previous_data((1..9).to_h { |i| ["#{i}.ann", i % 3] }))
       Array.new(20) { gen.send(:select_parent, candidates) }
     end
-    assert_equal picks.call('2', '1'), picks.call('2', '1')
-    refute_equal picks.call('2', '1'), picks.call('3', '1')
-    refute_equal picks.call('2', '1'), picks.call('2', '7')
+    assert_equal picks.call('2', 1), picks.call('2', 1)
+    refute_equal picks.call('2', 1), picks.call('3', 1)
+    refute_equal picks.call('2', 1), picks.call('2', 7)
   end
 
   def test_tournament_size_below_one_is_rejected
-    gen = build_generation(settings: { 'tournament_size' => '0' })
+    gen = build_generation(settings: { 'tournament_size' => 0 })
     candidates = gen.send(:parent_candidates, previous_data('a.ann' => 1))
     assert_raises(ArgumentError) { gen.send(:select_parent, candidates) }
   end
@@ -174,7 +174,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   # given block. The block returns what run_evolve does: [success, stdout]. `stale_child` is left in
   # 0.ann, as an interrupted earlier run would. keep_every 0 retires generation 0 after breeding.
   def breed(scores:, settings: {}, stale_child: nil, &evolve)
-    settings = { 'keep_every' => '0' }.merge(settings)
+    settings = { 'keep_every' => 0 }.merge(settings)
     in_experiment do
       File.write('0.ann', stale_child) if stale_child
       scores.each_key { |name| database.record_network(0, name, name) }
@@ -252,7 +252,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   end
 
   def test_child_left_by_an_interrupted_run_is_not_reused
-    state = breed(scores: { '0001.ann' => 1 }, settings: { 'population_size' => '1' }, stale_child: 'stale') { [true, SUMMARY] }
+    state = breed(scores: { '0001.ann' => 1 }, settings: { 'population_size' => 1 }, stale_child: 'stale') { [true, SUMMARY] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
     assert_empty state[:children]
   end
@@ -276,7 +276,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   end
 
   def test_parents_of_a_kept_generation_stay_in_the_database
-    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'keep_every' => '10' }) { |cmd| write_child(cmd) }
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'keep_every' => 10 }) { |cmd| write_child(cmd) }
     assert_equal %w[0001.ann 0002.ann], state[:previous_networks]
   end
 
@@ -473,7 +473,7 @@ class ReproducibleRoundsTest < Minitest::Test
   def next_round_games(order)
     in_experiment do
       write_data('round' => 0, 'players' => {}, 'games' => [], 'ranking' => ranking(order))
-      gen = build_generation(settings: { 'tournament_rounds' => '3' })
+      gen = build_generation(settings: { 'tournament_rounds' => 3 })
       gen.send(:setup_next_round)
       gen.send(:data).values_at('games', 'ranking')
     end
@@ -491,8 +491,8 @@ class ReproducibleRoundsTest < Minitest::Test
         build_generation(settings: { 'seed' => seed }).send(:setup_tournament).values_at('ranking', 'games')
       end
     end
-    assert_equal tournament.call('1'), tournament.call('1')
-    refute_equal tournament.call('1'), tournament.call('2')
+    assert_equal tournament.call(1), tournament.call(1)
+    refute_equal tournament.call(1), tournament.call(2)
   end
 
   def test_the_initial_population_gets_its_seed_and_is_recorded
