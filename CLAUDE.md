@@ -98,7 +98,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ## Working conventions
 
-- Fix defects test-first: write a test that fails, then fix. The cleanup order in `PROJECT_NOTES.md` puts the result-changing defects before any new experiment.
+- Fix defects test-first: write a test that fails, then fix.
 - Commits: imperative, sentence-case subject (for example "Build GNU Go with common symbols on Linux"), with a body that explains why.
 - Branches: `fix/…`, `chore/…`, `docs/…`.
 - PRs: this is a personal repo with no Jira, so titles and bodies carry no ticket key. The body is one short paragraph that starts with the why, plus a line on how the change was verified.
