@@ -3,6 +3,7 @@
 *.dep
 
 experiments
+plans/
 .local/evo-tools/
 .vscode
 .DS_Store
