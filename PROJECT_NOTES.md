@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** profile a short run, replace GENANN (step 1 of the [cleanup order](#suggested-cleanup-order)), then test evolution of a shared local pattern scorer, with the rest of the cleanup alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** replace GENANN (step 1 of the [cleanup order](#suggested-cleanup-order)), then test evolution of a shared local pattern scorer, with the rest of the cleanup alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -102,9 +102,17 @@ The recommendation is to consider using the local scorer to guide exploration af
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Each game launches a new GoGui process, two players, and a GNU Go referee. A timing sample points away from the neural network and toward adjudication (see "Performance" in `CLAUDE.md`). The tournament also replays deterministic pairings: the Brown and AmiGo instances are copies of the same program, so a repeated pairing in the same colors adds nothing. (Bots playing each other is intended; it places them in the ranking.)
+Each game launches a new GoGui process, two players, and a GNU Go referee. A profiled generation (see "Performance" in `CLAUDE.md`) puts the cost in two places. Rounds wait for their slowest game, usually one involving GNU Go level 10, which sets most of the wall time; against a network such a game takes about 7 s. Every game without GNU Go costs 0.2–0.4 s, almost all of it overhead rather than play.
 
-The remedies are to play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, to stop scheduling duplicate deterministic bot instances, and to keep GoGui with GNU Go for benchmark games. Repeat the sample over a full generation, reporting games per minute at the intended concurrency, before relying on it. The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
+The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. GNU Go copies get a different seed per game, but two equal players still decide nothing. Either way it adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
+
+Candidate remedies, to decide between:
+
+- Skip pairings between two copies of the same bot. This is for accuracy; it saves only about 12 s of the 142 s of game time in the profile.
+- Use fewer GNU Go level 10 instances, or a lower level, to shorten the slowest rounds.
+- Play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, keeping GoGui with GNU Go for benchmark games. This removes the per-game overhead, but not the wait for the slow GNU Go games.
+
+The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
 
 ## Code cleanup
 
@@ -134,7 +142,7 @@ Speed is not a reason to replace it: inference is small next to game adjudicatio
 
 ### A C arena for network games
 
-The largest structural change suggested by the timing sample is a C program that loads a set of networks once and plays the scheduled network-against-network games in one process. It would reuse Brown's board code, score with an explicit rule set (Tromp–Taylor area scoring is simple and well defined when a game ends by two passes or the move limit), vary openings or seeds deliberately, and write one result line per game with an explicit outcome (win, loss, draw, or error). Ruby would still orchestrate generations, selection, and benchmarks. This removes JVM startup and the GNU Go referee from most games and makes games reproducible from a seed. Before switching, check on a sample of games that arena results agree with the GoGui/GNU Go results.
+The largest structural change for speed is a C program that loads a set of networks once and plays the scheduled network-against-network games in one process. It would reuse Brown's board code, score with an explicit rule set (Tromp–Taylor area scoring is simple and well defined when a game ends by two passes or the move limit), vary openings or seeds deliberately, and write one result line per game with an explicit outcome (win, loss, draw, or error). Ruby would still orchestrate generations, selection, and benchmarks. This removes JVM startup and the GNU Go referee from most games. The profiled generation suggests it matters most once the rounds no longer wait on slow GNU Go games. Before switching, check on a sample of games that arena results agree with the GoGui/GNU Go results.
 
 ### Suggested cleanup order
 

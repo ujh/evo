@@ -91,10 +91,11 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ### Performance
 
-- One timing sample on macOS (24 Sep 2026) put the cost in adjudication, not inference. Its referee was a clang-built GNU Go from before the `gg_sort` patch, so recheck it before relying on it.
-  - A 9×9 network with 3 hidden layers of 400 neurons (about 387k weights) answered 1,000 `genmove` commands in 0.21 s, about 0.2 ms per move. Engine start and exit took about 10 ms.
-  - Through `gogui-twogtp`, a random network playing itself passed after 18 moves and took 2.1–2.2 s with the GNU Go referee, but 0.12 s without it. Complete games of 93–180 moves between Brown, AmiGo, and the example network took 0.16 s each.
-  - Early-passing networks, which is most of an untrained population, are the most expensive games to referee.
+- One generation profiled on macOS (25 Sep 2026, 8 cores, patched GNU Go): 9×9, 20 networks with 1 hidden layer of 100, the 19 bots, 10 rounds, `max_moves` 200, seed 1, concurrency 4. It played 190 games in 58 s of wall time, about 200 games a minute. The games' `duration` summed to 142 s, of which 87 s was the players' own time, nearly all of it GNU Go.
+  - Average `duration` per pairing: GNU Go level 10 against a network 7.2 s (89 moves); GNU Go against another bot 1.9–3.6 s; every game without GNU Go, networks included, 0.22–0.39 s (48–128 moves).
+  - A network answers in under a tenth of a second, so its `time_black`/`time_white` read 0.0, and a network game's whole `duration` is overhead: JVM, referee, and process starts.
+  - Each round waits for its slowest game, usually one against GNU Go level 10. The per-round lower bound, max(slowest game, summed durations / concurrency), adds up to 53.5 of the 58 s, so better queue order gains little.
+  - Engine inference is negligible: a 9×9 network with 3 hidden layers of 400 neurons (about 387k weights) answered 1,000 `genmove` commands in 0.21 s (24 Sep 2026). Engine start and exit took about 10 ms.
 
 ## Working conventions
 
