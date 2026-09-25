@@ -36,6 +36,8 @@ Crossing raw weight arrays also assumes that hidden units occupy compatible role
 
 **Proposed response:** establish a mutation-only baseline and compare it with the present crossover scheme at equal game budgets. Treat the number of mutated weights and the size of each perturbation as separate controls. The share of unchanged children is recorded in `births`; optionally also measure their move agreement on a small bank of positions.
 
+All three mutation settings are hard-coded in `mutate()` (`evolve/evolve.c`): the 1% plain-copy chance, the per-weight rate of 0.0004, and the ±0.5 uniform perturbation. None was chosen from evidence, and none can be varied per experiment. Question each of them in these experiments, and make the ones worth varying experiment settings passed to `evolve`, recorded with the other settings. The tests in `evolve/test.c` pin the current values, so changing a value means changing its test.
+
 ### 4. The policy has to learn Go structure from very little guidance
 
 The dense network receives a flat board and komi. It has no explicit liberties, capture features, previous-pass input, move history, or spatial weight sharing. The engine's legality checks handle immediate constraints, but the policy has no lookahead to examine consequences.
@@ -123,7 +125,7 @@ Fix each with a test that fails before the fix.
 - **Move notifications out of `stats`.** `stats` still sends the `ntfy` notification, which belongs in the runner or a separate command, and builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
 - **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
-- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass) and mutation statistics.
+- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass).
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library
@@ -144,19 +146,18 @@ The largest structural change suggested by the timing sample is a C program that
 
 ### Suggested cleanup order
 
-1. Add characterization tests for mutation statistics.
-2. Fix the result-changing defects above, one change at a time, each with its test.
-3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
-4. Type the settings, record the code revision, and copy the binaries.
-5. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
+1. Fix the result-changing defects above, one change at a time, each with its test.
+2. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
+3. Type the settings, record the code revision, and copy the binaries.
+4. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
-Steps 1–2 are prerequisites for trusting any new experiment. Steps 3–5 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
+Step 1 is a prerequisite for trusting any new experiment. Steps 2–4 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
 ## Proposed sequence
 
 These are candidate milestones for discussion, rather than an implementation commitment.
 
-0. **Clean up the code under test.** Carry out steps 1–2 of the [cleanup order](#suggested-cleanup-order) before any new experiment, and the rest alongside milestone 1.
+0. **Clean up the code under test.** Carry out step 1 of the [cleanup order](#suggested-cleanup-order) before any new experiment, and the rest alongside milestone 1.
 1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9, specify rules and komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring. Establish a reproducible benchmark containing weak external opponents and frozen initial networks.
 2. **Test evolution with shared local patterns.** Use a compact scorer and a simple mutation-based evolutionary baseline. Compare it with random search using the same representation and game budget. Preserve the original dense-policy implementation as a reference; if comparing representations, use the same breeding procedure and account explicitly for differing genome sizes. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.

@@ -28,6 +28,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 - `engine/`: `evo`, a GTP engine built on Brown's board code (`brown.c`, `gtp.c`) plus the network move policy (`generate_move.c`). `engine/test.c` tests GENANN only, not Go rules.
 - `initial-population/`: `initial-population POP SIZE LAYERS NEURONS [SEED]` writes random networks named `0001.ann`, `0002.ann`, and so on.
 - `evolve/`: `evolve RATE A.ann B.ann OUT.ann [SEED]` writes the child to `OUT.ann`. Its last stdout line is `summary operator=crossover|mutation differs_from_first=N differs_from_second=N` (weights differing from each parent; 0 means an identical copy). It either crosses over or mutates; it never does both. It exits 1 without writing anything when an input cannot be read. The runner checks the exit status and that the file exists, and stops breeding before deleting the parents if either fails.
+  - `evolve/test.c` (`make test` in `evolve/`) pins `mutate()`'s hard-coded values statistically: it mutates seeded networks thousands of times and checks the shares against tolerances of about four standard errors. Changing a mutation value means updating those tests. The statistical checks do not depend on the exact random draws; only the copy and seed tests rely on a particular seed.
 - `ruby/`, `runner`: tournament orchestration. `stats`, `ranking`: viewers. `multi`: rotates between several experiments.
 - `lib/` is **unused**. `genann.c/h` has four identical copies (`lib/`, `engine/`, `evolve/`, `initial-population/`), and every Makefile compiles its own local copy. A GENANN change must go into all four until the cleanup consolidates them.
 - `pcg-c/` is an upstream submodule (`imneme/pcg-c`). Do not edit it.
@@ -97,7 +98,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ## Working conventions
 
-- Fix defects test-first: write a test that fails, then fix. The cleanup order in `PROJECT_NOTES.md` puts characterization tests and the result-changing defects before any new experiment.
+- Fix defects test-first: write a test that fails, then fix. The cleanup order in `PROJECT_NOTES.md` puts the result-changing defects before any new experiment.
 - Commits: imperative, sentence-case subject (for example "Build GNU Go with common symbols on Linux"), with a body that explains why.
 - Branches: `fix/…`, `chore/…`, `docs/…`.
 - PRs: this is a personal repo with no Jira, so titles and bodies carry no ticket key. The body is one short paragraph that starts with the why, plus a line on how the change was verified.
