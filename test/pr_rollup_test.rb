@@ -9,10 +9,11 @@ class PrRollupTest < Minitest::Test
   FILTER = File.expand_path('../scripts/pr-rollup.jq', __dir__)
   HEAD = 'abc123'.freeze
 
-  def check_run(conclusion, name: 'build-and-test', started: '2026-09-24T19:03:47Z')
-    { '__typename' => 'CheckRun', 'name' => name, 'workflowName' => 'CI',
+  # Pass started: nil to leave startedAt out, as a check with only completedAt.
+  def check_run(conclusion, name: 'build-and-test', workflow: 'CI', started: '2026-09-24T19:03:47Z', completed: nil)
+    { '__typename' => 'CheckRun', 'name' => name, 'workflowName' => workflow,
       'status' => conclusion.empty? ? 'IN_PROGRESS' : 'COMPLETED',
-      'conclusion' => conclusion, 'startedAt' => started }
+      'conclusion' => conclusion, 'startedAt' => started, 'completedAt' => completed }.compact
   end
 
   def status_context(state, context: 'ci/external')
@@ -58,5 +59,17 @@ class PrRollupTest < Minitest::Test
     new_success = check_run('SUCCESS', started: '2026-09-24T19:00:00Z')
     assert_empty run_filter([old_failure, new_success])
     assert_equal ["FAILURE\tbuild-and-test"], run_filter([new_success.merge('startedAt' => '2026-09-24T17:00:00Z'), old_failure])
+  end
+
+  def test_latest_run_falls_back_to_completion_time
+    old_failure = check_run('FAILURE', started: nil, completed: '2026-09-24T19:00:00Z')
+    new_success = check_run('SUCCESS', started: nil, completed: '2026-09-24T20:00:00Z')
+    assert_empty run_filter([new_success, old_failure])
+  end
+
+  def test_same_check_name_in_two_workflows_counts_separately
+    later_success = check_run('SUCCESS', workflow: 'Nightly', started: '2026-09-24T20:00:00Z')
+    earlier_failure = check_run('FAILURE', workflow: 'CI', started: '2026-09-24T19:00:00Z')
+    assert_equal ["FAILURE\tbuild-and-test"], run_filter([later_success, earlier_failure])
   end
 end

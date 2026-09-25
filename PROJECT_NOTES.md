@@ -128,7 +128,7 @@ Fix each with a test that fails before the fix.
 - **Separate viewing from housekeeping.** `stats` and `ranking` should be read-only. Archiving, pruning, and notifications belong in the runner or a separate command. The `ntfy` notification builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
 - **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
-- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), mutation statistics, the file format round trip, and resuming a generation. Record the fraction of offspring identical to a parent, not only that the code runs.
+- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), parent selection edge cases (see the `parent_pool` defect), mutation statistics, the file format round trip, and resuming a generation. Record the fraction of offspring identical to a parent, not only that the code runs.
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library

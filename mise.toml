@@ -27,7 +27,7 @@ description = "Run the C test suite"
 run = "make test"
 
 [tasks.test-ruby]
-description = "Run the Ruby tests (tournament runner and PR check filter)"
+description = "Run the Ruby tests (tournament runner and PR check scripts)"
 run = "bundle exec ruby -e 'Dir[\"test/**/*_test.rb\"].sort.each { |f| require File.expand_path(f) }'"
 
 [tasks.verify]

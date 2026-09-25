@@ -10,8 +10,11 @@ pr=${1:?usage: mise run pr-checks PR}
 head=$(git rev-parse HEAD)
 filter="$(dirname "$0")/pr-rollup.jq"
 
+# sh has no pipefail, so fetch first: a failed gh call must stop the script
+# here instead of feeding jq nothing, which would read as green.
 not_passed() {
-  gh pr view "$pr" --json headRefOid,statusCheckRollup | jq -r --arg head "$head" -f "$filter"
+  json=$(gh pr view "$pr" --json headRefOid,statusCheckRollup) || return 1
+  printf '%s\n' "$json" | jq -r --arg head "$head" -f "$filter"
 }
 
 head_moved() {
