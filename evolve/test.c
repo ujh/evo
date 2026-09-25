@@ -29,11 +29,6 @@ SOFTWARE.
 #include "evolve.h"
 #include "minctest.h"
 
-double returns_point_three() { return 0.3; }
-double returns_point_one() { return 0.1; }
-double returns_point_nine_nine() { return 0.99; }
-double returns_point_seven() { return 0.7; }
-
 void test_cross_over() {
   genann *nn1 = genann_init(1, 1, 1, 1);
   genann *nn2 = genann_init(1, 1, 1, 1);
