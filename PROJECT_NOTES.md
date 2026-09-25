@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** make the network's activations experiment settings (step 1 of the [cleanup order](#suggested-cleanup-order)), then test evolution of a shared local pattern scorer, with the rest of the cleanup alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** test evolution of a shared local pattern scorer, with the [cleanup](#suggested-cleanup-order) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -44,7 +44,7 @@ The dense network receives a flat board and komi. It has no explicit liberties, 
 
 That makes a compact policy an interesting learning experiment, with substantial representational demands. In particular, a two-neuron hidden layer such as the bundled fixture compresses the whole board very aggressively; it should not be taken as a recommended training architecture.
 
-None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. Treat each as an experiment variable, like the mutation settings in item 3. Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a linear output layer would remove them ([Neural network library](#neural-network-library)).
+None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. The sizes are experiment settings today; activations, and later perhaps sizes, could evolve as genes of each network ([Neural network library](#neural-network-library)). Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
 
 **Proposed representation experiment:** use a small shared scorer for the 3×3 neighborhood around each candidate move. Run it early, alongside a short check of scoring and variation. Additional tactical features and search remain choices to discuss.
 
@@ -133,8 +133,7 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). A shared 3×3 scorer is just a small GENANN network evaluated once per candidate, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes and both activations. What is still missing:
 
-- **Activations as settings.** Make the hidden and output activations experiment settings, passed to `initial-population`, which today always uses GENANN's default, the cached sigmoid. `evolve` already keeps the parents' activations and refuses parents whose activations differ.
-- **Network settings in the genome.** Sizes and activations could later evolve too, as genes of each network rather than settings of the experiment. Changing an activation is a simple mutation; changing sizes needs a rule for the weights that appear or disappear, and crossover between different shapes.
+- **Network settings in the genome.** Every network uses GENANN's default activation, the cached sigmoid, for now; the owner does not want activations as experiment settings. Sizes and activations could later evolve instead, as genes of each network, which the file format already records. Changing an activation is a simple mutation; changing sizes needs a rule for the weights that appear or disappear, and crossover between different shapes.
 - **Scorer metadata.** The shared 3×3 scorer will need more in the file, such as its feature set and symmetry handling. Add it under a new format version.
 
 GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
@@ -145,17 +144,16 @@ The largest structural change for speed is a C program that loads a set of netwo
 
 ### Suggested cleanup order
 
-1. Make the activations experiment settings, as described [above](#neural-network-library).
-2. Type the settings, record the code revision, and copy the binaries.
-3. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
+1. Type the settings, record the code revision, and copy the binaries.
+2. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
-The steps can be interleaved with milestone 1 below. Step 1 comes before milestone 2, whose comparisons should cover the activations. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
+The steps can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
 ## Proposed sequence
 
 These are candidate milestones for discussion, rather than an implementation commitment.
 
-0. **Clean up the code under test.** Carry out the [cleanup order](#suggested-cleanup-order) alongside milestone 1, finishing its step 1 before milestone 2.
+0. **Clean up the code under test.** Carry out the [cleanup order](#suggested-cleanup-order) alongside milestone 1.
 1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9, specify rules and komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring. Establish a reproducible benchmark containing weak external opponents and frozen initial networks.
 2. **Test evolution with shared local patterns.** Use a compact scorer and a simple mutation-based evolutionary baseline. Compare it with random search using the same representation and game budget. Preserve the original dense-policy implementation as a reference; if comparing representations, use the same breeding procedure and account explicitly for differing genome sizes. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.
