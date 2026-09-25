@@ -50,7 +50,7 @@ None of the network's settings was chosen for a reason: the number and size of h
 
 ### 5. Long runs need recoverable evidence
 
-Networks and SGFs are kept only for every `keep_every`-th generation. That saves space but limits comparisons with early ancestors to those generations. Runs cannot yet be tied to a build: the code revision is not recorded, and executables are symlinks to the current build. The fixes are listed under [Code cleanup](#code-cleanup).
+Networks and SGFs are kept only for every `keep_every`-th generation. That saves space but limits comparisons with early ancestors to those generations. Each experiment keeps copies of its executables and records the code revision they came from, but not yet its opponent panel and scoring rules.
 
 **Proposed response:** also keep each generation's top-ranked network, if the `keep_every` generations turn out too sparse.
 
@@ -120,8 +120,7 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 ### Structure and hygiene
 
-- **Typed, validated settings.** The settings table stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment still needs (code revision, opponent panel, scoring rules).
-- **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
+- **Record the opponent panel and scoring rules.** They live in the code (`EXTERNAL_PLAYERS`, `score_game`), so a later change silently changes what an older experiment's records mean. Store them with the experiment, like its provenance.
 - **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass).
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
@@ -140,10 +139,9 @@ The largest structural change for speed is a C program that loads a set of netwo
 
 ### Suggested cleanup order
 
-1. Type the settings, record the code revision, and copy the binaries.
-2. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
+1. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
-The steps can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
+It can be interleaved with milestone 1 below, and should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
 ## Proposed sequence
 

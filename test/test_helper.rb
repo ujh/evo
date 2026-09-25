@@ -11,16 +11,17 @@ module RunGenerationHelpers
   FIXTURES = File.expand_path('fixtures', __dir__)
 
   SETTINGS = {
-    'board_size' => '9',
-    'population_size' => '2',
-    'hidden_layers' => '1',
-    'layer_size' => '10',
-    'cross_over_rate' => '0.5',
-    'game_length' => '10',
-    'max_moves' => '200',
-    'tournament_rounds' => '1',
-    'seed' => '1',
-    'keep_every' => '10',
+    'board_size' => 9,
+    'population_size' => 2,
+    'hidden_layers' => 1,
+    'layer_size' => 10,
+    'cross_over_rate' => 0.5,
+    'game_length' => 10,
+    'max_moves' => 200,
+    'tournament_rounds' => 1,
+    'tournament_size' => 3,
+    'seed' => 1,
+    'keep_every' => 10,
     'concurrency' => 1
   }.freeze
 

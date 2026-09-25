@@ -48,13 +48,13 @@ class RunGeneration
   end
 
   def play_games
-    return :already_done if data['round'] >= settings['tournament_rounds'].to_i
+    return :already_done if data['round'] >= settings['tournament_rounds']
 
     loop do
       play_round
       setup_next_round
 
-      break if data['round'] >= settings['tournament_rounds'].to_i
+      break if data['round'] >= settings['tournament_rounds']
     end
     puts "\rPlaying ... done".ljust(70)
   end
@@ -62,7 +62,7 @@ class RunGeneration
   def setup_next_round
     round = data['round'] + 1
     ranking = shuffle_ties(data['ranking'], round)
-    games = if round >= settings['tournament_rounds'].to_i
+    games = if round >= settings['tournament_rounds']
               []
             else
               games_from_ranking(ranking, colors_rng(round))
@@ -137,7 +137,7 @@ class RunGeneration
 
   def refresh_progress
     current_round = data['round'] + 1
-    total_rounds = settings['tournament_rounds'].to_i
+    total_rounds = settings['tournament_rounds']
     total_games_in_round = (data['players'].length / 2.0).ceil
     current_game_in_round = total_games_in_round - data['games'].length
     overall_total = total_games_in_round * total_rounds
@@ -206,7 +206,7 @@ class RunGeneration
   # SGFs and networks are kept for every keep_every-th generation (0 keeps
   # none), so lineages can be revisited at regular points.
   def keep?(generation_number)
-    every = settings.fetch('keep_every', '10').to_i
+    every = settings['keep_every']
     every.positive? && (generation_number % every).zero?
   end
 
@@ -244,7 +244,7 @@ class RunGeneration
     raise "initial-population failed: #{command}" unless system(command)
 
     networks = Dir['*.ann'].sort
-    expected = settings['population_size'].to_i
+    expected = settings['population_size']
     raise "initial-population wrote #{networks.size} networks, expected #{expected}: #{command}" unless networks.size == expected
 
     networks.each do |network|
@@ -265,7 +265,7 @@ class RunGeneration
     FileUtils.mkdir_p(PARENTS)
     store.export_networks(previous_generation, PARENTS)
     # Generate the new population
-    total = settings['population_size'].to_i
+    total = settings['population_size']
     total.times do |i|
       print "\rGenerating population ... #{i + 1}/#{total}"
       breed_child(previous_generation, candidates, i)
@@ -317,7 +317,7 @@ class RunGeneration
   # and when every score is equal the pick is uniform. max_by keeps the first
   # of tied draws, which is a random one of the tied candidates.
   def select_parent(candidates)
-    size = settings.fetch('tournament_size', '3').to_i
+    size = settings['tournament_size']
     raise ArgumentError, "tournament_size must be at least 1, got #{size}" if size < 1
 
     Array.new(size) { candidates.sample(random: rng) }.max_by { |c| c['score'] }['name']
