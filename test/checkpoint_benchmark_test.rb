@@ -108,14 +108,23 @@ class CheckpointBenchmarkTest < Minitest::Test
       gnugo = ->(color) { "gnugo --level 0 --mode gtp --seed #{seed.call(color)}" }
       # twogtp counts the opening's stones toward the move limit.
       assert_equal [%(gogui-twogtp -black "../evo benchmark/0-b.ann" -white "#{gnugo.call('black')}" ) +
-                    %(-referee "gnugo --mode gtp --seed #{seed.call('black')}" -size 9 -auto -games 1 ) +
-                    '-sgffile benchmark/GnuGoLevel0-0-black -time 10 -force -maxmoves 204 ' \
+                    %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed.call('black')}" -size 9 -komi 6.5 ) +
+                    '-auto -games 1 -sgffile benchmark/GnuGoLevel0-0-black -time 10 -force -maxmoves 204 ' \
                     '-openings benchmark/openings/0 2> benchmark/GnuGoLevel0-0-black.err',
                     %(gogui-twogtp -black "#{gnugo.call('white')}" -white "../evo benchmark/0-b.ann" ) +
-                    %(-referee "gnugo --mode gtp --seed #{seed.call('white')}" -size 9 -auto -games 1 ) +
-                    '-sgffile benchmark/GnuGoLevel0-0-white -time 10 -force -maxmoves 204 ' \
+                    %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed.call('white')}" -size 9 -komi 6.5 ) +
+                    '-auto -games 1 -sgffile benchmark/GnuGoLevel0-0-white -time 10 -force -maxmoves 204 ' \
                     '-openings benchmark/openings/0 2> benchmark/GnuGoLevel0-0-white.err'], commands
       assert_equal Openings.sgf(9, Openings.moves(1, 0, 9, 4)), File.read('benchmark/openings/0/opening.sgf')
+    end
+  end
+
+  def test_the_command_gives_the_experiment_komi
+    in_experiment do
+      only_opponents('Brown')
+      store_generations(0)
+      commands = run_benchmark(0, settings: { 'komi' => -3.0 }).commands
+      commands.each { |command| assert_includes command, ' -komi -3.0 ' }
     end
   end
 

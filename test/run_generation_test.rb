@@ -607,9 +607,21 @@ class PlayRoundBookkeepingTest < Minitest::Test
       prepared = build_generation.send(:prepare_game, game)
       seed = Seeds.gnugo(1, 'game', 1, 0, 'a.ann', 'Brown1')
       assert_equal game, prepared['identifier']
-      assert_equal %(gogui-twogtp -black "../evo a.ann" -white "brown" -referee "gnugo --mode gtp --seed #{seed}" ) +
-                   '-size 9 -auto -games 1 -sgffile axBrown1R0 -time 10 -force -maxmoves 200 2> axBrown1R0.err',
+      assert_equal %(gogui-twogtp -black "../evo a.ann" -white "brown" ) +
+                   %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed}" -size 9 -komi 6.5 ) +
+                   '-auto -games 1 -sgffile axBrown1R0 -time 10 -force -maxmoves 200 2> axBrown1R0.err',
                    prepared['command']
+    end
+  end
+
+  def test_prepare_game_gives_the_experiment_komi
+    in_experiment do
+      write_data('round' => 0, 'players' => {
+                   'a.ann' => { 'command' => '../evo a.ann' },
+                   'Brown1' => { 'command' => 'brown' }
+                 })
+      command = build_generation(settings: { 'komi' => 7.0 }).send(:prepare_game, { 'black' => 'a.ann', 'white' => 'Brown1' })['command']
+      assert_includes command, ' -komi 7.0 '
     end
   end
 
@@ -622,7 +634,7 @@ class PlayRoundBookkeepingTest < Minitest::Test
       command = build_generation.send(:prepare_game, { 'black' => 'GnuGoLevel01', 'white' => 'a.ann' })['command']
       seed = Seeds.gnugo(1, 'game', 1, 2, 'GnuGoLevel01', 'a.ann')
       assert_includes command, %(-black "gnugo --level 0 --mode gtp --seed #{seed}" -white "../evo a.ann")
-      assert_includes command, %(-referee "gnugo --mode gtp --seed #{seed}")
+      assert_includes command, %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed}")
     end
   end
 

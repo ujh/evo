@@ -25,6 +25,7 @@ module RunGenerationHelpers
     'keep_every' => 10,
     'benchmark_games' => 20,
     'benchmark_opening_moves' => 4,
+    'komi' => 6.5,
     'concurrency' => 1
   }.freeze
 

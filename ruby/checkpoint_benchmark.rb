@@ -130,8 +130,9 @@ class CheckpointBenchmark
     maxmoves = settings['max_moves'] + moves.size
     openings = moves.empty? ? '' : " -openings #{opening_directory(game.opening, moves)}"
     prefix = game.prefix
-    %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp --seed #{seed}" ) +
-      %(-size #{settings['board_size']} -auto -games 1 -sgffile #{prefix} -time #{settings['game_length']} ) +
+    %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "#{GameResult::REFEREE} --seed #{seed}" ) +
+      %(-size #{settings['board_size']} -komi #{settings.fetch('komi')} -auto -games 1 -sgffile #{prefix} ) +
+      %(-time #{settings['game_length']} ) +
       %(-force -maxmoves #{maxmoves}#{openings} 2> #{prefix}.err)
   end
 

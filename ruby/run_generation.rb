@@ -175,7 +175,9 @@ class RunGeneration
     maxmoves = settings['max_moves']
     prefix = prefix_from(game)
     time = settings['game_length']
-    cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp --seed #{seed}" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves} 2> #{prefix}.err)
+    cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "#{GameResult::REFEREE} --seed #{seed}" ) +
+          %(-size #{size} -komi #{settings.fetch('komi')} -auto -games 1 -sgffile #{prefix} -time #{time} ) +
+          %(-force -maxmoves #{maxmoves} 2> #{prefix}.err)
 
     { 'command' => cmd, 'identifier' => game }
   end

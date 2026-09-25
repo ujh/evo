@@ -28,6 +28,8 @@ class SetupExperimentTest < Minitest::Test
     assert_equal 10, settings['keep_every']
     assert_equal 20, settings['benchmark_games']
     assert_equal 4, settings['benchmark_opening_moves']
+    assert_equal 6.5, settings['komi']
+    assert_kind_of Float, settings['komi']
     assert_kind_of Integer, settings['seed']
     assert_equal SetupExperiment::SETTINGS.keys.sort, settings.keys.sort
   end
@@ -52,7 +54,8 @@ class SetupExperimentTest < Minitest::Test
     %w[--game-length 0], %w[--max-moves 2.5], %w[--tournament-rounds ten], %w[--tournament-rounds 0],
     %w[--tournament-size 0], %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808],
     %w[--benchmark-games 21], %w[--benchmark-games 0], %w[--benchmark-games -2], %w[--benchmark-games many],
-    %w[--benchmark-games 4.0], %w[--benchmark-opening-moves -1], %w[--benchmark-opening-moves four]
+    %w[--benchmark-games 4.0], %w[--benchmark-opening-moves -1], %w[--benchmark-opening-moves four],
+    %w[--komi 7.25], %w[--komi 51], %w[--komi -50.5], %w[--komi abc], %w[--komi 6,5]
   ].freeze
 
   def test_a_bad_value_is_refused_with_its_option_and_value
@@ -79,6 +82,19 @@ class SetupExperimentTest < Minitest::Test
   def test_an_odd_number_of_benchmark_games_is_refused_as_not_even
     error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[--benchmark-games 3]) }
     assert_equal 'benchmark_games must be an even whole number of at least 2, got 3', error.message
+  end
+
+  # Komi is a multiple of 0.5, so a Tromp-Taylor margin is never zero
+  # without being a draw, and never prints as W+0.0.
+  def test_komi_takes_whole_and_half_numbers
+    [['6.5', 6.5], ['-3', -3.0], ['7', 7.0], ['0', 0.0], ['50', 50.0], ['-50', -50.0]].each do |text, value|
+      assert_equal value, SetupExperiment.settings_from_arguments(REQUIRED + ['--komi', text])['komi'], text
+    end
+  end
+
+  def test_a_komi_that_is_no_multiple_of_a_half_is_refused_with_the_rule
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[--komi 7.25]) }
+    assert_equal 'komi must be a multiple of 0.5 from -50 to 50, got 7.25', error.message
   end
 
   def test_a_missing_required_setting_is_named
@@ -111,6 +127,8 @@ class SetupExperimentTest < Minitest::Test
     assert_includes help, 'default 3'
     assert_includes help, 'an even whole number of at least 2, default 20'
     assert_includes help, 'a whole number of at least 0, default 4'
+    assert_includes help, '--komi VALUE'
+    assert_includes help, 'a multiple of 0.5 from -50 to 50, default 6.5'
   end
 
   def test_create_writes_the_settings_into_a_new_experiment

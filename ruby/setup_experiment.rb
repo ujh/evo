@@ -11,23 +11,32 @@ class SetupExperiment
   # runner can report this without catching errors from the run itself.
   class PromptAborted < StandardError; end
 
-  # A setting's type: a whole number, an even whole number, or a number, and
-  # its allowed range. Parsing is strict, so a typo is refused instead of
-  # being read as its numeric prefix or as 0.
+  # A setting's type: a whole number, an even whole number, a number, or a
+  # multiple of 0.5, and its allowed range. Parsing is strict, so a typo is
+  # refused instead of being read as its numeric prefix or as 0.
   Type = Data.define(:kind, :min, :max) do
     def parse(key, text)
-      value = if kind == :number
+      value = if %i[number half].include?(kind)
                 Float(text.to_s, exception: false)
               else
                 Integer(text.to_s, 10, exception: false)
               end
-      return value if value && value >= min && (max.nil? || value <= max) && (kind != :even || value.even?)
+      return value if value && value >= min && (max.nil? || value <= max) && fits_kind?(value)
 
       raise ArgumentError, "#{key} must be #{description}, got #{text}"
     end
 
+    def fits_kind?(value)
+      case kind
+      when :even then value.even?
+      when :half then (value * 2) == (value * 2).round
+      else true
+      end
+    end
+
     def description
-      name = { integer: 'a whole number', even: 'an even whole number', number: 'a number' }.fetch(kind)
+      name = { integer: 'a whole number', even: 'an even whole number', number: 'a number',
+               half: 'a multiple of 0.5' }.fetch(kind)
       max ? "#{name} from #{min} to #{max}" : "#{name} of at least #{min}"
     end
   end
@@ -35,6 +44,7 @@ class SetupExperiment
   def self.integer(min, max = nil) = Type.new(:integer, min, max)
   def self.even(min) = Type.new(:even, min, nil)
   def self.number(min, max) = Type.new(:number, min, max)
+  def self.half(min, max) = Type.new(:half, min, max)
 
   # Every setting, with its prompt, its default, and its type. A nil default
   # means required; a Proc is called for a fresh default. The database keeps
@@ -54,7 +64,11 @@ class SetupExperiment
     'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }, integer(0, (2**63) - 1)],
     # Half of a benchmark's games are played with each color.
     'benchmark_games' => ['Benchmark games per opponent', '20', even(2)],
-    'benchmark_opening_moves' => ['Stones in each benchmark opening (0 for none)', '4', integer(0)]
+    'benchmark_opening_moves' => ['Stones in each benchmark opening (0 for none)', '4', integer(0)],
+    # Given to both players and the referee of every game. A multiple of
+    # 0.5, so an area-scored margin is never zero unless the game is a
+    # draw, and never prints as W+0.0.
+    'komi' => ['Komi', '6.5', half(-50, 50)]
   }.freeze
 
   EXECUTABLES = %w[engine/evo initial-population/initial-population evolve/evolve].freeze
