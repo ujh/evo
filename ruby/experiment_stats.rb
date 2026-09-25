@@ -9,7 +9,7 @@ require_relative 'checkpoint_benchmark'
 class ExperimentStats
   RESULTS = { 'network' => :win, 'opponent' => :loss }.freeze
   # Every generation counts each, so the CSV has the same columns for all.
-  OPERATORS = %w[initial crossover mutation].freeze
+  OPERATORS = %w[initial crossover mutation copy].freeze
 
   # `database` is an ExperimentDatabase, normally opened read-only.
   def initialize(database)
@@ -77,25 +77,31 @@ class ExperimentStats
     }
   end
 
-  # The parents a child has weights from. evolve mutates a copy of one
-  # parent, the one the child differs less from (the first when both are
-  # identical), and a crossover that copied one parent has only its weights.
+  # The parents a child has weights from. A mutation or a copy comes from
+  # the parent evolve picked; births from before the parent column name
+  # none, and there it is the one the child differs less from (the first
+  # when both are equal). A crossover that copied one parent has only its
+  # weights. A differs count is nil for a parent of another shape.
   def inherited_from(birth)
     first, second = birth.values_at(:first_parent, :second_parent)
     one, two = birth.values_at(:differs_from_first, :differs_from_second)
     case birth[:operator]
-    when 'mutation' then [one <= two ? first : second]
+    when 'mutation', 'copy'
+      picked = birth[:parent] || (two.nil? || (!one.nil? && one <= two) ? 'first' : 'second')
+      [picked == 'first' ? first : second]
     when 'crossover'
-      return [first] if one.zero?
-      return [second] if two.zero?
+      return [first] if one&.zero?
+      return [second] if two&.zero?
 
       [first, second]
     else []
     end
   end
 
+  # A bred child equal to a parent. A copy always is; a child of another
+  # shape than a parent has no count for it.
   def identical?(birth)
-    birth[:differs_from_first].zero? || birth[:differs_from_second].zero?
+    birth[:operator] == 'copy' || birth[:differs_from_first]&.zero? || birth[:differs_from_second]&.zero? || false
   end
 
   def median(sorted)

@@ -116,6 +116,7 @@ class StatsTest < Minitest::Test
     assert_equal %w[
       generation finished tournament.games tournament.draws tournament.failures tournament.game_seconds
       population.children population.operators.initial population.operators.crossover population.operators.mutation
+      population.operators.copy
       population.identical population.distinct_parents population.unique_genomes
       population.scores.min population.scores.median population.scores.max benchmark.network benchmark.complete
     ] + benchmark, CSV.parse(out).first
@@ -136,6 +137,7 @@ class StatsTest < Minitest::Test
     assert_equal '0', rows[0]['population.operators.crossover']
     assert_equal '3', rows[0]['population.operators.initial']
     assert_equal '0', rows[1]['population.operators.initial']
+    assert_equal '0', rows[1]['population.operators.copy']
   end
 
   def test_a_missing_experiment_exits_1_with_a_message

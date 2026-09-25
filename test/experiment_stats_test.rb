@@ -76,7 +76,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_of_a_bred_generation
     population = @stats.generation(1)[:population]
     assert_equal 3, population[:children]
-    assert_equal({ 'initial' => 0, 'crossover' => 2, 'mutation' => 1 }, population[:operators])
+    assert_equal({ 'initial' => 0, 'crossover' => 2, 'mutation' => 1, 'copy' => 0 }, population[:operators])
     assert_equal 1, population[:identical]
     # a.ann and c.ann; b.ann's only child copied c.ann.
     assert_equal 2, population[:distinct_parents]
@@ -88,7 +88,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_of_the_initial_generation
     population = @stats.generation(0)[:population]
     assert_equal 3, population[:children]
-    assert_equal({ 'initial' => 3, 'crossover' => 0, 'mutation' => 0 }, population[:operators])
+    assert_equal({ 'initial' => 3, 'crossover' => 0, 'mutation' => 0, 'copy' => 0 }, population[:operators])
     assert_equal 0, population[:identical]
     assert_equal 0, population[:distinct_parents]
     assert_equal 3, population[:unique_genomes]
@@ -99,7 +99,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_without_births
     population = @stats.generation(2)[:population]
     assert_equal 0, population[:children]
-    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 0 }, population[:operators])
+    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 0, 'copy' => 0 }, population[:operators])
     assert_equal 0, population[:unique_genomes]
     assert_equal({ min: 0, median: 2, max: 7 }, population[:scores])
   end
@@ -124,25 +124,48 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal({ min: nil, median: nil, max: nil }, ExperimentStats.new(@database).generation(4)[:population][:scores])
   end
 
-  # A mutation copies one parent: the one it differs less from, or the first
-  # when both parents are identical. Each pair of births shares that parent.
-  def test_distinct_parents_count_only_the_parent_a_mutation_copied
+  # A mutation or a copy comes from the parent evolve picked.
+  def test_distinct_parents_count_only_the_parent_a_mutation_or_copy_was_picked_from
+    assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'mutation', 3, 40, 'second'], ['b.ann', 'c.ann', 'mutation', 40, 3, 'first'])
+    assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'copy', 0, 7, 'first'], ['a.ann', 'c.ann', 'mutation', 3, 3, 'first'])
+    assert_equal 2, distinct_parents(['a.ann', 'b.ann', 'copy', 7, 0, 'second'], ['a.ann', 'c.ann', 'mutation', 3, 3, 'first'])
+  end
+
+  # A child of another shape than a parent has no differs count for it.
+  def test_distinct_parents_of_children_without_differs_counts
+    assert_equal 2, distinct_parents(['a.ann', 'b.ann', 'mutation', nil, nil, 'first'],
+                                     ['c.ann', 'b.ann', 'mutation', nil, 5, 'second'])
+  end
+
+  # Rows from before the parent column: a mutation came from the parent it
+  # differs less from, the first when both are equal.
+  def test_distinct_parents_of_mutations_without_a_parent_follow_the_differs_counts
     assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'mutation', 40, 3], ['b.ann', 'c.ann', 'mutation', 3, 40])
     assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'mutation', 3, 3], ['a.ann', 'c.ann', 'mutation', 3, 3])
   end
 
   def test_distinct_parents_count_both_parents_of_a_crossover
-    assert_equal 2, distinct_parents(['a.ann', 'b.ann', 'crossover', 5, 7])
+    assert_equal 2, distinct_parents(['a.ann', 'b.ann', 'crossover', 5, 7, 'first'])
   end
 
   def test_distinct_parents_count_only_the_parent_a_crossover_copied
-    assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'crossover', 0, 7], ['a.ann', 'c.ann', 'crossover', 0, 7])
-    assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'crossover', 5, 0], ['c.ann', 'b.ann', 'crossover', 5, 0])
+    assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'crossover', 0, 7, 'first'], ['a.ann', 'c.ann', 'crossover', 0, 7, 'second'])
+    assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'crossover', 5, 0, 'first'], ['c.ann', 'b.ann', 'crossover', 5, 0, 'first'])
   end
 
   def test_distinct_parents_count_a_parent_of_several_children_once
-    assert_equal 3, distinct_parents(['a.ann', 'b.ann', 'mutation', 40, 3], ['b.ann', 'c.ann', 'crossover', 5, 7],
-                                     ['a.ann', 'c.ann', 'crossover', 0, 7], ['c.ann', 'd.ann', 'mutation', 2, 9])
+    assert_equal 3, distinct_parents(['a.ann', 'b.ann', 'mutation', 40, 3, 'second'], ['b.ann', 'c.ann', 'crossover', 5, 7, 'first'],
+                                     ['a.ann', 'c.ann', 'crossover', 0, 7, 'first'], ['c.ann', 'd.ann', 'mutation', 2, 9, 'first'])
+  end
+
+  # Copies count as identical children, and a child without differs counts
+  # (another shape) is not identical.
+  def test_population_counts_copies_and_children_without_differs_counts
+    population = population_of(['a.ann', 'b.ann', 'copy', 0, 4, 'first'], ['a.ann', 'b.ann', 'copy', nil, 0, 'second'],
+                               ['a.ann', 'b.ann', 'mutation', nil, nil, 'first'], ['a.ann', 'b.ann', 'mutation', 2, 3, 'first'])
+    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 2, 'copy' => 2 }, population[:operators])
+    assert_equal 2, population[:identical]
+    assert_equal 2, population[:distinct_parents]
   end
 
   # Every opponent the checkpoint plays, in panel order, whether played yet
@@ -178,17 +201,21 @@ class ExperimentStatsTest < Minitest::Test
     assert_nil @stats.generation(3)[:benchmark]
   end
 
-  # The distinct parents of a generation 4 whose births are the given
-  # [first, second, operator, differs_from_first, differs_from_second].
-  def distinct_parents(*births)
+  # The population figures of a generation 4 whose births are the given
+  # [first, second, operator, differs_from_first, differs_from_second, parent].
+  def population_of(*births)
     reopen_writing do |writer|
-      births.each_with_index do |(first, second, operator, one, two), i|
+      births.each_with_index do |(first, second, operator, one, two, parent), i|
         writer.record_birth(generation: 4, child: "#{i}.ann", first_parent: first, second_parent: second, operator:,
-                            differs_from_first: one, differs_from_second: two, seed: i, genome: "x#{i}")
+                            parent:, differs_from_first: one, differs_from_second: two, seed: i, genome: "x#{i}")
       end
       writer.save_state(4, { 'round' => 0, 'players' => PLAYERS, 'ranking' => [] })
     end
-    @stats.generation(4)[:population][:distinct_parents]
+    @stats.generation(4)[:population]
+  end
+
+  def distinct_parents(*births)
+    population_of(*births)[:distinct_parents]
   end
 
   # Replaces @database and @stats after the block has written to the

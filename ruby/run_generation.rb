@@ -339,48 +339,91 @@ class RunGeneration
     exit if $stop_now
   end
 
-  # The genes every generation-0 network starts with, in initial-population's
-  # order: copy_chance, weight_changes, weight_step, activation_rate, and
-  # structure_rate. They are today's hard-coded mutation values, and
-  # weight_changes is today's 0.0004 changes per weight, at least 1.
-  def initial_genes
-    [0.01, [1.0, 0.0004 * initial_total_weights].max, 0.5, 0.02, 0.02]
-  end
-
-  # The number of weights of a generation-0 network, as GENANN counts them:
-  # each neuron has a bias and one weight per neuron of the layer before.
-  def initial_total_weights
-    points = settings['board_size']**2 + 1
-    layers = settings['hidden_layers']
-    width = settings['layer_size']
-    return points * (points + 1) if layers.zero?
-
-    (width * (points + 1)) + ((layers - 1) * width * (width + 1)) + (points * (width + 1))
-  end
-
   def setup_initial_population
     return if data['setup_complete']
 
     puts 'Generating initial population ...'
     seed = Seeds.derive(experiment_seed, 'initial-population')
+    genes = settings.values_at(*INITIAL_GENES)
     command = "../initial-population #{settings['population_size']} #{settings['board_size']} " \
-              "#{settings['hidden_layers']} #{settings['layer_size']} #{initial_genes.join(' ')} #{seed}"
+              "#{settings['hidden_layers']} #{settings['layer_size']} #{genes.join(' ')} #{seed}"
     # Stop before storing anything, so generation 0 never starts short of
     # networks, as breeding does when evolve fails.
-    raise "initial-population failed: #{command}" unless system(command)
+    success, output = run_initial_population(command)
+    raise "initial-population failed: #{command}" unless success
 
     networks = Dir['*.ann'].sort
     expected = settings['population_size']
     raise "initial-population wrote #{networks.size} networks, expected #{expected}: #{command}" unless networks.size == expected
 
-    networks.each do |network|
+    births = networks.zip(initial_genes(output, networks.size, command)).map do |network, network_genes|
+      { generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
+        differs_from_first: nil, differs_from_second: nil, seed:, genome: Digest::SHA256.file(network).hexdigest,
+        **network_genes }
+    end
+    networks.zip(births) do |network, birth|
       store.record_network(0, network, File.binread(network))
-      store.record_birth(generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
-                         differs_from_first: nil, differs_from_second: nil, seed:,
-                         genome: Digest::SHA256.file(network).hexdigest)
+      store.record_birth(**birth)
     end
     save_data(setup_tournament)
   end
+
+  # The settings with the genes of generation 0, in initial-population's
+  # argument order.
+  INITIAL_GENES = %w[
+    initial_copy_chance initial_weight_changes initial_weight_step initial_activation_rate initial_structure_rate
+  ].freeze
+
+  # Returns [success, stdout]; stdout has a genes line per network.
+  def run_initial_population(command)
+    output, status = Open3.capture2(command)
+    [status.success?, output]
+  end
+
+  # The genes of each generation-0 network, in file order (0001.ann,
+  # 0002.ann, ... sort as initial-population writes them). There must be one
+  # well-formed line per network, each of the generation-0 shape.
+  def initial_genes(output, count, command)
+    lines = output.lines.select { |line| line.start_with?('genes') }
+    raise "initial-population printed #{lines.size} genes lines for #{count} networks: #{command}" unless lines.size == count
+
+    shape = [settings['hidden_layers'], settings['hidden_layers'].zero? ? 0 : settings['layer_size']]
+    lines.map do |line|
+      genes = parse_genes(line, command)
+      raise "initial-population printed genes of another shape: #{line.chomp}" unless genes.values_at(:layers, :width) == shape
+
+      genes
+    end
+  end
+
+  # A genes line of initial-population or evolve (ann_print_genes_line in
+  # lib/ann.h) as a birth's gene columns. Anything else raises.
+  def parse_genes(line, command)
+    match = GENES_LINE.match(line.chomp)
+    genes = match&.named_captures(symbolize_names: true)&.to_h do |field, text|
+      [field, parse_gene(GENE_FIELDS.fetch(field), text)]
+    end
+    raise "malformed genes line #{line.chomp.inspect}: #{command}" if genes.nil? || genes.value?(nil)
+
+    genes
+  end
+
+  # nil for a number that is not finite.
+  def parse_gene(kind, text)
+    case kind
+    when :integer then Integer(text, 10)
+    when :number then Float(text, exception: false)&.then { |value| value.finite? ? value : nil }
+    else text
+    end
+  end
+
+  # Each field of a genes line, in order, and its kind.
+  GENE_FIELDS = {
+    layers: :integer, width: :integer, act_hidden: :activation, act_output: :activation, copy_chance: :number,
+    weight_changes: :number, weight_step: :number, activation_rate: :number, structure_rate: :number
+  }.freeze
+  GENE_PATTERNS = { integer: '\d+', activation: 'sigmoid|sigmoid_cached|threshold|linear|tanh|relu', number: '\S+' }.freeze
+  GENES_LINE = /\Agenes #{GENE_FIELDS.map { |field, kind| "#{field}=(?<#{field}>#{GENE_PATTERNS.fetch(kind)})" }.join(' ')}\z/
 
   def evolve_from_previous_population
     return if data['setup_complete']
@@ -421,11 +464,17 @@ class RunGeneration
     summary = output.match(EVOLVE_SUMMARY)
     raise "evolve printed no summary for #{child}: #{command}" unless summary
 
+    genes_lines = output.lines.select { |line| line.start_with?('genes') }
+    raise "evolve printed #{genes_lines.size} genes lines for #{child}: #{command}" unless genes_lines.size == 1
+
+    genes = parse_genes(genes_lines.first, command)
     store.record_network(generation.to_i, child, File.binread(child))
     store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
                        operator: summary[:operator], differs_from_first: differs(summary[:first]),
-                       differs_from_second: differs(summary[:second]),
-                       seed:, genome: Digest::SHA256.file(child).hexdigest)
+                       differs_from_second: differs(summary[:second]), seed:,
+                       genome: Digest::SHA256.file(child).hexdigest, parent: summary[:parent],
+                       structure: summary[:structure], activation_changed: summary[:activation_changed] == '1',
+                       **genes)
   end
 
   # evolve's summary line. differs is -1 when the child's shape differs from
@@ -440,14 +489,12 @@ class RunGeneration
     \ differs_from_second=(?<second>-1|\d+)$
   /x
 
-  # The meta rate τ of self-adaptive mutation, until it is a setting.
-  META_RATE = 0.2
-
   # evolve's arguments before the parents: the crossover rate, the meta rate,
   # and the bounds on a child's shape with the width of an added first layer.
   # Until the bounds are settings, they are the generation-0 shape.
   def evolve_arguments
-    [settings['cross_over_rate'], META_RATE, settings['hidden_layers'], settings['layer_size'], settings['layer_size']]
+    [settings['cross_over_rate'], settings['meta_rate'], settings['hidden_layers'], settings['layer_size'],
+     settings['layer_size']]
   end
 
   # A differs count as stored: nil when the shapes differ.

@@ -34,7 +34,7 @@ Crossing raw weight arrays also assumes that hidden units occupy compatible role
 
 **Proposed response:** establish a mutation-only baseline and compare it with the present crossover scheme at equal game budgets. Treat the number of mutated weights and the size of each perturbation as separate controls. The share of unchanged children is recorded in `births`; optionally also measure their move agreement on a small bank of positions.
 
-All three mutation settings are hard-coded in `mutate()` (`evolve/evolve.c`): the 1% plain-copy chance, the per-weight rate of 0.0004, and the ±0.5 uniform perturbation. None was chosen from evidence, and none can be varied per experiment. Question each of them in these experiments, and make the ones worth varying experiment settings passed to `evolve`, recorded with the other settings. The tests in `evolve/test.c` pin the current values, so changing a value means changing its test.
+The three mutation values are now genes of each network (`copy_chance`, `weight_changes`, `weight_step`), evolved self-adaptively at the pace of the `meta_rate` setting and started from the `initial_*` settings, whose defaults are the old hard-coded values (1%, 0.0004 changes per weight, ±0.5). None of those starting values was chosen from evidence. Question them in these experiments: compare starting values, and a `meta_rate` of 0 (fixed genes) against self-adaptation, at equal game budgets.
 
 ### 4. The policy has to learn Go structure from very little guidance
 
@@ -42,7 +42,7 @@ The dense network receives a flat board and komi. It has no explicit liberties, 
 
 That makes a compact policy an interesting learning experiment, with substantial representational demands. In particular, a two-neuron hidden layer such as the bundled fixture compresses the whole board very aggressively; it should not be taken as a recommended training architecture.
 
-None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. The sizes are experiment settings today; activations, and later perhaps sizes, could evolve as genes of each network ([Neural network library](#neural-network-library)). Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
+None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. The sizes of generation 0 are experiment settings, and the activations are now genes of each network that mutation can switch; sizes could later evolve as genes too ([Neural network library](#neural-network-library)). Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
 
 **Proposed representation experiment:** use a small shared scorer for the 3×3 neighborhood around each candidate move. Run it early, alongside a short check of scoring and variation. Additional tactical features and search remain choices to discuss.
 

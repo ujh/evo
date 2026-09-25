@@ -10,12 +10,15 @@ class SetupExperimentTest < Minitest::Test
   REQUIRED = %w[--board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5
                 --game-length 10 --max-moves 200 --tournament-rounds 1].freeze
 
-  # An answer to every prompt: the default seed, board size 9, and the
-  # smallest valid value for the rest.
+  # An answer to every prompt: board size 9, benchmark games 2, 1 for the
+  # other required settings, and the default for the rest.
   def prompt_answers(overrides = {})
-    answers = { 'seed' => '', 'board_size' => '9', 'benchmark_games' => '2' }.merge(overrides)
-    SetupExperiment::SETTINGS.keys.map { |key| answers.fetch(key, '1') }
+    answers = { 'board_size' => '9', 'benchmark_games' => '2' }.merge(overrides)
+    SetupExperiment::SETTINGS.map { |key, (_, default)| answers.fetch(key) { default.nil? ? '1' : '' } }
   end
+
+  # 9x9 with 1 hidden layer of 10: 10 x 83 + 82 x 11.
+  REQUIRED_WEIGHTS = 1732
 
   def in_tmpdir(&)
     Dir.mktmpdir { |dir| Dir.chdir(dir, &) }
@@ -55,7 +58,13 @@ class SetupExperimentTest < Minitest::Test
     %w[--tournament-size 0], %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808],
     %w[--benchmark-games 21], %w[--benchmark-games 0], %w[--benchmark-games -2], %w[--benchmark-games many],
     %w[--benchmark-games 4.0], %w[--benchmark-opening-moves -1], %w[--benchmark-opening-moves four],
-    %w[--komi 7.25], %w[--komi 51], %w[--komi -50.5], %w[--komi abc], %w[--komi 6,5]
+    %w[--komi 7.25], %w[--komi 51], %w[--komi -50.5], %w[--komi abc], %w[--komi 6,5],
+    %w[--meta-rate -0.1], %w[--meta-rate 10.5], %w[--meta-rate fast],
+    %w[--initial-copy-chance 0.00009], %w[--initial-copy-chance 0.11],
+    %w[--initial-weight-changes 0.5], %w[--initial-weight-changes 2e9], %w[--initial-weight-changes some],
+    %w[--initial-weight-step 0.00009], %w[--initial-weight-step 10.5],
+    %w[--initial-activation-rate 0.00009], %w[--initial-activation-rate 0.6],
+    %w[--initial-structure-rate 0], %w[--initial-structure-rate 0.51]
   ].freeze
 
   def test_a_bad_value_is_refused_with_its_option_and_value
@@ -76,6 +85,101 @@ class SetupExperimentTest < Minitest::Test
     assert_equal [19, 0, 1.0, 0, 0, 2, 0],
                  settings.values_at('board_size', 'hidden_layers', 'cross_over_rate', 'keep_every', 'seed',
                                     'benchmark_games', 'benchmark_opening_moves')
+  end
+
+  # The genes of generation 0 and the meta rate, as the C programs clamp them.
+  def test_the_gene_settings_have_defaults
+    settings = SetupExperiment.settings_from_arguments(REQUIRED)
+    assert_equal [0.2, 0.01, 0.5, 0.02, 0.02],
+                 settings.values_at('meta_rate', 'initial_copy_chance', 'initial_weight_step',
+                                    'initial_activation_rate', 'initial_structure_rate')
+  end
+
+  def test_the_edges_of_the_gene_ranges_are_accepted
+    low = SetupExperiment.settings_from_arguments(
+      REQUIRED + %w[--meta-rate 0 --initial-copy-chance 0.0001 --initial-weight-changes 1 --initial-weight-step 0.0001
+                    --initial-activation-rate 0.0001 --initial-structure-rate 0.0001]
+    )
+    assert_equal [0.0, 0.0001, 1.0, 0.0001, 0.0001, 0.0001],
+                 low.values_at('meta_rate', *RunGeneration::INITIAL_GENES)
+    high = SetupExperiment.settings_from_arguments(
+      REQUIRED + %W[--meta-rate 10 --initial-copy-chance 0.1 --initial-weight-changes #{REQUIRED_WEIGHTS}
+                    --initial-weight-step 10 --initial-activation-rate 0.5 --initial-structure-rate 0.5]
+    )
+    assert_equal [10.0, 0.1, 1732.0, 10.0, 0.5, 0.5], high.values_at('meta_rate', *RunGeneration::INITIAL_GENES)
+  end
+
+  # Without the option, weight_changes is the old hard-coded load: 0.0004
+  # changes per weight of the generation-0 shape, at least 1.
+  def test_the_initial_weight_changes_follow_the_generation_0_shape
+    {
+      [9, 3, 400] => 0.0004 * ((400 * 83) + (2 * 400 * 401) + (82 * 401)),
+      [9, 0, 10] => 0.0004 * (82 * 83),
+      [9, 1, 10] => 1.0,
+      [5, 1, 10] => 1.0
+    }.each do |(board_size, layers, width), expected|
+      arguments = REQUIRED + %W[--board-size #{board_size} --hidden-layers #{layers} --layer-size #{width}]
+      assert_equal expected, SetupExperiment.settings_from_arguments(arguments)['initial_weight_changes'],
+                   [board_size, layers, width].inspect
+    end
+  end
+
+  def test_the_total_weights_count_every_bias_and_weight
+    assert_equal REQUIRED_WEIGHTS, SetupExperiment.total_weights(9, 1, 10)
+    assert_equal 82 * 83, SetupExperiment.total_weights(9, 0, 10)
+    assert_equal (400 * 83) + (2 * 400 * 401) + (82 * 401), SetupExperiment.total_weights(9, 3, 400)
+  end
+
+  def test_initial_weight_changes_above_the_networks_weights_are_refused
+    error = assert_raises(ArgumentError) do
+      SetupExperiment.settings_from_arguments(REQUIRED + %W[--initial-weight-changes #{REQUIRED_WEIGHTS + 1}])
+    end
+    assert_includes error.message, 'initial_weight_changes'
+    assert_includes error.message, REQUIRED_WEIGHTS.to_s
+  end
+
+  # The computed default is stored, so a later change of the formula never
+  # changes an experiment that exists.
+  def test_create_stores_the_computed_initial_weight_changes
+    in_tmpdir do
+      SetupExperiment.create('experiments/x', REQUIRED + %w[--hidden-layers 3 --layer-size 400])
+      database = ExperimentDatabase.new('experiments/x/experiment.sqlite3', readonly: true)
+      expected = 0.0004 * SetupExperiment.total_weights(9, 3, 400)
+      assert_equal expected, Float(database.settings['initial_weight_changes'])
+      assert_equal expected, SetupExperiment.parse(database.settings)['initial_weight_changes']
+    end
+  end
+
+  def test_a_prompt_offers_the_computed_initial_weight_changes
+    answers = prompt_answers('hidden_layers' => '3', 'layer_size' => '400')
+    $stdin = StringIO.new("#{answers.join("\n")}\n")
+    settings = nil
+    out, = capture_io { settings = SetupExperiment.prompt_for_settings }
+    expected = 0.0004 * SetupExperiment.total_weights(9, 3, 400)
+    assert_equal expected, settings['initial_weight_changes']
+    assert_includes out, "(default #{expected})"
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_a_prompt_asks_again_for_more_weight_changes_than_weights
+    answers = prompt_answers('initial_weight_changes' => "#{REQUIRED_WEIGHTS + 1}\n5")
+    $stdin = StringIO.new("#{answers.join("\n")}\n")
+    settings = nil
+    out, = capture_io { settings = SetupExperiment.prompt_for_settings }
+    assert_equal 5.0, settings['initial_weight_changes']
+    assert_includes out, 'initial_weight_changes must be at most'
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_loading_refuses_more_weight_changes_than_weights
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED).merge('initial_weight_changes' => '1733'))
+      error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+      assert_includes error.message, 'initial_weight_changes'
+    end
   end
 
   # Half of a benchmark's games are played with each color.
@@ -129,6 +233,8 @@ class SetupExperimentTest < Minitest::Test
     assert_includes help, 'a whole number of at least 0, default 4'
     assert_includes help, '--komi VALUE'
     assert_includes help, 'a multiple of 0.5 from -50 to 50, default 6.5'
+    assert_includes help, 'a number from 1 to 1000000000, default from the generation-0 shape'
+    assert_includes help, 'Hidden layers of generation 0'
   end
 
   def test_create_writes_the_settings_into_a_new_experiment

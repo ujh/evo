@@ -40,7 +40,7 @@ module StatsFixture
     [['a.ann', 'c.ann', 'a.ann', 'crossover', 5, 7, 'h0'],
      ['b.ann', 'c.ann', 'c.ann', 'mutation', 3, 3, 'h1'],
      ['c.ann', 'b.ann', 'c.ann', 'crossover', 4, 0, 'g2']].each do |child, first, second, operator, one, two, genome|
-      db.record_birth(generation: 1, child:, first_parent: first, second_parent: second, operator:,
+      db.record_birth(generation: 1, child:, first_parent: first, second_parent: second, operator:, parent: 'first',
                       differs_from_first: one, differs_from_second: two, seed: 9, genome:)
     end
 
