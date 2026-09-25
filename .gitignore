@@ -38,6 +38,8 @@ plans/
 # Executables
 *.exe
 *.out
+# Captured arena output the Ruby tests read.
+!test/fixtures/arena/*.out
 *.app
 *.i*86
 *.x86_64
