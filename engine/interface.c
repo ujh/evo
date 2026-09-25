@@ -100,7 +100,7 @@ void allocate_ann(char *ann_save_file) {
     ann = genann_init(input_size, 5, points * 10, output_size);
   } else {
     FILE *fd = fopen(ann_save_file, "rb");
-    ann = genann_binary_read(fd);
+    ann = ann_binary_read(fd);
     fclose(fd);
   }
 

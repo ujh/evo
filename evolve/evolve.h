@@ -26,7 +26,7 @@ SOFTWARE.
 
 #include <pcg_variants.h>
 
-#include "genann.h"
+#include "ann.h"
 
 extern pcg32_random_t rng;
 

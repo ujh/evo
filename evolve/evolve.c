@@ -33,7 +33,7 @@ SOFTWARE.
 #include <time.h>
 
 #include "evolve.h"
-#include "genann.h"
+#include "ann.h"
 
 pcg32_random_t rng;
 
@@ -50,7 +50,7 @@ static genann *load_nn(char *name) {
     fprintf(stderr, "\nCould not open %s: %s\n", name, strerror(errno));
     exit(1);
   }
-  genann *ann = genann_binary_read(fd);
+  genann *ann = ann_binary_read(fd);
   fclose(fd);
   if (ann == NULL) {
     fprintf(stderr, "\nCould not read a network from %s\n", name);

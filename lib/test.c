@@ -23,7 +23,7 @@
  *
  */
 
-#include "genann.h"
+#include "ann.h"
 #include "minctest.h"
 #include <stdio.h>
 #include <math.h>
@@ -224,12 +224,12 @@ void binary_persist() {
     genann *first = genann_init(1000, 5, 50, 10);
 
     FILE *out = fopen("persist.bin", "wb");
-    genann_binary_write(first, out);
+    ann_binary_write(first, out);
     fclose(out);
 
 
     FILE *in = fopen("persist.bin", "rb");
-    genann *second = genann_binary_read(in);
+    genann *second = ann_binary_read(in);
     fclose(in);
 
     lequal(first->inputs, second->inputs);
@@ -280,6 +280,40 @@ void sigmoid() {
 }
 
 
+// Writes `ints` then `doubles` to persist.bin and reads it back as a network.
+static genann *read_back(const int *ints, int int_count, int doubles) {
+    FILE *out = fopen("persist.bin", "wb");
+    fwrite(ints, sizeof(int), int_count, out);
+    for (int i = 0; i < doubles; ++i) {
+        double w = i;
+        fwrite(&w, sizeof(double), 1, out);
+    }
+    fclose(out);
+    FILE *in = fopen("persist.bin", "rb");
+    genann *ann = ann_binary_read(in);
+    fclose(in);
+    return ann;
+}
+
+void binary_read_rejects_bad_files() {
+    // A 1-1-1-1 network has 4 weights.
+    const int good[4] = {1, 1, 1, 1};
+    genann *ann = read_back(good, 4, 4);
+    lok(ann != NULL);
+    if (ann) {
+        lfequal(ann->weight[3], 3.0);
+        genann_free(ann);
+    }
+    // Too short for the header, for the weights, or with impossible sizes.
+    lok(read_back(good, 3, 0) == NULL);
+    lok(read_back(good, 4, 3) == NULL);
+    const int negative[4] = {1, -1, 1, 1};
+    lok(read_back(negative, 4, 4) == NULL);
+    const int huge[4] = {1 << 21, 1, 1, 1};
+    lok(read_back(huge, 4, 4) == NULL);
+}
+
+
 int main(int argc, char *argv[])
 {
     printf("GENANN TEST SUITE\n");
@@ -292,6 +326,7 @@ int main(int argc, char *argv[])
     lrun("train xor", train_xor);
     lrun("persist", persist);
     lrun("binary_persist", binary_persist);
+    lrun("binary_bad", binary_read_rejects_bad_files);
     lrun("copy", copy);
     lrun("sigmoid", sigmoid);
 

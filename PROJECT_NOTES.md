@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** replace GENANN (step 1 of the [cleanup order](#suggested-cleanup-order)), then test evolution of a shared local pattern scorer, with the rest of the cleanup alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** give the network file a versioned header (step 1 of the [cleanup order](#suggested-cleanup-order)), then test evolution of a shared local pattern scorer, with the rest of the cleanup alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -44,7 +44,7 @@ The dense network receives a flat board and komi. It has no explicit liberties, 
 
 That makes a compact policy an interesting learning experiment, with substantial representational demands. In particular, a two-neuron hidden layer such as the bundled fixture compresses the whole board very aggressively; it should not be taken as a recommended training architecture.
 
-Cached sigmoid outputs also create artificial score ties, which favor earlier intersections or passing; a linear output layer removes them ([Neural network library](#neural-network-library)).
+None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. Treat each as an experiment variable, like the mutation settings in item 3. Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a linear output layer would remove them ([Neural network library](#neural-network-library)).
 
 **Proposed representation experiment:** use a small shared scorer for the 3×3 neighborhood around each candidate move. Run it early, alongside a short check of scoring and variation. Additional tactical features and search remain choices to discuss.
 
@@ -120,25 +120,22 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 ### Structure and hygiene
 
-- **One copy of each shared file.** `genann.c` and `genann.h` exist in identical copies in `lib/`, `engine/`, `evolve/`, and `initial-population/`, and `minctest.h` in `lib/`, `engine/`, and `evolve/`. Every Makefile compiles its local copy. `lib/` is unused. Build shared code once from `lib/` (as a static library or shared object files) so a fix cannot land in one copy only.
 - **Typed, validated settings.** The settings table stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment still needs (code revision, opponent panel, scoring rules).
 - **Move notifications out of `stats`.** `stats` still sends the `ntfy` notification, which belongs in the runner or a separate command, and builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
-- **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
+- **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9).
 - **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass).
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library
 
-GENANN is used only for a dense forward pass, random initialization, copying, and a binary file format that was added locally. Training is never used. The vendored copy already differs from upstream (PCG random numbers and the binary format), so it cannot simply be updated.
+GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). A shared 3×3 scorer is just a small GENANN network evaluated once per candidate, and inference is negligible next to adjudication, so batching is not needed. What is missing is in Evo's own code:
 
-Speed is not a reason to replace it: inference is small next to game adjudication. The reasons to replace it are that the experiment needs things GENANN does not provide:
+- **A file format that can evolve.** The `.ann` format writes four native `int`s and native `double`s with no magic number, version, activation choice, or endianness. Activations are not stored, so a network with a linear output would load as sigmoid. The shared 3×3 scorer also needs metadata such as its feature set and symmetry handling. Add a versioned little-endian header in `lib/ann.c`, keep reading the current format, and check that converted networks choose the same moves on a fixed set of positions.
+- **Activations as settings.** Once the header records them, make the hidden and output activations experiment settings, passed to `initial-population` and kept by `evolve`.
+- **Engine loading.** `engine/interface.c` checks neither `fopen` nor the result of `ann_binary_read`, so a missing or bad network file crashes `evo` instead of failing with a message.
 
-- **Linear outputs for move choice.** Outputs pass through a sigmoid lookup table of 4,096 steps clipped at ±15. Move selection needs only the highest raw score, and sigmoid preserves order, so the table adds nothing but ties: saturated outputs compare equal, and the earliest intersection or pass wins. A linear output layer removes this artificial tie-breaking at no cost.
-- **A file format that can evolve.** The binary format writes four native `int`s and native `double`s with no magic number, version, activation choice, or endianness. The engine (`engine/interface.c`) does not check `fopen` or the result of reading, `genann_binary_read` does not check `genann_init` failures, and its error messages say `fscanf`. The shared 3×3 scorer needs a different network shape and metadata such as feature set and symmetry handling, which this header cannot describe.
-- **Shared scorers and batching.** A per-candidate scorer evaluates a small network at up to 81 points per move. That is easiest to write as one small matrix evaluation over all candidates, which GENANN's single-input interface does not support.
-
-**Recommendation:** replace GENANN with a small module owned by this project (on the order of 150 lines of C) containing a list of dense layers with configurable activations (`tanh` or ReLU hidden, linear output), `float` weights in one contiguous genome array (which keeps mutation and crossover simple), batched evaluation, and a versioned little-endian file format with a header. Keep a converter from the current `.ann` format, and check that converted networks choose the same moves on a fixed set of positions before removing GENANN. If much larger networks or search make inference significant later, add BLAS (Apple Accelerate or OpenBLAS `sgemm`) behind the same interface. General-purpose frameworks such as ONNX Runtime or libtorch would bring large dependencies and gradient machinery that evolution does not use, and are not warranted.
+GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
 
 ### A C arena for network games
 
@@ -146,11 +143,11 @@ The largest structural change for speed is a C program that loads a set of netwo
 
 ### Suggested cleanup order
 
-1. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
+1. Give the network file a versioned header with the activations, as described [above](#neural-network-library), verified against the current format.
 2. Type the settings, record the code revision, and copy the binaries.
 3. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
-The steps can be interleaved with milestone 1 below. Step 1 comes before milestone 2, whose shared scorer needs the new network module. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
+The steps can be interleaved with milestone 1 below. Step 1 comes before milestone 2, whose shared scorer needs a file format that can describe it. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
 ## Proposed sequence
 
