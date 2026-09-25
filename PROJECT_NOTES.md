@@ -120,12 +120,8 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 ### Structure and hygiene
 
-- **Check that `initial-population` succeeded.** `RunGeneration` runs it with a bare `system` (`ruby/run_generation.rb`) and then stores every `*.ann` in `work/`, so a failed run could leave generation 0 short of networks without stopping. Check the exit status and the number of networks, as breeding already does for `evolve`.
-
 - **Typed, validated settings.** The settings table stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment still needs (code revision, opponent panel, scoring rules).
-- **Move notifications out of `stats`.** `stats` still sends the `ntfy` notification, which belongs in the runner or a separate command, and builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
-- **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9).
 - **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass).
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 

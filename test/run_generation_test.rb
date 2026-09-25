@@ -515,6 +515,32 @@ class ReproducibleRoundsTest < Minitest::Test
     end
   end
 
+  # Generation 0 must never start short of networks: a failed or incomplete
+  # initial-population stops the runner before anything is stored.
+  def initial_population_with(result, networks)
+    in_experiment(generation: '0') do
+      store = database
+      gen = build_generation(generation: '0', store:)
+      gen.define_singleton_method(:system) do |_cmd|
+        networks.each { |name| File.write(name, name) }
+        result
+      end
+      error = assert_raises(RuntimeError) { capture_io { gen.send(:setup_initial_population) } }
+      assert_empty store.births(0)
+      assert_empty store.network_names(0)
+      assert_nil store.state(0)
+      error.message
+    end
+  end
+
+  def test_a_failed_initial_population_stops_the_run
+    assert_match(/initial-population failed/, initial_population_with(false, %w[0001.ann]))
+  end
+
+  def test_an_initial_population_short_of_networks_stops_the_run
+    assert_match(/wrote 1 networks, expected 2/, initial_population_with(true, %w[0001.ann]))
+  end
+
   def test_a_finished_generation_resumed_later_still_gets_its_ranking
     # The runner can stop after saving the last round but before storing the ranking.
     in_experiment do

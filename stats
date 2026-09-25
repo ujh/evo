@@ -99,17 +99,6 @@ def stats_for(generation)
     'rounds' => data['round']
   }
 
-  if ENV['NTFY_EVO_STATS'] && !$starting
-    msg = ["Gen: #{generation}"] + win_stats.map do |name, stats|
-      next if stats['total'].zero?
-
-      "#{name}: #{stats['total']}"
-    end
-    msg = msg.compact.join(' ')
-    msg = "#{$experiment_name}\n#{msg}"
-    `curl -s -d "#{msg}" ntfy.sh/#{ENV['NTFY_EVO_STATS']}`
-  end
-
   $stats[generation]
 end
 
