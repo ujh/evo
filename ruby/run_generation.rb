@@ -41,7 +41,12 @@ class RunGeneration
   end
 
   def play_games
-    return :already_done if data['round'] >= settings['tournament_rounds'].to_i
+    if data['round'] >= settings['tournament_rounds'].to_i
+      # The runner can stop between saving the last round and storing the
+      # ranking; storing it again only replaces the same rows.
+      record_final_ranking
+      return :already_done
+    end
 
     loop do
       play_round

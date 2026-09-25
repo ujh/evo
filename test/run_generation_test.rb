@@ -148,6 +148,17 @@ class ParentSelectionTest < Minitest::Test
                   shares({ 'a.ann' => 51, 'b.ann' => 3, 'c.ann' => 1 }, settings: { 'tournament_size' => '2' }))
   end
 
+  def test_parent_selection_is_seeded_by_experiment_seed_and_generation
+    picks = lambda do |generation, seed|
+      gen = build_generation(generation:, settings: { 'seed' => seed }, rng: nil)
+      candidates = gen.send(:parent_candidates, previous_data((1..9).to_h { |i| ["#{i}.ann", i % 3] }))
+      Array.new(20) { gen.send(:select_parent, candidates) }
+    end
+    assert_equal picks.call('2', '1'), picks.call('2', '1')
+    refute_equal picks.call('2', '1'), picks.call('3', '1')
+    refute_equal picks.call('2', '1'), picks.call('2', '7')
+  end
+
   def test_tournament_size_below_one_is_rejected
     gen = build_generation(settings: { 'tournament_size' => '0' })
     candidates = gen.send(:parent_candidates, previous_data('a.ann' => 1))
@@ -473,6 +484,17 @@ class ReproducibleRoundsTest < Minitest::Test
       assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
       assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]
+    end
+  end
+
+  def test_a_finished_generation_resumed_later_still_gets_its_ranking
+    # The runner can stop after saving the last round but before storing the ranking.
+    in_experiment do
+      write_data('round' => 1, 'games' => [], 'players' => { 'a.ann' => {} },
+                 'ranking' => [{ 'name' => 'a.ann', 'score' => 1 }])
+      store = ResultStore.new(':memory:')
+      assert_equal :already_done, build_generation(store:).send(:play_games)
+      assert_equal [[1, 'a.ann', 1]], store.ranking(1).map { |r| r.values_at(:rank, :name, :score) }
     end
   end
 
