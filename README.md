@@ -28,7 +28,8 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    program crashes or the GNU Go referee returns no score. It also plays a
    sample of games between random networks both in the arena (the C program
    that plays network-against-network games) and through GoGui, and fails if
-   the moves or the scores differ.
+   the moves differ or the arena's score differs from a Tromp–Taylor count of
+   GoGui's game.
 
 CI runs the same tasks as separate jobs (C tests, Ruby tests, and the
 refereed matches), so a failure shows which kind of check broke. For

@@ -29,7 +29,11 @@ for program in "$arena" "$evo" "$generator"; do
 done
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/evo-arena-agreement.XXXXXX")
-trap 'rm -rf "$scratch"' EXIT HUP INT TERM
+lane_pids=''
+# Background lanes ignore SIGINT, so stop them before exiting; otherwise
+# they keep starting games after Ctrl-C.
+trap 'rm -rf "$scratch"' EXIT
+trap 'kill $lane_pids 2>/dev/null; exit 1' HUP INT TERM
 
 komi=6.5
 referee='gnugo --mode gtp --chinese-rules'
@@ -295,9 +299,11 @@ play_twogtp() {
           -games 1 -size "$size" -komi "$komi" -maxmoves "$max_moves" -auto -force \
           -sgffile "$scratch/$id" </dev/null >/dev/null 2>"$scratch/$id.err" || true
       done &
+    lane_pids="$lane_pids $!"
     lane=$((lane + 1))
   done
   wait
+  lane_pids=''
 }
 
 : >"$scratch/games"
