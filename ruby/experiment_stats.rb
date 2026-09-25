@@ -8,6 +8,8 @@ require_relative 'checkpoint_benchmark'
 # the parents and genomes are.
 class ExperimentStats
   RESULTS = { 'network' => :win, 'opponent' => :loss }.freeze
+  # Every generation counts each, so the CSV has the same columns for all.
+  OPERATORS = %w[initial crossover mutation].freeze
 
   # `database` is an ExperimentDatabase, normally opened read-only.
   def initialize(database)
@@ -16,6 +18,11 @@ class ExperimentStats
 
   def generations
     database.generations
+  end
+
+  # The names of the benchmark panel, in panel order.
+  def benchmark_opponents
+    database.benchmark_opponents.map { |opponent| opponent[:name] }
   end
 
   # A Hash with the generation's figures; see the private methods for each
@@ -62,7 +69,7 @@ class ExperimentStats
     scores = database.ranking(generation).reject { |row| row[:external] }.map { |row| row[:score] }.sort
     {
       children: births.size,
-      operators: births.map { |birth| birth[:operator] }.tally,
+      operators: OPERATORS.to_h { |operator| [operator, 0] }.merge(births.map { |birth| birth[:operator] }.tally),
       identical: births.count { |birth| birth[:operator] != 'initial' && identical?(birth) },
       distinct_parents: births.flat_map { |birth| birth.values_at(:first_parent, :second_parent) }.compact.uniq.size,
       unique_genomes: births.map { |birth| birth[:genome] }.uniq.size,

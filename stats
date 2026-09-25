@@ -38,7 +38,7 @@ if options[:watch]
     puts
   end
 elsif options[:csv]
-  puts ExperimentStats::Report.csv(ExperimentStats::Report.figures(stats))
+  puts ExperimentStats::Report.csv(ExperimentStats::Report.figures(stats), stats.benchmark_opponents)
 else
   puts ExperimentStats::Report.text(ExperimentStats::Report.figures(stats))
 end

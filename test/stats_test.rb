@@ -83,17 +83,36 @@ class StatsTest < Minitest::Test
     assert_equal '1', rows[2]['benchmark.Brown.black.failure']
   end
 
+  # The same columns for every experiment with the same panel, whatever it
+  # has played so far.
+  def test_csv_header_is_fixed_by_the_panel
+    out, = stats('--csv', 'x')
+    benchmark = %w[Brown AmiGo GnuGoLevel0 Gen0Champion PreviousCheckpoint].flat_map do |opponent|
+      %w[black white].flat_map { |color| %w[win loss draw failure].map { |result| "benchmark.#{opponent}.#{color}.#{result}" } }
+    end
+    assert_equal %w[
+      generation finished tournament.games tournament.draws tournament.failures tournament.game_seconds
+      population.children population.operators.initial population.operators.crossover population.operators.mutation
+      population.identical population.distinct_parents population.unique_genomes
+      population.scores.min population.scores.median population.scores.max benchmark.network benchmark.complete
+    ] + benchmark, CSV.parse(out).first
+  end
+
   def test_csv_leaves_the_benchmark_empty_where_there_is_none
     out, = stats('--csv', 'x')
     rows = CSV.parse(out, headers: true)
-    assert_includes rows.headers, 'benchmark.Gen0Champion.white.loss'
-    refute_includes rows.headers, 'benchmark'
-    # Sections stay together although crossover first appears in generation 1.
-    assert_operator rows.headers.index('population.operators.crossover'), :<, rows.headers.index('benchmark.network')
     assert_nil rows[1]['benchmark.AmiGo.black.win']
     assert_nil rows[1]['benchmark.network']
-    assert_nil rows[0]['population.operators.crossover']
+    assert_nil rows[1]['benchmark.complete']
+    assert_equal 'false', rows[2]['benchmark.complete']
+    # Generation 0 plays no Gen0Champion, and no checkpoint here plays the
+    # previous one.
+    assert_equal '0', rows[0]['benchmark.Brown.white.win']
+    assert_nil rows[0]['benchmark.Gen0Champion.black.win']
+    assert_nil rows[2]['benchmark.PreviousCheckpoint.black.win']
+    assert_equal '0', rows[0]['population.operators.crossover']
     assert_equal '3', rows[0]['population.operators.initial']
+    assert_equal '0', rows[1]['population.operators.initial']
   end
 
   def test_a_missing_experiment_exits_1_with_a_message

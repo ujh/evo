@@ -28,6 +28,10 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal [0, 1, 2, 3], @stats.generations
   end
 
+  def test_benchmark_opponents_are_the_panel_in_order
+    assert_equal %w[Brown AmiGo GnuGoLevel0 Gen0Champion PreviousCheckpoint], @stats.benchmark_opponents
+  end
+
   # Generations 0 and 2 played every round, but their benchmarks are not
   # complete.
   def test_a_generation_is_finished_once_it_played_every_round_and_its_benchmark
@@ -72,7 +76,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_of_a_bred_generation
     population = @stats.generation(1)[:population]
     assert_equal 3, population[:children]
-    assert_equal({ 'crossover' => 2, 'mutation' => 1 }, population[:operators])
+    assert_equal({ 'initial' => 0, 'crossover' => 2, 'mutation' => 1 }, population[:operators])
     assert_equal 1, population[:identical]
     assert_equal 3, population[:distinct_parents]
     assert_equal 3, population[:unique_genomes]
@@ -83,7 +87,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_of_the_initial_generation
     population = @stats.generation(0)[:population]
     assert_equal 3, population[:children]
-    assert_equal({ 'initial' => 3 }, population[:operators])
+    assert_equal({ 'initial' => 3, 'crossover' => 0, 'mutation' => 0 }, population[:operators])
     assert_equal 0, population[:identical]
     assert_equal 0, population[:distinct_parents]
     assert_equal 3, population[:unique_genomes]
@@ -94,7 +98,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_without_births
     population = @stats.generation(2)[:population]
     assert_equal 0, population[:children]
-    assert_equal({}, population[:operators])
+    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 0 }, population[:operators])
     assert_equal 0, population[:unique_genomes]
     assert_equal({ min: 0, median: 2, max: 7 }, population[:scores])
   end

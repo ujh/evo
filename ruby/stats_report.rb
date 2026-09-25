@@ -41,18 +41,29 @@ class ExperimentStats
       out << "\nBenchmark\n#{benchmark_table(checkpoints)}\n#{BENCHMARK_NOTE}"
     end
 
-    # One row per generation. The header is the union of every generation's
-    # keys, grouped by section (so population.operators.mutation stays with
-    # the population even when only a later generation has it), and a
-    # generation without a benchmark has empty benchmark cells.
-    def csv(figures)
-      rows = figures.map { |f| flatten(f.compact) }
-      keys = rows.flat_map(&:keys).uniq
-      sections = keys.map { |key| key.split('.').first }.uniq
-      headers = keys.each_with_index.sort_by { |key, i| [sections.index(key.split('.').first), i] }.map(&:first)
+    # The CSV columns before the benchmark's results, in the order of
+    # ExperimentStats#generation.
+    CSV_COLUMNS = [
+      'generation', 'finished',
+      *%w[games draws failures game_seconds].map { |key| "tournament.#{key}" },
+      'population.children', *ExperimentStats::OPERATORS.map { |operator| "population.operators.#{operator}" },
+      *%w[identical distinct_parents unique_genomes].map { |key| "population.#{key}" },
+      *%w[min median max].map { |key| "population.scores.#{key}" },
+      'benchmark.network', 'benchmark.complete'
+    ].freeze
+
+    # One row per generation. The header depends only on the benchmark
+    # panel (`opponents`, names in panel order), so experiments with the
+    # same panel can be compared column by column. A generation without a
+    # benchmark, or an opponent its checkpoint does not play, has empty
+    # cells.
+    def csv(figures, opponents)
+      headers = CSV_COLUMNS + opponents.flat_map do |name|
+        %w[black white].flat_map { |color| %w[win loss draw failure].map { |result| "benchmark.#{name}.#{color}.#{result}" } }
+      end
       CSV.generate do |out|
         out << headers
-        rows.each { |row| out << row.values_at(*headers) }
+        figures.each { |f| out << flatten(f).values_at(*headers) }
       end
     end
 
