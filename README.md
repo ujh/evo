@@ -25,7 +25,10 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    `.local/evo-tools/` and mise places them on `PATH` for project tasks.
 3. Run `mise run verify` to run the C and Ruby tests and refereed 9×9 matches in which
    Brown, AmiGoGtp, GNU Go levels 0 and 10, and Evo each play. It fails if a
-   program crashes or the GNU Go referee returns no score.
+   program crashes or the GNU Go referee returns no score. It also plays a
+   sample of games between random networks both in the arena (the C program
+   that plays network-against-network games) and through GoGui, and fails if
+   the moves or the scores differ.
 
 CI runs the same tasks as separate jobs (C tests, Ruby tests, and the
 refereed matches), so a failure shows which kind of check broke. For
