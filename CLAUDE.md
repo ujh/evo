@@ -44,7 +44,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 - Move choice takes the highest output. It is deterministic for a given network and position.
   - `initial-population` and `evolve` take an optional seed as their last argument; the same seed gives byte-identical output. Without one they seed from `time(NULL)` plus an address.
 - Runs are reproducible from the experiment seed (the `seed` setting; `SetupExperiment` generates and saves one if it is missing). `ruby/seeds.rb` derives every other seed from it and a label: the initial population, each child (`birth`, generation, index), parent selection, tie order and colors per round, and a per-game GNU Go `--seed` for GNU Go players and the referee. Two runs with the same seed, even with parallel games, produce the same networks, pairings, moves, and rankings; only the date in the SGF headers differs. Losing a game on time would still differ.
-- Besides `games`, the experiment database records `births` (each network's parents, operator, differing weights, seed, and SHA-256 of its `.ann`; generation 0 has operator `initial`) and `rankings` (each generation's final ranking).
+- Besides `games`, the experiment database records `births` (each network's parents, operator, differing weights, seed, and SHA-256 of its `.ann`; generation 0 has operator `initial`) and `rankings` (each generation's standings, kept current after every game; final once the generation is done).
 - Brown's own `final_score` is unreliable on arbitrary positions: an empty 9×9 board scores `W+87.5`. Use the referee's result.
 - The build uses `-march=native`. Binaries are for the local machine only.
 

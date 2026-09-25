@@ -43,19 +43,8 @@ class ExperimentDatabase
   # setup_complete, players, ranking, and games (pending, in pairing order).
   # nil for a generation that has not started.
   def state(generation)
-    row = @db[:generations].where(generation:).first
-    return nil unless row
-
-    players = @db[:players].where(generation:).order(:name).all.to_h do |player|
-      [player[:name], { 'command' => player[:command] }.merge(player[:external] ? { 'external' => true } : {})]
-    end
-    {
-      'round' => row[:round],
-      'setup_complete' => row[:setup_complete],
-      'players' => players,
-      'ranking' => @rankings.where(generation:).order(:rank).all.map { |r| { 'name' => r[:name], 'score' => r[:score] } },
-      'games' => @db[:pending_games].where(generation:).order(:position).all.map { |g| { 'black' => g[:black], 'white' => g[:white] } }
-    }
+    # One read transaction, so a reader never mixes two saves.
+    @db.transaction { read_state(generation) }
   end
 
   # Replaces the generation's whole state in one transaction, so a crash
@@ -109,5 +98,23 @@ class ExperimentDatabase
 
   def close
     @db.disconnect
+  end
+
+  private
+
+  def read_state(generation)
+    row = @db[:generations].where(generation:).first
+    return nil unless row
+
+    players = @db[:players].where(generation:).order(:name).all.to_h do |player|
+      [player[:name], { 'command' => player[:command] }.merge(player[:external] ? { 'external' => true } : {})]
+    end
+    {
+      'round' => row[:round],
+      'setup_complete' => row[:setup_complete],
+      'players' => players,
+      'ranking' => @rankings.where(generation:).order(:rank).all.map { |r| { 'name' => r[:name], 'score' => r[:score] } },
+      'games' => @db[:pending_games].where(generation:).order(:position).all.map { |g| { 'black' => g[:black], 'white' => g[:white] } }
+    }
   end
 end
