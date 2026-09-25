@@ -44,7 +44,11 @@ module RunGenerationHelpers
     File.write(path, JSON.pretty_generate(hash))
   end
 
+  # Copies a result fixture and, when there is one, the twogtp stderr it came with.
   def copy_dat(fixture, prefix)
-    FileUtils.cp(File.join(FIXTURES, 'dat', "#{fixture}.dat"), "#{prefix}.dat")
+    %w[dat err].each do |ext|
+      source = File.join(FIXTURES, 'dat', "#{fixture}.#{ext}")
+      FileUtils.cp(source, "#{prefix}.#{ext}") if File.exist?(source)
+    end
   end
 end

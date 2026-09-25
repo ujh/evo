@@ -2,7 +2,7 @@
 
 Evo evolves the weights of a fixed dense neural network that plays Go. The C programs build, breed, and play networks. The Ruby scripts run tournaments through GoGui, with GNU Go as referee. The goal is to show measurable improvement from evolution, not a strong engine.
 
-`PROJECT_NOTES.md` holds the assessment, the list of known defects, the planned cleanup order, and the decision log. Read it before changing behavior. When a change fixes a listed defect or settles an open question, update it in the same change.
+`PROJECT_NOTES.md` holds only work still to do: known defects, the planned cleanup order, proposed experiments, and open questions. Read it before changing behavior. When a change fixes a listed item or settles a question, delete it from `PROJECT_NOTES.md` in the same change. Do not record finished work or history there. If a future agent must know something about the change, put it in this file instead.
 
 ## Commands
 
@@ -49,8 +49,14 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
 ### Game results
 
 - A GoGui `.dat` file is tab-separated: `GAME RES_B RES_W RES_R ALT DUP LEN TIME_B TIME_W CPU_B CPU_W ERR ERR_MSG`.
-  - The runner and `stats` split on whitespace and read `result[3]` (`RES_R`, the referee) and `result[6]` (`LEN`).
-  - Anything in `RES_R` that does not start with `B`, including `?`, counts as a White win.
+  - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` still split on whitespace, so an empty column shifts `RES_R` and `LEN`, and anything not starting with `B` counts as a White win there.
+  - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file. Only stderr says which program crashed ("Black program died" or "White program died"). Breeding deletes the empty `.err` files and keeps the rest.
+- Scoring rules (agreed with the owner, in `score_game` and `ruby/game_result.rb`):
+  - A referee win (`B+` or `W+`) counts, including games stopped by the move limit. The winner gets the loser's `points`.
+  - A draw gives no points.
+  - A network that crashes loses, whatever the referee said.
+  - These give no points and are logged and listed under `unscored` in `GEN/data.json`: a crashed external bot, a missing referee score (`?`), any other GoGui error (an illegal move is blamed on the program that rejected it, not the one that played it), and a missing or empty `.dat` file.
+  - Failed games are never retried, so a broken setup stays visible.
 - Check `RES_R` and `ERR`, not only whether a game finished. A crashed player shows only in `ERR`, and a crashed referee only as `?` in `RES_R`. `scripts/smoke-external-tools.sh` checks both. Keep it that way when changing it.
 - Brown and AmiGo play deterministically. The 5 Brown and 10 AmiGo "instances" are copies of the same opponent, so replaying a pairing with the same colors adds no information.
 - GNU Go seeds its random choices from the clock unless it gets `--seed N`. Runs started in different seconds differ, so compare GNU Go behavior with a fixed seed.
@@ -65,9 +71,10 @@ Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-
   With `4 one-generation`, that runs one generation of 12 pairings (11 games plus a bye for the odd player out) in a few seconds, which makes it a good smoke run. Delete `experiments/NAME` afterwards. Running it a second time breeds generation 1, which usually crashes: random networks rarely win a game, so every score is 0, the parent pool is empty, and `evolve` gets a directory instead of a file (`fread: Is a directory`, then `Errno::ENOENT` on `child.ann`). This is a listed defect, not a setup problem. `experiments/` is gitignored.
 - The runner works inside `experiments/NAME/GEN/` and calls `../evo`, `../evolve`, and `../initial-population`. Those are **symlinks** to the build output, so rebuilding changes a running experiment.
 - State lives in `GEN/data.json`. It is rewritten after every game and not atomically. On resume, `setup_complete` skips creating or breeding the population. The generation's games are skipped only once `round` reaches `tournament_rounds`. Game hashes are built with symbol keys and read back with string keys after the JSON round trip.
+- The runner passes `-force` to twogtp, which deletes an existing `PREFIX.dat`. A game that was queued but not yet scored when the runner stopped is replayed from scratch on resume, and its `.err` is rewritten.
 - Generation 0 names networks `0001.ann`, `0002.ann`, and so on. Later generations use `0.ann`, `1.ann`, and so on.
 - **Evidence gets destroyed:**
-  - Breeding a new generation deletes every `.ann` and `.sgf` in the previous generation.
+  - Breeding a new generation deletes every `.ann` and `.sgf`, and every empty `.err`, in the previous generation.
   - `stats` is not read-only. It moves each generation's `.dat` files into `data.tar.bz2` and caches results in `stats.json`.
   - Copy anything you need to inspect before running either of them.
 - `stats` (without `--csv`), `ranking`, and `multi` loop forever. Run them with a timeout or in the background.
