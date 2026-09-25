@@ -24,8 +24,8 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 ## Layout
 
 - `engine/`: `evo`, a GTP engine built on Brown's board code (`brown.c`, `gtp.c`) plus the network move policy (`generate_move.c`). `engine/test.c` tests GENANN only, not Go rules.
-- `initial-population/`: `initial-population POP SIZE LAYERS NEURONS` writes random networks named `0001.ann`, `0002.ann`, and so on.
-- `evolve/`: `evolve RATE A.ann B.ann OUT.ann` writes the child to `OUT.ann`. It either crosses over or mutates; it never does both. It exits 1 without writing anything when an input cannot be read. The runner checks the exit status and that the file exists, and stops breeding before deleting the parents if either fails.
+- `initial-population/`: `initial-population POP SIZE LAYERS NEURONS [SEED]` writes random networks named `0001.ann`, `0002.ann`, and so on.
+- `evolve/`: `evolve RATE A.ann B.ann OUT.ann [SEED]` writes the child to `OUT.ann`. Its last stdout line is `summary operator=crossover|mutation differs_from_first=N differs_from_second=N` (weights differing from each parent; 0 means an identical copy). It either crosses over or mutates; it never does both. It exits 1 without writing anything when an input cannot be read. The runner checks the exit status and that the file exists, and stops breeding before deleting the parents if either fails.
 - `ruby/`, `runner`: tournament orchestration. `stats`, `ranking`: viewers. `multi`: rotates between several experiments.
 - `lib/` is **unused**. `genann.c/h` has four identical copies (`lib/`, `engine/`, `evolve/`, `initial-population/`), and every Makefile compiles its own local copy. A GENANN change must go into all four until the cleanup consolidates them.
 - `pcg-c/` is an upstream submodule (`imneme/pcg-c`). Do not edit it.
@@ -42,7 +42,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
   - A network for board size N has N²+1 inputs (komi first) and N²+1 outputs (pass last).
   - `engine/example.ann` is a 9×9 test fixture with 2×2 hidden neurons and 418 weights. It is not a trained player.
 - Move choice takes the highest output. It is deterministic for a given network and position. The RNG seed matters only in `initial-population` and `evolve`.
-  - Seeds come from `time(NULL)` plus an address. Runs cannot be reproduced.
+  - `initial-population` and `evolve` take an optional seed as their last argument; the same seed gives byte-identical output. Without one they seed from `time(NULL)` plus an address. The runner does not pass seeds yet.
 - Brown's own `final_score` is unreliable on arbitrary positions: an empty 9×9 board scores `W+87.5`. Use the referee's result.
 - The build uses `-march=native`. Binaries are for the local machine only.
 

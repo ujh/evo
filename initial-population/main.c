@@ -24,6 +24,8 @@ SOFTWARE.
 
 */
 
+#include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -31,17 +33,36 @@ SOFTWARE.
 
 pcg32_random_t rng;
 
+// A seed is a non-negative decimal integer; anything else is an error, so a
+// typo cannot silently fall back to an unseeded run.
+static uint64_t parse_seed(const char *text) {
+  char *end;
+  errno = 0;
+  unsigned long long value = strtoull(text, &end, 10);
+  if (errno != 0 || end == text || *end != '\0' || text[0] == '-') {
+    fprintf(stderr, "seed must be a non-negative integer, got %s\n", text);
+    exit(1);
+  }
+  return value;
+}
+
 int main(int argc, char **argv) {
-  pcg32_srandom(time(NULL), (intptr_t)&rng);
 
   // Do not buffer stdout
   setbuf(stdout, NULL);
 
   int population_size, board_size, hidden_layers, hidden;
 
-  if (argc != 5) {
-    fprintf(stderr, "4 arguments required: population_size, board size, no. hidden layers, no. neurons per layer!\n");
+  if (argc != 5 && argc != 6) {
+    fprintf(stderr, "4 arguments required: population_size, board size, no. hidden layers, no. neurons per layer, and optionally a seed!\n");
     exit(1);
+  }
+
+  // Without a seed the networks differ on every run.
+  if (argc == 6) {
+    pcg32_srandom(parse_seed(argv[5]), 54u);
+  } else {
+    pcg32_srandom(time(NULL), (intptr_t)&rng);
   }
 
   population_size = atoi(argv[1]);
