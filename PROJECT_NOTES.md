@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** profile a short run, then test evolution of a shared local pattern scorer, with the cleanup below alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** profile a short run, replace GENANN (step 1 of the [cleanup order](#suggested-cleanup-order)), then test evolution of a shared local pattern scorer, with the rest of the cleanup alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
