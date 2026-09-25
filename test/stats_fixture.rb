@@ -5,8 +5,10 @@ require_relative '../ruby/setup_experiment'
 # A small experiment written the way the runner writes it: generations 0 to
 # 3 with two rounds each and a checkpoint every second generation.
 # Generation 0 is a checkpoint whose benchmark has not been played,
-# generation 1 is no checkpoint, generation 2 is a benchmarked checkpoint,
-# and generation 3 is still in its first round. ExperimentStats and the
+# generation 1 is no checkpoint, generation 2 is a checkpoint whose
+# benchmark is half played (of 4 games per opponent, AmiGo has all, Brown
+# and Gen0Champion 2, GnuGoLevel0 none), and generation 3 is still in its
+# first round. ExperimentStats and the
 # stats script are tested on it.
 module StatsFixture
   PLAYERS = { 'a.ann' => {}, 'b.ann' => {}, 'c.ann' => {}, 'Brown1' => { 'external' => true } }.freeze
@@ -16,7 +18,7 @@ module StatsFixture
     FileUtils.mkdir_p(File.dirname(path))
     writer = ExperimentDatabase.new(path)
     SetupExperiment.save_rules(writer)
-    writer.save_settings('tournament_rounds' => 2, 'keep_every' => 2, 'seed' => 1)
+    writer.save_settings('tournament_rounds' => 2, 'keep_every' => 2, 'benchmark_games' => 4, 'seed' => 1)
     populate(writer)
     writer.close
   end

@@ -1,3 +1,5 @@
+require_relative 'checkpoint_benchmark'
+
 # What `stats` reports about an experiment, computed from its database
 # alone. A tournament score only ranks the networks of one generation, so
 # progress shows in the benchmark at checkpoints (see migration 008), and
@@ -17,15 +19,17 @@ class ExperimentStats
   end
 
   # A Hash with the generation's figures; see the private methods for each
-  # part. The last generation may still be playing.
+  # part. The last generation may still be playing, and a checkpoint is
+  # finished only once its benchmark is complete.
   def generation(generation)
     state = database.state(generation)
+    benchmark = benchmark(generation)
     {
       generation:,
-      finished: state['round'] >= Integer(settings.fetch('tournament_rounds')),
+      finished: state['round'] >= Integer(settings.fetch('tournament_rounds')) && (benchmark.nil? || benchmark[:complete]),
       tournament: tournament(generation),
       population: population(generation),
-      benchmark: benchmark(generation)
+      benchmark:
     }
   end
 
@@ -41,7 +45,7 @@ class ExperimentStats
   # The scored games. A draw has neither winner nor failure; game_seconds is
   # nil when no game has a timing.
   def tournament(generation)
-    games = database.games(generation)
+    games = database.games(generation, columns: %i[winner failure duration])
     durations = games.filter_map { |game| game[:duration] }
     {
       games: games.size,
@@ -77,30 +81,37 @@ class ExperimentStats
     middle == middle.to_i ? middle.to_i : middle
   end
 
-  # nil unless the generation is a checkpoint with benchmark games. Else the
-  # benchmarked network and, per opponent that was played, in panel order,
-  # the results by the network's color: a win is the network's.
+  # nil unless the generation is a checkpoint. Else the benchmarked network
+  # (nil before the first game), whether every game is stored, and, per
+  # opponent the checkpoint plays (CheckpointBenchmark.opponents_for), in
+  # panel order, the results by the network's color: a win is the
+  # network's.
   def benchmark(generation)
     return nil unless checkpoint?(generation)
 
-    rows = database.benchmark_games(generation)
-    return nil if rows.empty?
-
+    rows = database.benchmark_games(generation, columns: %i[opponent network_color network winner failure])
+    opponents = CheckpointBenchmark.opponents_for(generation, database.benchmark_opponents, keep_every)
     by_opponent = rows.group_by { |row| row[:opponent] }
-    database.benchmark_opponents.each_with_object({ network: rows.first[:network] }) do |opponent, result|
-      games = by_opponent[opponent[:name]]
-      next unless games
-
-      result[opponent[:name]] = %w[black white].to_h do |color|
+    result = { network: rows.first&.fetch(:network), complete: rows.size == opponents.size * benchmark_games }
+    opponents.each_with_object(result) do |opponent, figures|
+      games = by_opponent.fetch(opponent[:name], [])
+      figures[opponent[:name]] = %w[black white].to_h do |color|
         [color.to_sym, results(games.select { |game| game[:network_color] == color })]
       end
     end
   end
 
+  def benchmark_games
+    Integer(settings.fetch('benchmark_games'))
+  end
+
+  def keep_every
+    Integer(settings.fetch('keep_every'))
+  end
+
   # As in RunGeneration: the generations whose networks are kept.
   def checkpoint?(generation)
-    every = Integer(settings.fetch('keep_every'))
-    every.positive? && (generation % every).zero?
+    keep_every.positive? && (generation % keep_every).zero?
   end
 
   def results(games)

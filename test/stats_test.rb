@@ -49,21 +49,23 @@ class StatsTest < Minitest::Test
     assert status.success?, err
     # Gen, finished, games, draws, failures, game time, identical, parents,
     # genomes, score min, median, max.
-    assert_equal %w[0 yes 1 0 0 - - 0 3 1 2 3], row(out, 0).first(12)
+    assert_equal %w[0 no 1 0 0 - - 0 3 1 2 3], row(out, 0).first(12)
     assert_equal %w[1 yes 4 1 1 3.8s 33% 3 3 1 4 4], row(out, 1).first(12)
-    assert_equal %w[2 yes 0 0 0 - - 0 0 0 2 7], row(out, 2).first(12)
+    assert_equal %w[2 no 0 0 0 - - 0 0 0 2 7], row(out, 2).first(12)
     assert_equal %w[3 no], row(out, 3).first(2)
     refute_includes out, "\e[2J", 'once mode does not clear the screen'
   end
 
-  def test_prints_the_benchmark_of_each_benchmarked_checkpoint
+  # Both checkpoints' benchmarks are incomplete; generation 0 has played no
+  # game and plays only the bots.
+  def test_prints_the_benchmark_of_each_checkpoint
     out, = stats('x')
     benchmark = out[out.index('Benchmark')..]
     header = cells(benchmark.lines.find { |l| l.include?('Network') })
-    assert_equal ['Gen', 'Network', 'Brown B', 'Brown W', 'AmiGo B', 'AmiGo W', 'Gen0Champion B', 'Gen0Champion W'], header
-    assert_equal ['2', 'c.ann', '0-0 f1', '1-0', '2-0', '0-1 d1', '0-1', '0-1'], row(benchmark, 2)
-    # Generation 0 is a checkpoint without benchmark games.
-    refute benchmark.lines.any? { |l| l.match?(/\A\|\s*0\s*\|/) }
+    assert_equal ['Gen', 'Network', 'Brown B', 'Brown W', 'AmiGo B', 'AmiGo W', 'GnuGoLevel0 B', 'GnuGoLevel0 W',
+                  'Gen0Champion B', 'Gen0Champion W'], header
+    assert_equal ['2', 'c.ann (incomplete)', '0-0 f1', '1-0', '2-0', '0-1 d1', '0-0', '0-0', '0-1', '0-1'], row(benchmark, 2)
+    assert_equal ['0', '- (incomplete)', '0-0', '0-0', '0-0', '0-0', '0-0', '0-0', '-', '-'], row(benchmark, 0)
   end
 
   def test_csv_has_one_row_per_generation_with_dotted_keys
@@ -71,7 +73,7 @@ class StatsTest < Minitest::Test
     assert status.success?, err
     rows = CSV.parse(out, headers: true)
     assert_equal %w[0 1 2 3], rows.map { |r| r['generation'] }
-    assert_equal %w[true true true false], rows.map { |r| r['finished'] }
+    assert_equal %w[false true false false], rows.map { |r| r['finished'] }
     assert_equal '3.75', rows[1]['tournament.game_seconds']
     assert_equal '1', rows[1]['population.identical']
     assert_equal '2', rows[1]['population.operators.crossover']

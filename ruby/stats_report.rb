@@ -105,13 +105,15 @@ class ExperimentStats
     end
 
     # Opponents in the order the checkpoints list them (panel order); a
-    # checkpoint that did not play an opponent shows '-'.
+    # checkpoint that does not play an opponent shows '-'. A benchmark still
+    # playing is marked incomplete.
     def benchmark_table(checkpoints)
-      opponents = checkpoints.flat_map { |f| f[:benchmark].keys - [:network] }.uniq
+      opponents = checkpoints.flat_map { |f| f[:benchmark].keys.grep(String) }.uniq
       headings = ['Gen', 'Network'] + opponents.flat_map { |name| ["#{name} B", "#{name} W"] }
       rows = checkpoints.map do |f|
         benchmark = f[:benchmark]
-        [f[:generation], benchmark[:network]] + opponents.flat_map do |name|
+        network = benchmark[:network] || '-'
+        [f[:generation], benchmark[:complete] ? network : "#{network} (incomplete)"] + opponents.flat_map do |name|
           benchmark[name] ? benchmark[name].values_at(:black, :white).map { |c| results(c) } : ['-', '-']
         end
       end

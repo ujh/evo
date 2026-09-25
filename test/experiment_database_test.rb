@@ -33,6 +33,16 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # stats counts games without loading their SGFs and stderr.
+  def test_returns_only_the_given_columns_of_games
+    with_store do |store|
+      store.record(**GAME)
+      store.record_benchmark_game(**BENCHMARK_GAME)
+      assert_equal [{ winner: '0.ann', duration: 2.25 }], store.games(3, columns: %i[winner duration])
+      assert_equal [{ opponent: 'Brown', winner: 'network' }], store.benchmark_games(10, columns: %i[opponent winner])
+    end
+  end
+
   def test_a_replayed_game_replaces_its_row
     # Resuming replays a game whose row was written just before a crash.
     with_store do |store|

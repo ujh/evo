@@ -1,4 +1,5 @@
 require 'minitest/autorun'
+require 'delegate'
 require 'tmpdir'
 require_relative '../ruby/experiment_database'
 require_relative '../ruby/experiment_stats'
@@ -27,9 +28,36 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal [0, 1, 2, 3], @stats.generations
   end
 
-  def test_a_generation_is_finished_once_it_played_every_round
-    assert_equal [true, true, true, false], @stats.generations.map { |g| @stats.generation(g)[:finished] }
+  # Generations 0 and 2 played every round, but their benchmarks are not
+  # complete.
+  def test_a_generation_is_finished_once_it_played_every_round_and_its_benchmark
+    assert_equal [false, true, false, false], @stats.generations.map { |g| @stats.generation(g)[:finished] }
     assert_equal 3, @stats.generation(3)[:generation]
+  end
+
+  def test_a_checkpoint_is_finished_once_every_benchmark_game_is_stored
+    reopen_writing do |writer|
+      [['Brown', 1], ['Gen0Champion', 1], ['GnuGoLevel0', 0], ['GnuGoLevel0', 1]].each do |opponent, opening|
+        %w[black white].each do |network_color|
+          writer.record_benchmark_game(generation: 2, opponent:, opening:, network_color:, network: 'c.ann', winner: 'network')
+        end
+      end
+    end
+    assert @stats.generation(2)[:benchmark][:complete]
+    assert @stats.generation(2)[:finished]
+  end
+
+  # Only the columns the figures need, not every game's SGF and stderr.
+  def test_reads_no_sgf_or_stderr
+    recorder = Class.new(SimpleDelegator) do
+      attr_reader :columns
+
+      def games(generation, columns:) = (@columns ||= []).concat(columns) && super
+      def benchmark_games(generation, columns:) = (@columns ||= []).concat(columns) && super
+    end.new(@database)
+    ExperimentStats.new(recorder).generation(2)
+    refute_empty recorder.columns
+    assert_empty recorder.columns & %i[sgf stderr error_message referee_result]
   end
 
   def test_tournament_counts_games_draws_failures_and_time
@@ -91,24 +119,47 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal({ min: nil, median: nil, max: nil }, ExperimentStats.new(@database).generation(4)[:population][:scores])
   end
 
+  # Every opponent the checkpoint plays, in panel order, whether played yet
+  # or not. PreviousCheckpoint would be generation 0, so it is not played.
   def test_benchmark_of_a_checkpoint_counts_by_the_networks_color_in_panel_order
     benchmark = @stats.generation(2)[:benchmark]
-    assert_equal 'c.ann', benchmark[:network]
     assert_equal(
       {
         network: 'c.ann',
+        complete: false,
         'Brown' => { black: counts(failure: 1), white: counts(win: 1) },
         'AmiGo' => { black: counts(win: 2), white: counts(loss: 1, draw: 1) },
+        'GnuGoLevel0' => { black: counts, white: counts },
         'Gen0Champion' => { black: counts(loss: 1), white: counts(loss: 1) }
       },
       benchmark
     )
-    assert_equal ['Brown', 'AmiGo', 'Gen0Champion'], benchmark.keys.drop(1)
+    assert_equal [:network, :complete, 'Brown', 'AmiGo', 'GnuGoLevel0', 'Gen0Champion'], benchmark.keys
   end
 
-  def test_no_benchmark_for_a_checkpoint_without_games_or_a_generation_that_is_no_checkpoint
-    assert_nil @stats.generation(0)[:benchmark]
+  # Generation 0 plays only the bots.
+  def test_benchmark_of_a_checkpoint_without_games_is_incomplete
+    assert_equal(
+      { network: nil, complete: false, 'Brown' => { black: counts, white: counts },
+        'AmiGo' => { black: counts, white: counts }, 'GnuGoLevel0' => { black: counts, white: counts } },
+      @stats.generation(0)[:benchmark]
+    )
+  end
+
+  def test_no_benchmark_for_a_generation_that_is_no_checkpoint
     assert_nil @stats.generation(1)[:benchmark]
     assert_nil @stats.generation(3)[:benchmark]
+  end
+
+  # Replaces @database and @stats after the block has written to the
+  # database.
+  def reopen_writing
+    @database.close
+    path = File.join(@dir, 'experiment.sqlite3')
+    writer = ExperimentDatabase.new(path)
+    yield writer
+    writer.close
+    @database = ExperimentDatabase.new(path, readonly: true)
+    @stats = ExperimentStats.new(@database)
   end
 end
