@@ -56,6 +56,11 @@ depends = ["build", "doctor"]
 run = "./runner"
 raw = true
 
+[tasks.new-experiment]
+description = "Create an experiment without the prompts: mise run new-experiment NAME --board-size 9 ... (without arguments it lists the options)"
+run = "./new-experiment"
+raw = true
+
 [tasks.stats]
 description = "Show experiment statistics: mise run stats NAME [--csv]"
 run = "./stats"

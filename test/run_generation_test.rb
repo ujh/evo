@@ -184,10 +184,10 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
       write_data({
                    'players' => scores.keys.to_h { |name| [name, {}] },
                    'ranking' => scores.map { |name, score| { 'name' => name, 'score' => score } }
-                 }, File.join(gen0, 'data.json'))
+                 }, generation: 0)
 
       commands = []
-      store = ResultStore.new(':memory:')
+      store = database
       gen = build_generation(settings: settings, store:)
       gen.define_singleton_method(:run_evolve) do |cmd|
         commands << cmd
@@ -204,7 +204,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
         error: error,
         children: Dir['*.ann'].sort.to_h { |f| [f, File.read(f)] },
         previous_files: Dir.children(gen0).sort,
-        data: File.exist?('data.json') ? JSON.load_file('data.json') : nil,
+        data: database.state(1),
         births: store.births(1)
       }
     end
@@ -226,7 +226,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_equal 2, state[:commands].size
     state[:commands].each_with_index { |cmd, i| assert_match(/#{PARENTS} #{i}\.ann #{Seeds.derive(1, 'birth', 1, i)}\z/, cmd) }
     assert_equal %w[0.ann 1.ann], state[:children].keys
-    assert_equal ['crashed.err', 'data.json'], state[:previous_files]
+    assert_equal ['crashed.err'], state[:previous_files]
     assert state[:data]['setup_complete']
     assert_equal 0, state[:data]['round']
   end
@@ -357,8 +357,8 @@ class PlayRoundTest < Minitest::Test
     end
   end
 
-  def setup_round
-    write_data('round' => 0,
+  def setup_round(generation: 1)
+    write_data(generation:, 'round' => 0,
                'players' => {
                  'a.ann' => { 'command' => '../evo a.ann' },
                  'b.ann' => { 'command' => '../evo b.ann' },
@@ -371,7 +371,7 @@ class PlayRoundTest < Minitest::Test
   def build_with(pool, generation: '1', store: nil)
     gen = build_generation(generation:)
     gen.instance_variable_set(:@pool, pool)
-    gen.instance_variable_set(:@store, store || ResultStore.new(':memory:'))
+    gen.instance_variable_set(:@store, store || database)
     gen
   end
 
@@ -388,7 +388,7 @@ class PlayRoundTest < Minitest::Test
   def test_stores_each_scored_game_and_deletes_its_files
     in_experiment do
       setup_round
-      store = ResultStore.new(':memory:')
+      store = database
       capture_io { build_with(playing_pool, store:).send(:play_round) }
       assert_equal [{ generation: 1, round: 0, black: 'a.ann', white: 'b.ann', black_external: false,
                       white_external: false, winner: 'a.ann', failure: nil, length: 93, referee_result: 'B+R',
@@ -399,8 +399,8 @@ class PlayRoundTest < Minitest::Test
 
   def test_keeps_the_sgf_every_sgf_every_generations
     in_experiment(generation: '10') do
-      setup_round
-      store = ResultStore.new(':memory:')
+      setup_round(generation: 10)
+      store = database
       capture_io { build_with(playing_pool, generation: '10', store:).send(:play_round) }
       assert_equal '(;SZ[9];B[ee])', store.games(10).first[:sgf]
     end
@@ -427,9 +427,8 @@ class PlayRoundTest < Minitest::Test
       pool = FakePool.new { $stop_now = true }
       gen = build_with(pool)
       capture_io { assert_raises(SystemExit) { gen.send(:play_round) } }
-      data = JSON.load_file('data.json')
+      data = database.state(1)
       assert_equal [{ 'black' => 'a.ann', 'white' => 'b.ann' }], data['games']
-      assert_nil data['unscored']
     ensure
       $stop_now = false
     end
@@ -470,7 +469,7 @@ class ReproducibleRoundsTest < Minitest::Test
 
   def test_the_initial_population_gets_its_seed_and_is_recorded
     in_experiment(generation: '0') do
-      store = ResultStore.new(':memory:')
+      store = database
       gen = build_generation(generation: '0', store:)
       commands = []
       gen.define_singleton_method(:system) do |cmd|
@@ -492,7 +491,7 @@ class ReproducibleRoundsTest < Minitest::Test
     in_experiment do
       write_data('round' => 1, 'games' => [], 'players' => { 'a.ann' => {} },
                  'ranking' => [{ 'name' => 'a.ann', 'score' => 1 }])
-      store = ResultStore.new(':memory:')
+      store = database
       assert_equal :already_done, build_generation(store:).send(:play_games)
       assert_equal [[1, 'a.ann', 1]], store.ranking(1).map { |r| r.values_at(:rank, :name, :score) }
     end
@@ -503,7 +502,7 @@ class ReproducibleRoundsTest < Minitest::Test
       write_data('round' => 0, 'games' => [],
                  'players' => { 'a.ann' => {}, 'Brown1' => { 'external' => true } },
                  'ranking' => [{ 'name' => 'Brown1', 'score' => 1 }, { 'name' => 'a.ann', 'score' => 0 }])
-      store = ResultStore.new(':memory:')
+      store = database
       gen = build_generation(store:)
       gen.instance_variable_set(:@pool, PlayRoundTest::FakePool.new {})
       capture_io { gen.send(:play_games) }
@@ -570,20 +569,7 @@ class PlayRoundBookkeepingTest < Minitest::Test
       data = gen.send(:data)
       assert_empty data['games']
       assert_equal [['a.ann', 1], ['b.ann', 0]], data['ranking'].map(&:values)
-      assert_equal [game.merge('round' => 2, 'failure' => 'no result file')], data['unscored']
       assert_includes err, 'axbR2: no result file'
-    end
-  end
-
-  def test_update_data_appends_to_earlier_failures
-    in_experiment do
-      game = { 'black' => 'a.ann', 'white' => 'b.ann' }
-      earlier = { 'black' => 'c.ann', 'white' => 'd.ann', 'round' => 0, 'failure' => 'draw' }
-      write_data('round' => 1, 'games' => [game], 'unscored' => [earlier],
-                 'ranking' => [{ 'name' => 'a.ann', 'score' => 0 }, { 'name' => 'b.ann', 'score' => 0 }])
-      gen = build_generation
-      capture_io { gen.send(:update_data, game, { 'winner' => nil, 'failure' => 'no result file' }) }
-      assert_equal [earlier, game.merge('round' => 1, 'failure' => 'no result file')], gen.send(:data)['unscored']
     end
   end
 

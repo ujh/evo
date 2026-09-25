@@ -1,0 +1,21 @@
+#!/usr/bin/env ruby
+require "bundler/setup"
+require_relative "ruby/all"
+
+# Creates experiments/NAME with its settings, without the prompts.
+name, *arguments = ARGV
+if name.nil? || name.start_with?("-")
+  puts SetupExperiment.option_parser({}).help
+  # Only an explicit request for help succeeds, so a forgotten NAME stops a
+  # chained `new-experiment ... && mise run run NAME`.
+  exit(%w[--help -h].include?(name) ? 0 : 1)
+end
+
+begin
+  settings = SetupExperiment.create("experiments/#{name}", arguments)
+  puts "Created experiments/#{name} with seed #{settings['seed']}"
+rescue ArgumentError => e
+  warn e.message
+  warn "Run mise run new-experiment without arguments to list the options."
+  exit 1
+end

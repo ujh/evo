@@ -3,7 +3,7 @@ require 'fileutils'
 require 'json'
 require 'tmpdir'
 require_relative '../ruby/run_generation'
-require_relative '../ruby/result_store'
+require_relative '../ruby/experiment_database'
 
 $stop_now = false
 
@@ -25,7 +25,7 @@ module RunGenerationHelpers
 
   # Tests build the object without calling initialize and set its instance
   # variables directly. A fixed seed keeps parent selection reproducible.
-  def build_generation(generation: '1', settings: {}, rng: Random.new(42), store: ResultStore.new(':memory:'))
+  def build_generation(generation: '1', settings: {}, rng: Random.new(42), store: database)
     gen = RunGeneration.allocate
     gen.instance_variable_set(:@generation, generation)
     gen.instance_variable_set(:@settings, SETTINGS.merge(settings))
@@ -44,8 +44,15 @@ module RunGenerationHelpers
     end
   end
 
-  def write_data(hash, path = 'data.json')
-    File.write(path, JSON.pretty_generate(hash))
+  # One in-memory experiment database per test.
+  def database
+    @database ||= ExperimentDatabase.new(':memory:')
+  end
+
+  # Saves a generation's tournament state, as the runner's save_data does.
+  # Called either with a hash or with the state's keys as keyword arguments.
+  def write_data(hash = {}, generation: 1, **state)
+    database.save_state(generation, hash.merge(state))
   end
 
   # Copies a result fixture and, when there is one, the twogtp stderr it came with.

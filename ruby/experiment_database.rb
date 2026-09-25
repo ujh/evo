@@ -1,0 +1,120 @@
+require 'sequel'
+
+Sequel.extension :migration
+
+# One SQLite database per experiment (experiments/NAME/experiment.sqlite3) that
+# holds every scored game, so an experiment keeps its evidence in one file
+# instead of a .dat, .sgf and .err file per game. The runner writes and keeps
+# the schema current with the migrations in db/migrations; stats and ranking
+# open it read-only while the runner is still writing.
+class ExperimentDatabase
+  MIGRATIONS = File.expand_path('../db/migrations', __dir__)
+  COLUMNS = %i[
+    generation round black white black_external white_external
+    winner failure length referee_result error_message stderr sgf
+  ].freeze
+
+  def initialize(path, readonly: false)
+    # The timeout (ms) lets a reader wait while the runner writes.
+    @db = Sequel.sqlite(path, readonly:, timeout: 5_000)
+    Sequel::Migrator.run(@db, MIGRATIONS) unless readonly
+    @games = @db[:games]
+    @births = @db[:births]
+    @rankings = @db[:rankings]
+  end
+
+  # Settings are stored as strings.
+  def settings
+    @db[:settings].to_hash(:key, :value)
+  end
+
+  def save_settings(settings)
+    @db.transaction do
+      @db[:settings].delete
+      @db[:settings].multi_insert(settings.map { |key, value| { key: key.to_s, value: value.to_s } })
+    end
+  end
+
+  def generations
+    @db[:generations].order(:generation).select_map(:generation)
+  end
+
+  # A generation's tournament state in the shape data.json had: round,
+  # setup_complete, players, ranking, and games (pending, in pairing order).
+  # nil for a generation that has not started.
+  def state(generation)
+    # One read transaction, so a reader never mixes two saves.
+    @db.transaction { read_state(generation) }
+  end
+
+  # Replaces the generation's whole state in one transaction, so a crash
+  # leaves either the old state or the new one.
+  def save_state(generation, state)
+    players = state.fetch('players', {})
+    @db.transaction do
+      @db[:generations].insert_conflict(:replace).insert(
+        generation:, round: state.fetch('round', 0), setup_complete: state.fetch('setup_complete', false)
+      )
+      [@db[:players], @rankings, @db[:pending_games]].each { |table| table.where(generation:).delete }
+      @db[:players].multi_insert(players.map do |name, player|
+        { generation:, name:, command: player.fetch('command', ''), external: player['external'] ? true : false }
+      end)
+      @rankings.multi_insert(state.fetch('ranking', []).each_with_index.map do |entry, i|
+        { generation:, rank: i + 1, name: entry['name'], score: entry['score'],
+          external: players.dig(entry['name'], 'external') ? true : false }
+      end)
+      @db[:pending_games].multi_insert(state.fetch('games', []).each_with_index.map do |game, i|
+        { generation:, position: i, black: game['black'] || game[:black], white: game['white'] || game[:white] }
+      end)
+    end
+  end
+
+  def record(**game)
+    @games.insert_conflict(:replace).insert(game.slice(*COLUMNS))
+  end
+
+  # Every game of a generation, as hashes with the keys of `record`.
+  def games(generation)
+    @games.where(generation:).order(:round, :black, :white).select(*COLUMNS).all
+  end
+
+  BIRTH_COLUMNS = %i[
+    generation child first_parent second_parent operator differs_from_first differs_from_second seed genome
+  ].freeze
+
+  # A child bred again after a crash replaces its row.
+  def record_birth(**birth)
+    @births.insert_conflict(:replace).insert(birth.slice(*BIRTH_COLUMNS))
+  end
+
+  def births(generation)
+    @births.where(generation:).order(:child).select(*BIRTH_COLUMNS).all
+  end
+
+  # The standings, as rows with rank, name, score, and external.
+  def ranking(generation)
+    @rankings.where(generation:).order(:rank).select(:rank, :name, :score, :external, :generation).all
+  end
+
+  def close
+    @db.disconnect
+  end
+
+  private
+
+  def read_state(generation)
+    row = @db[:generations].where(generation:).first
+    return nil unless row
+
+    players = @db[:players].where(generation:).order(:name).all.to_h do |player|
+      [player[:name], { 'command' => player[:command] }.merge(player[:external] ? { 'external' => true } : {})]
+    end
+    {
+      'round' => row[:round],
+      'setup_complete' => row[:setup_complete],
+      'players' => players,
+      'ranking' => @rankings.where(generation:).order(:rank).all.map { |r| { 'name' => r[:name], 'score' => r[:score] } },
+      'games' => @db[:pending_games].where(generation:).order(:position).all.map { |g| { 'black' => g[:black], 'white' => g[:white] } }
+    }
+  end
+end

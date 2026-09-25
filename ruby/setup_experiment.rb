@@ -1,14 +1,89 @@
 require 'fileutils'
-require 'json'
+require 'optparse'
+require_relative 'experiment_database'
 require_relative 'seeds'
 
 class SetupExperiment
+  DATABASE = 'experiment.sqlite3'.freeze
+
+  # The prompts were cut short; nothing was saved. Its own class, so the
+  # runner can report this without catching errors from the run itself.
+  class PromptAborted < StandardError; end
+
+  # Every setting, with its prompt and its default. nil means required; a
+  # Proc is called for a fresh default.
+  SETTINGS = {
+    'board_size' => ['Board size', nil],
+    'population_size' => ['Population size', nil],
+    'hidden_layers' => ['Number of hidden layers', nil],
+    'layer_size' => ['Number of neurons per layer', nil],
+    'cross_over_rate' => ['Cross over rate', nil],
+    'game_length' => ['Game length (time)', nil],
+    'max_moves' => ['Max moves', nil],
+    'tournament_rounds' => ['Rounds (tournament)', nil],
+    'tournament_size' => ['Tournament size for parent selection', '3'],
+    'sgf_every' => ['Keep the SGF of every game in every Nth generation (0 for never)', '10'],
+    'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }]
+  }.freeze
+
+  # Opens the experiment's database and yields its settings and the database.
   def self.call(experiment_dir)
     puts "Setting up ... ✔"
     setup_directory(experiment_dir)
     Dir.chdir(experiment_dir) do
-      yield settings
+      database = ExperimentDatabase.new(File.expand_path(DATABASE))
+      yield settings(database), database
+    ensure
+      database&.close
     end
+  end
+
+  # Creates an experiment from command-line options, so it can be started
+  # without the prompts (`mise run new-experiment NAME --board-size 9 ...`).
+  def self.create(experiment_dir, arguments)
+    settings = settings_from_arguments(arguments)
+    FileUtils.mkdir_p(experiment_dir)
+    database = ExperimentDatabase.new(File.join(experiment_dir, DATABASE))
+    raise ArgumentError, "#{experiment_dir} already has settings" unless database.settings.empty?
+
+    database.save_settings(settings)
+    settings
+  ensure
+    database&.close
+  end
+
+  # One --option per setting (board_size becomes --board-size), filling
+  # `given` as it parses.
+  def self.option_parser(given)
+    OptionParser.new do |parser|
+      parser.banner = 'Usage: mise run new-experiment NAME [options]'
+      # Without this, OptionParser takes --board for --board-size.
+      parser.require_exact = true
+      SETTINGS.each do |key, (prompt, default)|
+        note = if default.nil? then 'required'
+               elsif default.respond_to?(:call) then 'default random'
+               else "default #{default}"
+               end
+        parser.on("--#{key.tr('_', '-')} VALUE", "#{prompt} (#{note})") { |value| given[key] = value }
+      end
+    end
+  end
+
+  def self.settings_from_arguments(arguments)
+    given = {}
+    rest = option_parser(given).parse(arguments)
+    raise ArgumentError, "unexpected arguments: #{rest.join(' ')}" if rest.any?
+
+    missing = SETTINGS.select { |key, (_, default)| default.nil? && !given.key?(key) }.keys
+    raise ArgumentError, "missing options: #{missing.map { |key| "--#{key.tr('_', '-')}" }.join(', ')}" if missing.any?
+
+    SETTINGS.to_h { |key, (_, default)| [key, given.fetch(key) { default_for(default) }] }
+  rescue OptionParser::ParseError => e
+    raise ArgumentError, e.message
+  end
+
+  def self.default_for(default)
+    default.respond_to?(:call) ? default.call : default
   end
 
   def self.setup_directory(experiment_dir)
@@ -17,46 +92,30 @@ class SetupExperiment
     FileUtils.ln_s(executables, experiment_dir, force: true)
   end
 
-  def self.settings
-    if File.exist?("settings.json")
-      settings = JSON.load_file("settings.json")
-      # Every seed in the experiment derives from this one, so it is saved.
-      unless settings["seed"]
-        settings["seed"] = Seeds.new_experiment_seed.to_s
-        File.write("settings.json", JSON.pretty_generate(settings))
-      end
-      settings
-    else
-      settings = {}
-      print "Board Size: "
-      settings["board_size"] = STDIN.gets.chomp
-      print "Population Size: "
-      settings["population_size"] = STDIN.gets.chomp
-      print "Number of hidden layers: "
-      settings["hidden_layers"] = STDIN.gets.chomp
-      print "Number of neurons per layer: "
-      settings["layer_size"] = STDIN.gets.chomp
-      print "Cross over rate: "
-      settings["cross_over_rate"] = STDIN.gets.chomp
-      print "Game length (time): "
-      settings["game_length"] = STDIN.gets.chomp
-      print "Max moves: "
-      settings["max_moves"] = STDIN.gets.chomp
-      print "Rounds (tournament): "
-      settings["tournament_rounds"] = STDIN.gets.chomp
-      print "Tournament size for parent selection (default 3): "
-      tournament_size = STDIN.gets.chomp
-      settings["tournament_size"] = tournament_size.empty? ? "3" : tournament_size
-      print "Keep the SGF of every game in every Nth generation (default 10, 0 for never): "
-      sgf_every = STDIN.gets.chomp
-      settings["sgf_every"] = sgf_every.empty? ? "10" : sgf_every
-      print "Seed (default random): "
-      seed = STDIN.gets.chomp
-      settings["seed"] = seed.empty? ? Seeds.new_experiment_seed.to_s : seed
-      File.open("settings.json", "w") do |f|
-        f.puts JSON.pretty_generate(settings)
-      end
-      settings
+  # The settings live in the database; a new experiment prompts for them.
+  def self.settings(database)
+    settings = database.settings
+    if settings.empty?
+      settings = prompt_for_settings
+      database.save_settings(settings)
+    end
+    settings
+  end
+
+  # Raises before anything is saved if input ends or a required setting is
+  # left empty; saving empty settings would leave an experiment that looks
+  # configured but plays zero rounds.
+  def self.prompt_for_settings
+    SETTINGS.to_h do |key, (prompt, default)|
+      label = default.nil? ? prompt : "#{prompt} (default #{default.respond_to?(:call) ? 'random' : default})"
+      print "#{label}: "
+      line = $stdin.gets
+      raise PromptAborted, "input ended before #{key} was set" if line.nil?
+
+      answer = line.chomp
+      raise PromptAborted, "#{key} is required" if answer.empty? && default.nil?
+
+      [key, answer.empty? ? default_for(default) : answer]
     end
   end
 end
