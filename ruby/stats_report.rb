@@ -13,7 +13,7 @@ class ExperimentStats
     GENERATION_HEADINGS = %w[Gen Done Games Draws Failed Time Copies Parents Genomes Min Med Max].freeze
     GENERATION_NOTE = <<~NOTE.freeze
       Done: rounds and benchmark played. Time: of all games. Copies: bred children identical to a parent.
-      Parents: distinct parents. Genomes: distinct children. Min, Med, Max: the networks' scores.
+      Parents: networks that passed on weights. Genomes: distinct children. Min, Med, Max: network scores.
     NOTE
     BENCHMARK_HEADINGS = %w[Gen Network Opponent Games Black White Draws Failed].freeze
     BENCHMARK_NOTE = <<~NOTE.freeze

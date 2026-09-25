@@ -89,8 +89,9 @@ experiment does:
 
 The first table shows whether evolution is healthy: the games, draws, and
 failed games of each generation's tournament and their total time, the share
-of bred children identical to a parent, the distinct parents and genomes, and
-the lowest, median, and highest network score. A generation is done once its
+of bred children identical to a parent, the distinct networks that passed on
+weights (a mutation copies one parent only), the distinct genomes, and the
+lowest, median, and highest network score. A generation is done once its
 rounds and, at a checkpoint, its benchmark are played. The second table shows
 progress: each checkpoint's benchmark, with the network's wins and losses as
 Black and as White against each opponent. For example, after two generations

@@ -71,10 +71,27 @@ class ExperimentStats
       children: births.size,
       operators: OPERATORS.to_h { |operator| [operator, 0] }.merge(births.map { |birth| birth[:operator] }.tally),
       identical: births.count { |birth| birth[:operator] != 'initial' && identical?(birth) },
-      distinct_parents: births.flat_map { |birth| birth.values_at(:first_parent, :second_parent) }.compact.uniq.size,
+      distinct_parents: births.flat_map { |birth| inherited_from(birth) }.uniq.size,
       unique_genomes: births.map { |birth| birth[:genome] }.uniq.size,
       scores: { min: scores.first, median: median(scores), max: scores.last }
     }
+  end
+
+  # The parents a child has weights from. evolve mutates a copy of one
+  # parent, the one the child differs less from (the first when both are
+  # identical), and a crossover that copied one parent has only its weights.
+  def inherited_from(birth)
+    first, second = birth.values_at(:first_parent, :second_parent)
+    one, two = birth.values_at(:differs_from_first, :differs_from_second)
+    case birth[:operator]
+    when 'mutation' then [one <= two ? first : second]
+    when 'crossover'
+      return [first] if one.zero?
+      return [second] if two.zero?
+
+      [first, second]
+    else []
+    end
   end
 
   def identical?(birth)
