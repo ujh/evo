@@ -43,14 +43,16 @@ evolvetest: evolve
 	# (its first weight, as the cut point of seed 7 is not 0).
 	if cmp -s -n 82 cross-a.ann parents/0001.ann; then :; else cmp -n 82 cross-a.ann parents/0002.ann; fi
 	set -- $$(sed -n 's/^summary operator=\([a-z]*\) differs_from_first=\([0-9]*\) differs_from_second=\([0-9]*\)$$/\1 \2 \3/p' cross-a.out) && test "$$1" = crossover && test $$(($$2 + $$3)) -eq 907
-	# Rate 0 always mutates: a copy of one parent with a few changed weights,
-	# and a count of 0 means a byte-identical copy, genes included. The
-	# child keeps its parent's genes.
-	./evolve 0 parents/0001.ann parents/0002.ann mutated.ann 7 > mutated.out
+	# Rate 0 always mutates. With its parent's copy_chance (seed 28 draws
+	# it) the child is a byte-identical copy, genes included.
+	./evolve 0 parents/0001.ann parents/0002.ann mutated.ann 28 > mutated.out
 	set -- $$(sed -n 's/^summary operator=\([a-z]*\) differs_from_first=\([0-9]*\) differs_from_second=\([0-9]*\)$$/\1 \2 \3/p' mutated.out) && test "$$1" = mutation && test "$$3" -eq 0 && test "$$2" -eq 907 && cmp mutated.ann parents/0002.ann
 	./evolve 0 parents/0001.ann parents/0002.ann mutated.ann 8 > mutated.out
 	set -- $$(sed -n 's/^summary operator=\([a-z]*\) differs_from_first=\([0-9]*\) differs_from_second=\([0-9]*\)$$/\1 \2 \3/p' mutated.out) && test "$$1" = mutation && test "$$2" -gt 0 && test "$$2" -le 5 && test "$$3" -eq 907
-	cmp -n 74 mutated.ann parents/0001.ann
+	# Otherwise the child has its parent's sizes and activations (the first
+	# 34 bytes), and its genes (the next 40) have mutated.
+	cmp -n 34 mutated.ann parents/0001.ann
+	! cmp -s -n 74 mutated.ann parents/0001.ann
 	! ./evolve 0.5 ../engine/example.ann child.ann seeded-c.ann not-a-seed
 	rm -rf parents cross-a.ann cross-b.ann cross-c.ann cross-a.out mutated.ann mutated.out
 

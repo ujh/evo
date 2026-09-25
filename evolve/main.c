@@ -89,16 +89,18 @@ int main(int argc, char **argv) {
   genann *child = NULL;
   const char *operator_name;
   int picked;
+  ann_genes child_genes;
 
   if (GENANN_RANDOM() < cross_over_rate) {
     child = child_from_cross_over(anns, &picked);
     operator_name = "crossover";
+    // A crossover child is not mutated: it keeps the genes of the parent
+    // whose weights come first.
+    child_genes = genes[picked];
   } else {
-    child = child_from_mutation(anns, &picked);
+    child = child_from_mutation(anns, genes, EVOLVE_META_RATE, &picked, &child_genes);
     operator_name = "mutation";
   }
-  // The genes do not evolve yet: the child keeps its parent's.
-  ann_genes child_genes = genes[picked];
 
   printf("Saving output to %s ...", output_name);
   FILE *fd = fopen(output_name, "wb");

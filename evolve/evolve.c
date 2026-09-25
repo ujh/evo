@@ -132,25 +132,72 @@ genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_p
   return child;
 }
 
-genann *child_from_mutation(genann **nns, int *picked) {
+genann *child_from_mutation(genann **nns, ann_genes const genes[2], double meta_rate,
+                            int *picked, ann_genes *child_genes) {
   printf("Mutation\n");
   // Pick a NN to use
   *picked = pcg32_boundedrand(2);
-  genann *parent = nns[*picked];
   // Do the mutations
-  return mutate(parent);
+  return mutate(nns[*picked], &genes[*picked], meta_rate, child_genes);
 }
 
-genann *mutate(genann *parent) {
-  genann *child = genann_copy(parent);
-  // Hacky way to also have a slight chance of no mutation at all.
-  if (GENANN_RANDOM() < 0.01) return child;
+double standard_normal(void) {
+  // u1 lies in (0, 1], so its logarithm is finite. No second value is kept
+  // for the next call, so every draw takes the same two numbers.
+  double u1 = (pcg32_random() + 1.0) * 0x1p-32;
+  double u2 = ldexp(pcg32_random(), -32);
+  return sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
+}
 
-  float mutation_rate = 0.0004; // 1/2500
-  for (int i = 0; i < child->total_weights; i++)
-  {
-    if (GENANN_RANDOM() < mutation_rate) {
-      child->weight[i] += (GENANN_RANDOM() - 0.5);
+static double clamp(double value, double min, double max) {
+  return fmin(fmax(value, min), max);
+}
+
+static double log_normal_step(double gene, double meta_rate) {
+  return gene * exp(meta_rate * standard_normal());
+}
+
+static double logit_normal_step(double p, double meta_rate) {
+  double x = log(p / (1.0 - p)) + meta_rate * standard_normal();
+  return 1.0 / (1.0 + exp(-x));
+}
+
+ann_genes mutate_genes(ann_genes genes, double meta_rate, int total_weights) {
+  ann_genes child;
+  child.copy_chance = clamp(logit_normal_step(genes.copy_chance, meta_rate),
+                            ANN_COPY_CHANCE_MIN, ANN_COPY_CHANCE_MAX);
+  child.weight_changes = clamp(log_normal_step(genes.weight_changes, meta_rate),
+                               ANN_WEIGHT_CHANGES_MIN, total_weights);
+  child.weight_step = clamp(log_normal_step(genes.weight_step, meta_rate),
+                            ANN_WEIGHT_STEP_MIN, ANN_WEIGHT_STEP_MAX);
+  child.activation_rate = clamp(logit_normal_step(genes.activation_rate, meta_rate),
+                                ANN_ACTIVATION_RATE_MIN, ANN_ACTIVATION_RATE_MAX);
+  child.structure_rate = clamp(logit_normal_step(genes.structure_rate, meta_rate),
+                               ANN_STRUCTURE_RATE_MIN, ANN_STRUCTURE_RATE_MAX);
+  return child;
+}
+
+// The draws come in a fixed order, so a seed gives one child: the copy
+// check, the genes, then the weights.
+genann *mutate(genann const *parent, ann_genes const *parent_genes, double meta_rate,
+               ann_genes *child_genes) {
+  genann *child = genann_copy(parent);
+  *child_genes = *parent_genes;
+  if (GENANN_RANDOM() < parent_genes->copy_chance) return child;
+
+  // weight_changes is clamped against the child's final total_weights. No
+  // structural change exists yet, so that is the parent's.
+  *child_genes = mutate_genes(*parent_genes, meta_rate, child->total_weights);
+
+  // Activation draws go here, after the genes.
+
+  // The structure draw goes here, after the activations.
+
+  double change_chance = fmin(1.0, child_genes->weight_changes / child->total_weights);
+  double step = child_genes->weight_step;
+  for (int i = 0; i < child->total_weights; i++) {
+    if (GENANN_RANDOM() < change_chance) {
+      child->weight[i] += (2.0 * GENANN_RANDOM() - 1.0) * step;
     }
   }
 
