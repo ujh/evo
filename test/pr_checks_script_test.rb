@@ -99,6 +99,12 @@ class PrChecksScriptTest < Minitest::Test
     refute_includes out, 'All checks passed'
   end
 
+  def test_waits_for_github_to_see_a_fresh_push
+    out, _err, status = run_checks(view([success], head_ref: 'old123'), view([success]))
+    assert_equal 0, status
+    assert_includes out, 'All checks passed'
+  end
+
   def test_gh_failure_fails_instead_of_reading_as_green
     out, err, status = run_checks
     refute_equal 0, status

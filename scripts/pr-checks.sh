@@ -38,21 +38,26 @@ stop_early() {
   esac
 }
 
-# Checks register a few seconds after a push. The tests shorten the wait.
+# Right after a push, GitHub can still show the previous head, and checks
+# register a few seconds later. Wait for both. The tests shorten the wait.
 max_tries=${PR_CHECKS_TRIES:-30}
 pause=${PR_CHECKS_SLEEP:-10}
 tries=0
 while :; do
   result=$(not_passed)
-  stop_early "$result"
-  [ "$result" = "NO CHECKS" ] || break
+  case "$result" in
+    'HEAD MOVED'*|'NO CHECKS') ;;
+    *) break ;;
+  esac
   tries=$((tries + 1))
   if [ "$tries" -gt "$max_tries" ]; then
+    stop_early "$result"
     printf 'No checks registered for PR %s after %s seconds.\n' "$pr" "$((max_tries * pause))" >&2
     exit 1
   fi
   sleep "$pause"
 done
+stop_early "$result"
 
 gh pr checks "$pr" --watch --interval 20 >/dev/null 2>&1 || true
 
