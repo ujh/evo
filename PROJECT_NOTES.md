@@ -128,7 +128,7 @@ Fix each with a test that fails before the fix.
 ### Structure and hygiene
 
 - **One copy of each shared file.** `genann.c` and `genann.h` exist in identical copies in `lib/`, `engine/`, `evolve/`, and `initial-population/`, and `minctest.h` in `lib/`, `engine/`, and `evolve/`. Every Makefile compiles its local copy. `lib/` is unused. Build shared code once from `lib/` (as a static library or shared object files) so a fix cannot land in one copy only.
-- **Move to Ruby 4.0.** The worker pool now uses threads, so nothing depends on the Ractor calls Ruby 4.0 removed. Bump the mise Ruby pin, update the gems, and test experiment runs under it.
+- **Let Dependabot update the gems.** `.github/dependabot.yml` covers only GitHub Actions. Add the `bundler` ecosystem so `Gemfile.lock` gets update PRs too; the gems were two years out of date by the Ruby 4.0 move, and one of them (`json` 2.7) no longer loaded.
 - **Typed, validated settings.** `settings.json` stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment needs (seed, code revision, opponent panel, scoring rules).
 - **Atomic checkpoints.** `data.json` is rewritten directly after every game and read while being written by `ranking`, which silently skips a refresh when parsing fails. Write to a temporary file and rename it. Save the next generation's setup before deleting the previous generation's files, so a crash in between cannot lose the parents. Stop mixing string and symbol keys in game hashes (`games_from_ranking` creates symbol keys, but after a JSON round trip the code reads string keys).
 - **Separate viewing from housekeeping.** `stats` and `ranking` should be read-only. Archiving, pruning, and notifications belong in the runner or a separate command. The `ntfy` notification builds a shell command from data; use `Net::HTTP` instead.
@@ -158,7 +158,7 @@ The largest structural change suggested by the timing sample is a C program that
 1. Add characterization tests for crossover and mutation statistics, the file round trip, and a short scripted GTP game.
 2. Fix the result-changing defects above, one change at a time, each with its test.
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
-4. Move to Ruby 4.0, make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
+4. Make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
 5. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
 Steps 1–2 are prerequisites for trusting any new experiment. Steps 3–5 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
