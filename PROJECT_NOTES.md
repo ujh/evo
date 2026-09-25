@@ -22,11 +22,7 @@ Parents are chosen by tournament selection with a default size of 3 (`tournament
 
 ### 3. Mutation and crossover deserve separate experiments
 
-Mutation changes each weight with probability 0.0004, using an additive perturbation between -0.5 and +0.5. There is also a 1% explicit chance of copying the parent unchanged. For a network with `W` weights:
-
-`P(no changed weights on a mutation attempt) ≈ 0.01 + 0.99 × (1 − 0.0004)^W`
-
-The bundled example has 418 weights, making this probability approximately **84.75%**. Larger networks receive more mutations per child under the same fixed rate. Changes in weights can also leave the chosen moves unchanged, so genetic and behavioral diversity are different measurements.
+A mutated child changes each weight with probability `weight_changes / total_weights`, by a uniform amount within `±weight_step`, and with probability `copy_chance` a child is an unchanged copy instead. All three are genes of each network (see the last paragraph). Because `weight_changes` is a count, the expected number of changed weights per child does not grow with the network. With few changes per child, many children differ from their parent in only a weight or two, and changes in weights can also leave the chosen moves unchanged, so genetic and behavioral diversity are different measurements.
 
 Crossover and mutation are mutually exclusive in `evolve/main.c`. Increasing the crossover rate reduces the number of mutation attempts. Crossing identical parents produces an identical child, which becomes relevant if selection concentrates the population.
 
@@ -119,7 +115,7 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). A shared 3×3 scorer is just a small GENANN network evaluated once per candidate, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes and both activations. What is still missing:
 
-- **Network settings in the genome.** Every network uses GENANN's default activation, the cached sigmoid, for now; the owner does not want activations as experiment settings. Sizes and activations could later evolve instead, as genes of each network, which the file format already records. Changing an activation is a simple mutation; changing sizes needs a rule for the weights that appear or disappear, and crossover between different shapes.
+- **Network settings in the genome.** The hidden and output activations now evolve as genes of each network (generation 0 starts with the cached sigmoid); the owner does not want activations as experiment settings. Sizes are to evolve as genes too, in the next PR. Changing an activation is a simple mutation; changing sizes needs a rule for the weights that appear or disappear, and crossover between different shapes.
 - **Scorer metadata.** The shared 3×3 scorer will need more in the file, such as its feature set and symmetry handling. Add it under a new format version.
 
 GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.

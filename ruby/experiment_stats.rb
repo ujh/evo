@@ -99,9 +99,13 @@ class ExperimentStats
   end
 
   # A bred child equal to a parent. A copy always is; a child of another
-  # shape than a parent has no count for it.
+  # shape than a parent has no count for it, and one whose activation
+  # switched plays differently even with the same weights.
   def identical?(birth)
-    birth[:operator] == 'copy' || birth[:differs_from_first]&.zero? || birth[:differs_from_second]&.zero? || false
+    return true if birth[:operator] == 'copy'
+    return false if birth[:activation_changed]
+
+    birth[:differs_from_first]&.zero? || birth[:differs_from_second]&.zero? || false
   end
 
   def median(sorted)

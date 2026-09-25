@@ -201,6 +201,17 @@ class ExperimentStatsTest < Minitest::Test
     assert_nil @stats.generation(3)[:benchmark]
   end
 
+  # Same weights with a switched activation is no copy.
+  def test_a_mutation_that_switched_an_activation_is_not_identical
+    reopen_writing do |writer|
+      writer.record_birth(generation: 4, child: '0.ann', first_parent: 'a.ann', second_parent: 'b.ann',
+                          operator: 'mutation', parent: 'first', activation_changed: true,
+                          differs_from_first: 0, differs_from_second: 5, seed: 0, genome: 'x0')
+      writer.save_state(4, { 'round' => 0, 'players' => PLAYERS, 'ranking' => [] })
+    end
+    assert_equal 0, @stats.generation(4)[:population][:identical]
+  end
+
   # The population figures of a generation 4 whose births are the given
   # [first, second, operator, differs_from_first, differs_from_second, parent].
   def population_of(*births)

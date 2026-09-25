@@ -79,7 +79,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ### Running experiments
 
-- On a first run, `mise run run NAME` prompts on STDIN for settings. To start without prompts, create the experiment first; `SetupExperiment::SETTINGS` lists every setting with its default and its type (a whole number, an even whole number, or a number, and its range; `mise run new-experiment` without arguments shows them). A value that does not parse strictly is refused when the experiment is created, and a prompt asks again. The database stores settings as strings; `SetupExperiment.parse` turns them into Integers and Floats on every load, so the runner never converts them itself, and test settings must be typed too.:
+- On a first run, `mise run run NAME` prompts on STDIN for settings. To start without prompts, create the experiment first; `SetupExperiment::SETTINGS` lists every setting with its default and its type (a whole number, an even whole number, or a number, and its range; `mise run new-experiment` without arguments shows them). A value that does not parse strictly is refused when the experiment is created, and a prompt asks again. The database stores settings as strings; `SetupExperiment.parse` turns them into Integers and Floats on every load, so the runner never converts them itself, and test settings must be typed too:
   ```sh
   mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 \
     --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 1 --keep-every 0 --seed 3
