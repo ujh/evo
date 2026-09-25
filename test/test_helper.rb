@@ -4,6 +4,7 @@ require 'json'
 require 'tmpdir'
 require_relative '../ruby/run_generation'
 require_relative '../ruby/experiment_database'
+require_relative '../ruby/setup_experiment'
 
 $stop_now = false
 
@@ -47,9 +48,10 @@ module RunGenerationHelpers
     end
   end
 
-  # One in-memory experiment database per test.
+  # One in-memory experiment database per test, with the opponents and
+  # scoring a new experiment gets.
   def database
-    @database ||= ExperimentDatabase.new(':memory:')
+    @database ||= ExperimentDatabase.new(':memory:').tap { |db| SetupExperiment.save_rules(db) }
   end
 
   # Saves a generation's tournament state, as the runner's save_data does.

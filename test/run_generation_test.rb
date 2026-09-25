@@ -344,6 +344,44 @@ class GamesFromRankingTest < Minitest::Test
     end
   end
 
+  # The opponents come from the experiment's database, not from the code, so
+  # an experiment keeps its panel when the defaults change.
+  def test_the_opponents_come_from_the_experiment
+    in_experiment do
+      File.write('0001.ann', '')
+      store = ExperimentDatabase.new(':memory:')
+      store.save_opponents([{ name: 'Pachi', command: 'pachi --playouts 10', copies: 2 }])
+      store.save_scoring(SetupExperiment::DEFAULT_SCORING)
+      players = build_generation(store:).send(:setup_players)
+      assert_equal({ 'Pachi1' => { 'command' => 'pachi --playouts 10', 'external' => true },
+                     'Pachi2' => { 'command' => 'pachi --playouts 10', 'external' => true },
+                     '0001.ann' => { 'command' => '../evo 0001.ann' } }, players)
+    end
+  end
+
+  # Points for a win, a draw, and a bye come from the experiment too.
+  def test_points_come_from_the_experiments_scoring
+    in_experiment do
+      store = ExperimentDatabase.new(':memory:')
+      store.save_opponents([])
+      store.save_scoring(SetupExperiment::DEFAULT_SCORING.merge('win' => 3, 'draw' => 1, 'bye' => 2))
+      games = [{ 'black' => 'a.ann', 'white' => 'b.ann' }, { 'black' => 'c.ann', 'white' => 'd.ann' },
+               { 'black' => 'e.ann', 'white' => nil }, { 'black' => 'f.ann', 'white' => 'g.ann' }]
+      store.save_state(1, { 'round' => 0, 'games' => games,
+                            'players' => %w[a b c d e f g].to_h { |n| ["#{n}.ann", { 'command' => "../evo #{n}.ann" }] },
+                            'ranking' => %w[a b c d e f g].map { |n| { 'name' => "#{n}.ann", 'score' => 0 } } })
+      gen = build_generation(store:)
+      capture_io do
+        gen.send(:update_data, games[0], { 'winner' => 'a.ann' })
+        gen.send(:update_data, games[1], { 'winner' => nil })
+        gen.send(:update_data, games[2], { 'winner' => nil })
+        gen.send(:update_data, games[3], { 'winner' => nil, 'failure' => 'no referee score: ?' })
+      end
+      scores = gen.send(:data)['ranking'].to_h { |r| r.values_at('name', 'score') }
+      assert_equal({ 'a.ann' => 3, 'b.ann' => 0, 'c.ann' => 1, 'd.ann' => 1, 'e.ann' => 2, 'f.ann' => 0, 'g.ann' => 0 }, scores)
+    end
+  end
+
   def test_tournament_includes_every_external_player_and_a_bye_for_odd_counts
     in_experiment do
       %w[0001.ann 0002.ann 0003.ann 0004.ann].each { |name| File.write(name, '') }

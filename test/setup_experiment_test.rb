@@ -4,6 +4,7 @@ require 'json'
 require 'stringio'
 require 'tmpdir'
 require_relative '../ruby/setup_experiment'
+require_relative '../ruby/run_generation'
 
 class SetupExperimentTest < Minitest::Test
   REQUIRED = %w[--board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5
@@ -97,6 +98,41 @@ class SetupExperimentTest < Minitest::Test
       # The database keeps strings; loading parses them again.
       assert_equal '9', database.settings['board_size']
       assert_equal '0.5', database.settings['cross_over_rate']
+    end
+  end
+
+  def test_a_new_experiment_stores_its_opponents_and_scoring
+    in_tmpdir do
+      SetupExperiment.create('experiments/x', REQUIRED)
+      database = ExperimentDatabase.new('experiments/x/experiment.sqlite3', readonly: true)
+      assert_equal [{ name: 'Brown', command: 'brown', copies: 5 }, { name: 'AmiGo', command: 'amigogtp', copies: 10 }],
+                   database.opponents
+      assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
+      assert_equal RunGeneration::SCORING_RULES, database.scoring['rules']
+    end
+  end
+
+  def test_prompted_settings_store_the_opponents_and_scoring_too
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      answers = SetupExperiment::SETTINGS.keys.map { |key| { 'seed' => '', 'board_size' => '9' }.fetch(key, '1') }
+      with_stdin("#{answers.join("\n")}\n") { SetupExperiment.settings(database) }
+      assert_equal 2, database.opponents.size
+      assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
+    end
+  end
+
+  # Scoring logic that changed since the experiment began would score its
+  # remaining games by different rules, so the run refuses to start.
+  def test_an_experiment_scored_by_other_rules_does_not_run
+    in_tmpdir do
+      fake_checkout
+      database = ExperimentDatabase.new('experiments/x/experiment.sqlite3')
+      database.save_scoring(database.scoring.merge('rules' => 'older'))
+      database.close
+      error = assert_raises(RuntimeError) { capture_io { run_setup } }
+      assert_includes error.message, 'older'
+      refute File.exist?('experiments/x/evo')
     end
   end
 

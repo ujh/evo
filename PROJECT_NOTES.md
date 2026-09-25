@@ -109,7 +109,7 @@ The tournament also plays games between copies of the same bot. Brown and AmiGo 
 Candidate remedies, to decide between:
 
 - Skip pairings between two copies of the same bot. This is for accuracy more than speed.
-- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; next come GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. Because a changing panel changes what a tournament score means, the ladder depends on the fixed benchmark from item 1.
+- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; it lives in each experiment's `opponents` table, which the runner reads every generation, so a ladder can add rows; next come GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. Because a changing panel changes what a tournament score means, the ladder depends on the fixed benchmark from item 1.
 - Play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, keeping GoGui with GNU Go for benchmark games. This removes the per-game overhead, which is now nearly all of a generation's game time. Once GNU Go opponents return through the ladder, their games would still be slow.
 
 The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
@@ -120,7 +120,6 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 ### Structure and hygiene
 
-- **Record the opponent panel and scoring rules.** They live in the code (`EXTERNAL_PLAYERS`, `score_game`), so a later change silently changes what an older experiment's records mean. Store them with the experiment, like its provenance.
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library
