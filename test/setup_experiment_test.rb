@@ -92,7 +92,7 @@ class SetupExperimentTest < Minitest::Test
     in_tmpdir do
       database = ExperimentDatabase.new('experiment.sqlite3')
       with_stdin("9\n4\n") do
-        error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+        error = assert_raises(SetupExperiment::PromptAborted) { SetupExperiment.settings(database) }
         assert_includes error.message, 'hidden_layers'
       end
       assert_empty database.settings
@@ -103,7 +103,7 @@ class SetupExperimentTest < Minitest::Test
     in_tmpdir do
       database = ExperimentDatabase.new('experiment.sqlite3')
       with_stdin("\n" * SetupExperiment::SETTINGS.size) do
-        error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+        error = assert_raises(SetupExperiment::PromptAborted) { SetupExperiment.settings(database) }
         assert_includes error.message, 'board_size'
       end
       assert_empty database.settings

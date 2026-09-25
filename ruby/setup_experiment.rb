@@ -6,6 +6,10 @@ require_relative 'seeds'
 class SetupExperiment
   DATABASE = 'experiment.sqlite3'.freeze
 
+  # The prompts were cut short; nothing was saved. Its own class, so the
+  # runner can report this without catching errors from the run itself.
+  class PromptAborted < StandardError; end
+
   # Every setting, with its prompt and its default. nil means required; a
   # Proc is called for a fresh default.
   SETTINGS = {
@@ -106,10 +110,10 @@ class SetupExperiment
       label = default.nil? ? prompt : "#{prompt} (default #{default.respond_to?(:call) ? 'random' : default})"
       print "#{label}: "
       line = $stdin.gets
-      raise ArgumentError, "input ended before #{key} was set" if line.nil?
+      raise PromptAborted, "input ended before #{key} was set" if line.nil?
 
       answer = line.chomp
-      raise ArgumentError, "#{key} is required" if answer.empty? && default.nil?
+      raise PromptAborted, "#{key} is required" if answer.empty? && default.nil?
 
       [key, answer.empty? ? default_for(default) : answer]
     end
