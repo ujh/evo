@@ -22,8 +22,6 @@ Cubing scores makes a score of 10 worth 1,000 times as much reproductive probabi
 
 **Proposed response:** consider rank-based selection or a small parent-selection tournament, with explicit behavior for zero-score populations. Track unique genomes, distinct parents, and how much reproduction each parent receives. Preserve a small number of elites, while measuring whether selection leaves enough variation.
 
-Decide whether to bring back the owner's parked elitism and champion-retention work on [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention) once selection is reworked and tested. Its commit message describes what it changes.
-
 ### 3. Mutation and crossover deserve separate experiments
 
 Mutation changes each weight with probability 0.0004, using an additive perturbation between -0.5 and +0.5. There is also a 1% explicit chance of copying the parent unchanged. For a network with `W` weights:
@@ -200,6 +198,7 @@ There is precedent for training substantial neural policies with genetic algorit
 
 ## Questions to settle together
 
+- Should the owner's parked elitism and champion-retention work on [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention) come back once selection is reworked and tested? Its commit message describes what it changes.
 - Which network sizes, populations, and approximate runtimes were used before? Do historical results or champions exist elsewhere?
 - For a shared 3×3 scorer, should the first version use occupancy patterns alone or also a few tactical features such as liberties and captures?
 - What hardware, compute budget, and unattended runtime are comfortable for a single experiment?

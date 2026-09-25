@@ -10,10 +10,11 @@ pr=${1:?usage: mise run pr-checks PR}
 head=$(git rev-parse HEAD)
 filter="$(dirname "$0")/pr-rollup.jq"
 
-# sh has no pipefail, so fetch first: a failed gh call must stop the script
-# here instead of feeding jq nothing, which would read as green.
+# sh has no pipefail, so fetch before piping: a failed or empty gh call must
+# stop the script instead of feeding jq nothing, which would read as green.
 not_passed() {
   json=$(gh pr view "$pr" --json headRefOid,statusCheckRollup) || return 1
+  [ -n "$json" ] || { printf 'gh pr view returned nothing for PR %s.\n' "$pr" >&2; return 1; }
   printf '%s\n' "$json" | jq -r --arg head "$head" -f "$filter"
 }
 
@@ -27,18 +28,20 @@ head_moved() {
   esac
 }
 
-# Checks register a few seconds after a push.
+# Checks register a few seconds after a push. The tests shorten the wait.
+max_tries=${PR_CHECKS_TRIES:-30}
+pause=${PR_CHECKS_SLEEP:-10}
 tries=0
 while :; do
   result=$(not_passed)
   head_moved "$result"
   [ "$result" = "NO CHECKS" ] || break
   tries=$((tries + 1))
-  if [ "$tries" -gt 30 ]; then
-    printf 'No checks registered for PR %s after 5 minutes.\n' "$pr" >&2
+  if [ "$tries" -gt "$max_tries" ]; then
+    printf 'No checks registered for PR %s after %s seconds.\n' "$pr" "$((max_tries * pause))" >&2
     exit 1
   fi
-  sleep 10
+  sleep "$pause"
 done
 
 gh pr checks "$pr" --watch --interval 20 >/dev/null 2>&1 || true

@@ -9,11 +9,10 @@ class PrRollupTest < Minitest::Test
   FILTER = File.expand_path('../scripts/pr-rollup.jq', __dir__)
   HEAD = 'abc123'.freeze
 
-  # Pass started: nil to leave startedAt out, as a check with only completedAt.
-  def check_run(conclusion, name: 'build-and-test', workflow: 'CI', started: '2026-09-24T19:03:47Z', completed: nil)
+  def check_run(conclusion, name: 'build-and-test', workflow: 'CI', started: '2026-09-24T19:03:47Z')
     { '__typename' => 'CheckRun', 'name' => name, 'workflowName' => workflow,
       'status' => conclusion.empty? ? 'IN_PROGRESS' : 'COMPLETED',
-      'conclusion' => conclusion, 'startedAt' => started, 'completedAt' => completed }.compact
+      'conclusion' => conclusion, 'startedAt' => started, 'completedAt' => '0001-01-01T00:00:00Z' }
   end
 
   def status_context(state, context: 'ci/external')
@@ -61,10 +60,12 @@ class PrRollupTest < Minitest::Test
     assert_equal ["FAILURE\tbuild-and-test"], run_filter([new_success.merge('startedAt' => '2026-09-24T17:00:00Z'), old_failure])
   end
 
-  def test_latest_run_falls_back_to_completion_time
-    old_failure = check_run('FAILURE', started: nil, completed: '2026-09-24T19:00:00Z')
-    new_success = check_run('SUCCESS', started: nil, completed: '2026-09-24T20:00:00Z')
-    assert_empty run_filter([new_success, old_failure])
+  def test_queued_rerun_outranks_the_failure_it_replaces
+    # gh reports a run that has not started with the zero time, not null.
+    old_failure = check_run('FAILURE', started: '2026-09-24T19:00:00Z')
+    queued = check_run('', started: '0001-01-01T00:00:00Z')
+    assert_equal ["PENDING\tbuild-and-test"], run_filter([queued, old_failure])
+    assert_equal ["PENDING\tbuild-and-test"], run_filter([old_failure, queued])
   end
 
   def test_same_check_name_in_two_workflows_counts_separately
