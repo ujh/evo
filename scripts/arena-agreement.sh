@@ -36,7 +36,8 @@ trap 'rm -rf "$scratch"' EXIT
 trap 'kill $lane_pids 2>/dev/null; exit 1' HUP INT TERM
 
 komi=6.5
-referee='gnugo --mode gtp --chinese-rules'
+# Seeded, so which games count as having no dead stones is the same every run.
+referee='gnugo --mode gtp --chinese-rules --seed 1'
 # The sample below yields 10 such games; fewer means the sample or the
 # networks changed so that the winner comparison no longer tests much.
 min_compared=5
