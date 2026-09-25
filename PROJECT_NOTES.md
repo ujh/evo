@@ -1,54 +1,10 @@
-# Evo: assessment and next experiments
+# Evo: open work
 
-Working draft, 23 September 2026; code review, timing sample, and cleanup plan added 24 September. This records an assessment of the current checkout and proposals for discussion. The owner has chosen measurable improvement from evolution as the objective; the experiment design and milestones remain proposals. No implementation changes were made for this assessment.
+This file lists only work still to do: defects, cleanup, proposed experiments, and open questions. Delete an item when a change finishes it. Facts a future agent needs go into `CLAUDE.md`.
 
-Assessment scope: commit `621f367` plus the owner's existing uncommitted changes in `ruby/run_generation.rb` and `stats`. Those local changes affect elitism, opponent counts, and champion retention; findings about those behaviors describe the assessed working copy. This document is being published separately from those implementation changes. The `pcg-c` submodule also reported untracked local files.
+**Objective:** show that evolution produces measurable improvement in Go. The proposed first milestone is repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure. Playing strength is not the goal.
 
-## Overall assessment
-
-Evo has a functioning foundation for experiments in neuroevolution: a C policy engine, a Go protocol interface, population generation and breeding, and a Ruby tournament runner. The separation between these components is useful and does not currently justify a rewrite.
-
-The main weakness is our ability to tell whether evolution is producing broadly better Go players. Tournament results mix changing opponents, unequal opportunities to face external bots, aggressive selection, and some incorrect handling of game outcomes. Historical evidence is also discarded. These issues make an apparent improvement or plateau difficult to interpret.
-
-The owner reports that play never visibly improved and experiments took a long time. Before pausing the project, the intended next step was to give the engine a better representation using 3×3 patterns, or use a neural network inside a UCT-style search. This is useful observational evidence, although actual playing strength and the cause of stagnation remain unmeasured: the local `experiments/` directory is empty, and no historical run settings, learning curves, or evolved champions were available for inspection. The bundled example can play complete games, but it is a test fixture with no established training history.
-
-The agreed objective is: **show that evolution produces measurable improvement in Go.** The proposed first milestone is repeatable improvement on a small board under a fixed, trustworthy evaluation procedure.
-
-## What exists today
-
-| Component | Current behavior |
-| --- | --- |
-| [C engine](engine/generate_move.c) | Encodes each intersection as own stone, empty, or opponent stone, plus signed komi. A dense feedforward network produces one score per intersection and one for passing. |
-| Move selection | Selects the highest scoring permitted move. Brown's board code handles captures and simple ko; extra filtering excludes suicide and some moves into the player's own territory. There is no lookahead. |
-| [Initial population](initial-population/main.c) | Creates randomly initialized networks with a fixed architecture chosen in experiment settings. |
-| [Breeding](evolve/evolve.c) | Either crosses two flattened weight arrays at one position, or copies a parent and mutates individual weights. Network topology does not evolve. |
-| [Tournament harness](ruby/run_generation.rb) | Pairs neighboring entries in the ranking each round, randomizes colors, and runs games through GoGui with GNU Go as referee. |
-| Selection | Awards 1 point for beating another network or Brown, 10 for AmiGo, 50 for GNU Go level 0, and 100 for level 10. Parent sampling is proportional to the cube of the score. |
-| Local, uncommitted additions | Preserve the top player into the next generation, copy another selected player for about 10% of other births, preserve a previous champion as `best.ann`, and increase the number of Brown opponents. |
-| [Statistics](stats) | Reports wins against external bots, archives result tables, and deletes older champions. |
-
-More precisely, this is evolution of the weights of a fixed neural policy. That is a reasonable experimental choice; evolving program structure or network topology would be a different extension.
-
-Useful existing choices include the shared perspective for Black and White, a separate pass output, legality filtering outside the network, external reference opponents, and saving progress after individual results. Elitism in the local changes is also a useful protection against losing the current tournament winner.
-
-## Evidence from this assessment
-
-Builds and tests ran in a temporary source copy, preserving the repository's code and existing build artifacts.
-
-| Check | Observation | What it establishes |
-| --- | --- | --- |
-| Fresh `make` | Passed | The C components build locally. |
-| `make test` | Passed | Existing library, crossover, and command smoke checks pass. |
-| Ruby runtime | Pinned Ruby 3.3.0 is absent locally; syntax checks and focused probes used installed Ruby 3.4.7. | The normal Ruby entry point needs environment attention; this was not a test under the pinned version. |
-| Two 9×9 games against Brown | The bundled example completed both games, one in each color, with GNU Go refereeing. Both result rows had `ERR=0`; the example lost both. | Protocol integration works for this fixture. Two games do not estimate the strength of evolved populations. |
-| Result parser probe | `B+1.5` selects Black; `W+1.5`, `0`, and `?` all select White. | Draws and unknown results are demonstrably misclassified. |
-| GTP without a saved network | Start engine, set board size to 9, then generate a move: engine exits because its initial network has 37 inputs/outputs and needs 82. | The README's example using `./engine/evo` on a 9×9 board is broken. |
-| Empty-board scoring | On an empty 9×9 board with komi 6.5, the engine reports `W+87.5`. | The inherited internal scorer is unsuitable for arbitrary positions. |
-| Inference cost (24 Sep) | A freshly initialized 9×9 network with 3 hidden layers of 400 neurons (≈387k weights) answered 1,000 `genmove` commands in 0.21 s, about 0.2 ms per move. Engine start and exit took about 10 ms. | Network evaluation is not a meaningful cost at the sizes used so far. |
-| Game cost (24 Sep) | Via `gogui-twogtp` on 9×9: a random network against itself ended by passing after 18 moves and took 2.1–2.2 s in three runs. The example network against Brown (180 moves) and Brown against AmiGo (93 moves) took 0.16 s each. Without the referee, the 18-move game took 0.12 s. | GNU Go refereeing a sparsely played board dominated game time in this sample. Early-passing networks, which describes most of an untrained population, are the most expensive games to adjudicate. |
-| Determinism (24 Sep) | Repeating the same pairing gave identical results and game lengths: the random network against itself three times, the example against Brown twice, and Brown against AmiGo three times with a second's pause between runs. | Evo is deterministic and Brown and AmiGo behaved deterministically here. The ten Brown and ten AmiGo instances are then likely copies of the same opponent, and replaying a pairing with the same colors gives no new information. |
-
-Most assertions in `engine/test.c` exercise GENANN numerical behavior and persistence; the checks the experiment actually depends on are missing (see [Code cleanup](#code-cleanup)).
+**Current recommendation:** finish the test-protected cleanup of the defects that change results, then profile a short run, then test evolution of a shared local pattern scorer. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -62,9 +18,11 @@ The percentages in `stats` divide evolved-player wins by the total number of rou
 
 ### 2. Selection may concentrate the population too quickly
 
-Cubing scores makes a score of 10 worth 1,000 times as much reproductive probability as a score of 1. Combined with external-opponent bonuses and uneven schedules, one exceptional result can dominate reproduction. This is a plausible cause of lost diversity, but there is no surviving run data here to demonstrate that it happened.
+Cubing scores makes a score of 10 worth 1,000 times as much reproductive probability as a score of 1. Combined with external-opponent bonuses and uneven schedules, one exceptional result can dominate reproduction. This is a plausible cause of lost diversity, but no run data exists yet to show that it happened.
 
 **Proposed response:** consider rank-based selection or a small parent-selection tournament, with explicit behavior for zero-score populations. Track unique genomes, distinct parents, and how much reproduction each parent receives. Preserve a small number of elites, while measuring whether selection leaves enough variation.
+
+The owner's earlier elitism and champion-retention changes are parked on the branch [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention). That branch keeps the top player, copies a selected player for about 10% of other births, keeps the previous champion as `best.ann`, and raises the number of Brown opponents to 10. Decide whether to bring it back once selection is reworked and tested.
 
 ### 3. Mutation and crossover deserve separate experiments
 
@@ -72,7 +30,7 @@ Mutation changes each weight with probability 0.0004, using an additive perturba
 
 `P(no changed weights on a mutation attempt) ≈ 0.01 + 0.99 × (1 − 0.0004)^W`
 
-The bundled example has 418 weights, making this probability approximately **84.75%**. This calculation describes that architecture, not unknown historical runs. Larger networks receive more mutations per child under the same fixed rate. Changes in weights can also leave the chosen moves unchanged, so genetic and behavioral diversity are different measurements.
+The bundled example has 418 weights, making this probability approximately **84.75%**. Larger networks receive more mutations per child under the same fixed rate. Changes in weights can also leave the chosen moves unchanged, so genetic and behavioral diversity are different measurements.
 
 Crossover and mutation are mutually exclusive in `evolve/main.c`. Increasing the crossover rate reduces the number of mutation attempts. Crossing identical parents produces an identical child, which becomes relevant if selection concentrates the population.
 
@@ -98,7 +56,7 @@ Cached sigmoid outputs also create artificial score ties, which favor earlier in
 
 ## Go rules and scoring boundary
 
-Brown's internal final-status algorithm assumes the board has been filled according to Brown's original move policy. Evo can pass earlier, so those assumptions do not generally hold. The GNU Go referee is consequently an important part of the current experimental setup: the internal scoring defect does not by itself establish that tournament winners are wrong.
+Brown's internal final-status algorithm assumes the board has been filled according to Brown's original move policy. Evo can pass earlier, so those assumptions do not generally hold. The GNU Go referee is consequently an important part of the current experimental setup.
 
 Before treating results as reliable, specify the board size, komi, suicide policy, ko rule, scoring method, and adjudication of unfinished games. The local engine uses simple ko and accepts suicide through `play`, although its generated moves exclude suicide. Those conventions should agree with the surrounding match system.
 
@@ -116,7 +74,7 @@ Appending separate pattern inputs to the existing dense whole-board network woul
 
 Pure 3×3 occupancy cannot describe all tactical situations. A neighboring chain can extend beyond the window and have liberties elsewhere. A small number of optional features—such as whether the move captures, saves a chain in atari, or leaves the played chain with one liberty—would expose this information. Passing also needs an explicit mechanism with enough whole-board context. Which features to supply is still open.
 
-This is my recommended first representation experiment. The hypothesis is that reusable local features make useful behavior easier to evolve. Success must be measured as improvement within this representation from its own initial population, and against random search using the same representation. A stronger starting policy alone would not demonstrate learning through evolution.
+This is the recommended first representation experiment. The hypothesis is that reusable local features make useful behavior easier to evolve. Success must be measured as improvement within this representation from its own initial population, and against random search using the same representation. A stronger starting policy alone would not demonstrate learning through evolution.
 
 ### A network inside UCT-style search
 
@@ -132,27 +90,27 @@ There is direct precedent for combining learned knowledge with Go search. Gelly 
 
 For this repository, search also needs a way to copy or restore full board state, correct treatment of simulation endings and ko, and reliable simulation scoring. The current Brown board state is stored in static arrays and exposes neither a snapshot API nor undo. Its inherited scorer cannot simply be used on arbitrary search leaves.
 
-My recommendation is to consider using the local scorer to guide exploration after establishing a useful direct policy. A subsequent experiment must compare search with evolved guidance against the same search with uniform or frozen initial guidance. Use equal simulation budgets to study guidance quality, and equal elapsed-time budgets to measure practical benefit; report both. Search adds work per move, but whether it reduces total compute needed to reach a target strength is an empirical question.
+The recommendation is to consider using the local scorer to guide exploration after establishing a useful direct policy. A subsequent experiment must compare search with evolved guidance against the same search with uniform or frozen initial guidance. Use equal simulation budgets to study guidance quality, and equal elapsed-time budgets to measure practical benefit; report both. Search adds work per move, but whether it reduces total compute needed to reach a target strength is an empirical question.
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Each game launches a new GoGui process, two players, and a GNU Go referee. A first timing sample (see the evidence table) points away from the neural network and toward adjudication: inference took about 0.2 ms per move even for a 387k-weight network, while refereeing an 18-move game took about 2 s, more than ten times the cost of a complete 180-move game. The tournament also spends games on pairings that carry no selection signal: bots playing each other, and repeated deterministic pairings.
+Each game launches a new GoGui process, two players, and a GNU Go referee. A timing sample points away from the neural network and toward adjudication (see "Performance" in `CLAUDE.md`). The tournament also spends games on pairings that carry no selection signal: bots playing each other, and repeated deterministic pairings.
 
-The remedies are to play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, to stop scheduling bot-against-bot games and duplicate deterministic bot instances, and to keep GoGui with GNU Go for benchmark games. The sample covers a few games on one machine; repeat it over a full generation, reporting games per minute at the intended concurrency, before relying on it. The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
+The remedies are to play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, to stop scheduling bot-against-bot games and duplicate deterministic bot instances, and to keep GoGui with GNU Go for benchmark games. The sample covers a few games on one machine and used a clang-built GNU Go referee from before the `gg_sort` patch. Repeat it over a full generation, reporting games per minute at the intended concurrency, before relying on it. The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
 
 ## Code cleanup
 
-The owner wrote the code quickly as a side project and does not fully trust it. A code review on 24 September supports that: several defects affect results or long runs, and much of the remaining code is duplicated or unused. The C/Ruby split can stay. The code needs a cleanup pass protected by tests before new representations are added, because each new experiment otherwise inherits these defects.
+The code was written quickly as a side project, and several defects affect results or long runs. The C/Ruby split can stay. The code needs a cleanup pass protected by tests before new representations are added, because each new experiment otherwise inherits these defects.
 
 ### Defects that can change results
 
-These should be fixed first, each with a test that fails before the fix.
+Fix each with a test that fails before the fix.
 
 | Location | Problem | Effect |
 | --- | --- | --- |
 | [`stats:65`](stats), [`ranking:37`](ranking) | Result lines are split on whitespace, so an empty column (GoGui leaves `RES_B` or `RES_W` empty when a program gives no score) shifts `RES_R` and `LEN`. Anything not starting with `B` counts as a White win. | Reported win rates and game lengths can be wrong. Reuse `ruby/game_result.rb`, which the runner uses. |
-| [`ruby/run_generation.rb:222`](ruby/run_generation.rb) | Parent pool is an array of `score³` copies of each filename. | One score of 500 already means 125 million entries (about 1 GB). An all-zero population gives an empty pool, and `picks.first` / `picks.sample` return `nil`, which breaks the `cp` and `evolve` calls. Small runs hit this in generation 1, because random networks rarely win a game. |
-| [`ruby/run_generation.rb:237`](ruby/run_generation.rb) | `evolve` runs in backticks, its exit status is ignored, and it writes `child.ann` into the working directory. | A failed breed either stops the run (`mv` of a missing `child.ann`) or silently reuses a stale `child.ann` left by an earlier interrupted run. Breeding cannot safely run in parallel. |
+| [`ruby/run_generation.rb`](ruby/run_generation.rb) `parent_pool` | Parent pool is an array of `score³` copies of each filename. | One score of 500 already means 125 million entries (about 1 GB). An all-zero population gives an empty pool, and `picks.sample` returns `nil`, which breaks the `evolve` call. Small runs hit this in generation 1, because random networks rarely win a game. |
+| [`ruby/run_generation.rb`](ruby/run_generation.rb) `evolve_from_previous_population` | `evolve` runs in backticks, its exit status is ignored, and it writes `child.ann` into the working directory. | A failed breed either stops the run (`mv` of a missing `child.ann`) or silently reuses a stale `child.ann` left by an earlier interrupted run. Breeding cannot safely run in parallel. |
 | [`ruby/run_generation.rb`](ruby/run_generation.rb) `games_from_ranking` | External bots are paired with each other, and an odd player count gives the last-ranked player a free point (a "bye"). | Compute goes to games that carry no selection signal, and byes add points unrelated to play. |
 | [`engine/generate_move.c:114`](engine/generate_move.c) | A network whose size does not match the board calls `exit(1)` inside `genmove`. | The process dies mid-game instead of returning a GTP error. `boardsize` should reject a size the loaded network cannot play. |
 | [`engine/interface.c:153`](engine/interface.c) | The engine reports its name as `Brown`. | SGF files and GoGui output cannot tell Evo apart from the real Brown opponent. |
@@ -164,21 +122,20 @@ These should be fixed first, each with a test that fails before the fix.
 ### Structure and hygiene
 
 - **One copy of each shared file.** `genann.c` and `genann.h` exist in identical copies in `lib/`, `engine/`, `evolve/`, and `initial-population/`, and `minctest.h` in `lib/`, `engine/`, and `evolve/`. Every Makefile compiles its local copy. `lib/` is unused. Build shared code once from `lib/` (as a static library or shared object files) so a fix cannot land in one copy only.
-- **Concurrency without Ractors.** The worker pool uses `Ractor.yield` and `Ractor#take`, which Ruby 4.0 removed in favor of `Ractor::Port` (checked against locally installed Ruby 3.4.7 and 4.0.5), so the harness will not run on current Ruby. Each generation also creates new Ractors and re-installs the `SIGINT` trap without stopping the previous ones. The workers only call `system`, which releases the interpreter lock, so a fixed pool of threads fed from a `Queue`, created once per experiment, is simpler and sufficient. Pin the new Ruby version through mise (next item).
+- **Concurrency without Ractors.** The worker pool uses `Ractor.yield` and `Ractor#take`, which Ruby 4.0 removed in favor of `Ractor::Port`, so the harness will not run on current Ruby. Each generation also creates new Ractors and re-installs the `SIGINT` trap without stopping the previous ones. The workers only call `system`, which releases the interpreter lock, so a fixed pool of threads fed from a `Queue`, created once per experiment, is simpler and sufficient. Move the mise Ruby pin to 4.0 in the same change, and test experiment runs under it.
 - **Typed, validated settings.** `settings.json` stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment needs (seed, code revision, opponent panel, scoring rules).
 - **Atomic checkpoints.** `data.json` is rewritten directly after every game and read while being written by `ranking`, which silently skips a refresh when parsing fails. Write to a temporary file and rename it. Save the next generation's setup before deleting the previous generation's files, so a crash in between cannot lose the parents. Stop mixing string and symbol keys in game hashes (`games_from_ranking` creates symbol keys, but after a JSON round trip the code reads string keys).
 - **Separate viewing from housekeeping.** `stats` and `ranking` should be read-only. Archiving, pruning, and notifications belong in the runner or a separate command. The `ntfy` notification builds a shell command from data; use `Net::HTTP` instead.
-- **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries and record the git revision.
+- **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
 - **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
-- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), parent selection edge cases, mutation statistics, the file format round trip, and resuming a generation. Record the fraction of offspring identical to a parent, not only that the code runs.
-- **Pin the toolchain with mise.** The pinned Ruby 3.3.0 is not installed. GoGui needs Java, but no version is recorded. GNU Go, GoGui, Brown, and AmiGo are installed by hand from different places. Add a `mise.toml` that pins Ruby (moving to 4.0 together with the thread-pool change) and a Java version for GoGui, and replace `.ruby-version`. Define mise tasks (`build`, `test`, `run`, `stats`) as the documented entry points, and use `jdx/mise-action` in CI so CI builds with the same versions. Where mise has no plugin for a tool (GNU Go, Brown, AmiGo, probably GoGui), use a pinned install task that downloads a fixed release and checks its checksum. Record the tool versions in each experiment's metadata along with the git revision.
-- **Update the README.** The "Running brown against itself" example is broken. Document how to benchmark a saved network instead.
+- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), mutation statistics, the file format round trip, and resuming a generation. Record the fraction of offspring identical to a parent, not only that the code runs.
+- **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library
 
 GENANN is used only for a dense forward pass, random initialization, copying, and a binary file format that was added locally. Training is never used. The vendored copy already differs from upstream (PCG random numbers and the binary format), so it cannot simply be updated.
 
-Speed is not a reason to replace it: at 0.2 ms per move for a 387k-weight network, inference is small next to game adjudication. The reasons to replace it are that the experiment needs things GENANN does not provide:
+Speed is not a reason to replace it: inference is small next to game adjudication. The reasons to replace it are that the experiment needs things GENANN does not provide:
 
 - **Linear outputs for move choice.** Outputs pass through a sigmoid lookup table of 4,096 steps clipped at ±15. Move selection needs only the highest raw score, and sigmoid preserves order, so the table adds nothing but ties: saturated outputs compare equal, and the earliest intersection or pass wins. A linear output layer removes this artificial tie-breaking at no cost.
 - **A file format that can evolve.** The binary format writes four native `int`s and native `double`s with no magic number, version, activation choice, or endianness. Its callers (`engine/interface.c`, `evolve/evolve.c`) do not check `fopen`, `genann_binary_read` does not check `genann_init` failures, and its error messages say `fscanf`. The shared 3×3 scorer needs a different network shape and metadata such as feature set and symmetry handling, which this header cannot describe.
@@ -195,7 +152,7 @@ The largest structural change suggested by the timing sample is a C program that
 1. Add characterization tests for crossover and mutation statistics, the file round trip, and a short scripted GTP game.
 2. Fix the result-changing defects above, one change at a time, each with its test.
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
-4. Pin the toolchain with mise, replace Ractors with a thread pool, make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
+4. Replace Ractors with a thread pool (moving to Ruby 4.0), make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
 5. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 6. Split CI into separate steps (C tests, Ruby tests, `doctor`, refereed smoke matches) so a failed run shows which part broke. Use the existing `test-c`, `test-ruby`, and `doctor` mise tasks.
 
@@ -230,13 +187,12 @@ There are two useful questions: do descendants play better than the initial popu
 
 This design remains provisional. Previous runs showed no visible improvement and took too long; the acceptable feature set and available compute should determine the next experiment's scale.
 
-## Direction choices
+## Later directions
 
-The selected direction is understanding evolution through measurable improvement in Go. The other directions remain possible later extensions.
+Understanding evolution through measurable improvement is the chosen direction. These remain possible extensions once it has results:
 
 | Direction | What it would emphasize | Main tradeoff |
 | --- | --- | --- |
-| Understand evolution on Go | Keep the current C/Ruby split; make results reproducible; compare evolutionary operators. | Playing strength may remain modest, but experiments become informative. |
 | Build an enjoyable opponent | Add useful Go features and potentially search, with evolution optimizing the policy or evaluator. | More strength may come from authored Go knowledge and search. |
 | Explore evolving structures | Investigate topology evolution, indirect encodings, or program evolution after establishing a baseline. | Larger experimental and implementation scope. |
 
@@ -246,20 +202,8 @@ There is precedent for training substantial neural policies with genetic algorit
 
 - Which network sizes, populations, and approximate runtimes were used before? Do historical results or champions exist elsewhere?
 - For a shared 3×3 scorer, should the first version use occupancy patterns alone or also a few tactical features such as liberties and captures?
-- What hardware and unattended runtime are comfortable for a single experiment?
+- What hardware, compute budget, and unattended runtime are comfortable for a single experiment?
 - Is it acceptable for network-against-network games to use the project's own Tromp–Taylor scoring instead of the GNU Go referee, with GNU Go kept for benchmarks?
 - Should the harness stay in Ruby (moving to 4.0 with a thread pool), or should orchestration move into the C code along with the arena?
-- Which board size and first opponent would make a satisfying initial milestone?
-
-## Decision log
-
-- Agreed scope: assess and discuss the project, culminating in a working document; no implementation changes now.
-- Agreed objective: show that evolution produces measurable improvement in Go.
-- Owner's observations: play never visibly improved, and experiments took a long time. The owner had considered 3×3 pattern inputs or a neural network inside UCT-style search.
-- Current recommendation: address the essential measurement defects and profile a short run, then test evolution of a shared local pattern scorer. Treat search as a possible follow-on that needs its own control experiment.
-- Code review (24 Sep): the code needs a test-protected cleanup pass before new experiments. Several defects change results. GENANN should be replaced by a small module owned by the project, for control over outputs, file format, and batching rather than for speed. Timing points to GNU Go adjudication and wasted pairings as the main costs, not inference.
-- Toolchain follow-up: the mise setup keeps Ruby at 3.3.0 so the current runner remains usable. Upgrade Ruby to 4.0 in a separate change together with replacing the Ractor worker pool and testing experiment runs under the new version.
-- External tool setup follow-up (24 Sep): `mise run setup-experiments` installs checksum-pinned GNU Go 3.8, Brown 1.0, AmiGoGtp 1.8, and GoGui 1.6.0 in the project directory. `mise run verify` includes a complete GoGui match with the GNU Go referee. The macOS setup and match passed; the Linux CI run passed on `main` after merge.
-- Test exit status (24 Sep): `evolve/test.c` now returns nonzero when an assertion fails, so `make test` no longer passes over failed crossover checks.
-- GNU Go referee (24 Sep): GNU Go 3.8's `gg_sort` forms an out-of-range pointer when sorting zero elements. With Apple clang this aborted GNU Go in `final_score` on every game and during level 10 move generation, so every referee result was `?` and the runner scored it as a White win. GCC builds (Linux CI) are unaffected: with a fixed `--seed`, unpatched and patched builds play identical moves. The smoke match only checked the Black engine's own score, so `mise run verify` passed on macOS anyway. The installer now patches `gg_sort`, and `verify` plays a refereed match with each external opponent and Evo and fails on a program error or a missing referee score. Earlier timing samples and results that depended on a clang-built GNU Go referee should be rechecked. Without `--seed`, GNU Go seeds its random choices from the clock, so unlike Brown it varies between runs started in different seconds.
-- Benchmark, compute budget, acceptable built-in Go knowledge, and first implementation milestone: open.
+- Which board size, benchmark, and first opponent would make a satisfying initial milestone?
+- How much built-in Go knowledge (features, search) is acceptable before improvement no longer counts as coming from evolution?
