@@ -2,7 +2,7 @@
 
 Follow these steps in order for every PR. The PR title and body follow the conventions in `CLAUDE.md`.
 
-1. Bring the branch up to date with `main`, because the repository only merges a PR that is. Run `git fetch origin`. Before the first push, rebase onto `origin/main`. Once the branch is pushed, merge `origin/main` into it instead, so no force push is needed (the one exception, a PR stacked on another branch, is in `docs/orchestration.md`). Review and CI then cover what will actually merge.
+1. Bring the branch up to date with `main`, because the repository only merges a PR that is. Run `git fetch origin`. Before the first push, rebase onto `origin/main`. Once the branch is pushed, merge `origin/main` into it instead, so no force push is needed. Review and CI then cover what will actually merge.
 2. Run `mise run test`, plus any smoke run the change calls for. Fix failures first. Once a code file changes, earlier results are stale, so run them again.
 3. List what the change makes newly true. Search the whole repository, including files the diff does not touch, for text that still says the old thing, and correct it.
 4. Review the whole branch (`git diff origin/main...HEAD`) under the [review rules](#review-rules) below, and loop until a round is clean.

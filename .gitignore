@@ -4,7 +4,7 @@
 
 experiments
 plans/
-.local/evo-tools/
+/.local
 .vscode
 .DS_Store
 

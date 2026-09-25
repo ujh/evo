@@ -17,7 +17,7 @@ Write the plan to `plans/NAME.md` in the repository root. The directory is gitig
 
 Have a fresh subagent review the plan itself before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here.
 
-Check how CI treats the PRs you plan. `ci.yml` runs only for pull requests into `main`, so a PR stacked on another branch gets no checks until its base merges; prefer PRs based on `main`, merged in order.
+Check how CI treats the PRs you plan. `ci.yml` runs only for pull requests into `main`, so a PR stacked on another branch gets no checks until its base merges and GitHub retargets it to `main`. Until that is fixed (see `PROJECT_NOTES.md`), a stacked PR is reported with its checks pending and a green local `mise run verify` instead; run `mise run pr-checks` on it once it targets `main`.
 
 ## 3. Run each step through a subagent
 
@@ -29,14 +29,14 @@ Give each step to a fresh subagent with the plan's path, the step, the rules it 
 
 After each code commit, a different fresh subagent reviews that commit under the review rules in `docs/pull-requests.md`, with the owner's decisions and the declined findings. Fix blockers and important findings before the next step that depends on them.
 
-Independent work can run in parallel: a review of step N while step N+1 is built, or a second PR in its own `git worktree` (with `pcg-c` initialized and `.local` linked to the main checkout's). Never let two agents write to the same working tree at once.
+Independent work can run in parallel: a review of step N while step N+1 is built, or a second PR in its own `git worktree`. To set one up, link the main checkout's installed tools into it (`ln -s /path/to/checkout/.local .local`; `/.local` is gitignored), then run `mise trust` and `mise run setup` there (submodule, gems, build). Never let two agents write to the same working tree at once.
 
 Finish with checks on real runs, not only unit tests: a seeded run compared against `main` where behavior must not change, reproducibility, and resume after an interrupt where the change touches the runner. Examples in the docs come from seeded runs, with the full command, so a reader can repeat them.
 
 ## 4. Open the PRs
 
-Follow `docs/pull-requests.md` for each PR: the whole-branch review loop, then push, the PR, and `mise run pr-checks`. A PR stacked on another has to be rebased onto `main` after its base merges, which needs a force push; that is the one exception to merging `main` into a pushed branch.
+Follow `docs/pull-requests.md` for each PR: the whole-branch review loop, then push, the PR, and `mise run pr-checks`. When a stacked PR's base merges, merge `origin/main` into it as for any pushed branch; the repository merges with merge commits, so that is clean.
 
 ## 5. Notify the owner
 
-Report once, when the PRs are open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, and anything left open. Do not stop for approval between steps, and do not merge unless the owner says so.
+Report once, when the PRs are open and green (or, for a stacked PR, verified locally): what each PR does, what the reviews found and how it was settled, the decisions you made, and anything left open. Do not stop for approval between steps, except where `docs/pull-requests.md` says to stop and ask (a third review round that is still not clean, or a finding only the owner can decide), and do not merge unless the owner says so.
