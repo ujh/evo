@@ -134,7 +134,7 @@ loop do
            generations[0..-2].reverse.take(50).reverse
          end
 
-  # The runner creates the result store with the first scored game.
+  # The runner creates the result store when it starts.
   if gens.empty? || !File.exist?('results.sqlite3')
     sleep(5)
     next
