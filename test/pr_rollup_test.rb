@@ -22,7 +22,7 @@ class PrRollupTest < Minitest::Test
 
   def run_filter(rollup, head: HEAD)
     input = JSON.generate('headRefOid' => head, 'statusCheckRollup' => rollup)
-    out, status = Open3.capture2('jq', '-r', '--arg', 'head', HEAD, '-f', FILTER, stdin_data: input)
+    out, status = Open3.capture2('jq', '-rn', '--arg', 'head', HEAD, '-f', FILTER, stdin_data: input)
     assert status.success?, 'jq failed'
     out.lines(chomp: true)
   end
@@ -42,6 +42,16 @@ class PrRollupTest < Minitest::Test
 
   def test_running_check_is_pending
     assert_equal ["PENDING\tbuild-and-test"], run_filter([check_run('')])
+  end
+
+  def test_blank_input_fails
+    _out, status = Open3.capture2e('jq', '-rn', '--arg', 'head', HEAD, '-f', FILTER, stdin_data: " \n ")
+    refute status.success?
+  end
+
+  def test_every_check_that_did_not_pass_is_listed
+    assert_equal ["FAILURE\tbuild-and-test", "PENDING\tlint"],
+                 run_filter([check_run('FAILURE'), check_run('', name: 'lint'), check_run('SUCCESS', name: 'docs')])
   end
 
   def test_empty_or_missing_rollup_means_no_checks

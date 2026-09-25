@@ -37,6 +37,19 @@ class PrChecksScriptTest < Minitest::Test
     refute_includes out, 'All checks passed'
   end
 
+  def test_check_still_pending_after_the_watch_fails
+    out, err, status = run_checks(view([success.merge('status' => 'IN_PROGRESS', 'conclusion' => '')]))
+    assert_equal 1, status
+    assert_includes err, "Checks that did not pass on #{head}:\nPENDING\tbuild-and-test"
+    refute_includes out, 'All checks passed'
+  end
+
+  def test_blank_gh_output_fails_instead_of_reading_as_green
+    out, _err, status = run_checks(" \n ")
+    refute_equal 0, status
+    refute_includes out, 'All checks passed'
+  end
+
   def test_pr_at_another_commit_fails
     _out, err, status = run_checks(view([success], head_ref: 'def456'))
     assert_equal 1, status

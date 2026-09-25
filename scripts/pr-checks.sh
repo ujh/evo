@@ -15,7 +15,7 @@ filter="$(dirname "$0")/pr-rollup.jq"
 not_passed() {
   json=$(gh pr view "$pr" --json headRefOid,statusCheckRollup) || return 1
   [ -n "$json" ] || { printf 'gh pr view returned nothing for PR %s.\n' "$pr" >&2; return 1; }
-  printf '%s\n' "$json" | jq -r --arg head "$head" -f "$filter"
+  printf '%s\n' "$json" | jq -rn --arg head "$head" -f "$filter"
 }
 
 head_moved() {
