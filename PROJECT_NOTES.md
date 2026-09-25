@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** finish the test-protected cleanup of the defects that change results, then profile a short run, then test evolution of a shared local pattern scorer. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** profile a short run, then test evolution of a shared local pattern scorer, with the cleanup below alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -108,15 +108,7 @@ The remedies are to play network games in a [C arena](#a-c-arena-for-network-gam
 
 ## Code cleanup
 
-The code was written quickly as a side project, and several defects affect results or long runs. The C/Ruby split can stay. The code needs a cleanup pass protected by tests before new representations are added, because each new experiment otherwise inherits these defects.
-
-### Defects that can change results
-
-Fix each with a test that fails before the fix.
-
-| Location | Problem | Effect |
-| --- | --- | --- |
-| [`multi:19`](multi) | References the undefined variable `next_input`. | A mistyped experiment name raises `NameError` instead of the intended message. |
+The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
 
 ### Structure and hygiene
 
@@ -146,18 +138,17 @@ The largest structural change suggested by the timing sample is a C program that
 
 ### Suggested cleanup order
 
-1. Fix the result-changing defects above, one change at a time, each with its test.
-2. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
-3. Type the settings, record the code revision, and copy the binaries.
-4. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
+1. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
+2. Type the settings, record the code revision, and copy the binaries.
+3. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
-Step 1 is a prerequisite for trusting any new experiment. Steps 2–4 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
+The steps can be interleaved with milestone 1 below. Step 1 comes before milestone 2, whose shared scorer needs the new network module. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
 ## Proposed sequence
 
 These are candidate milestones for discussion, rather than an implementation commitment.
 
-0. **Clean up the code under test.** Carry out step 1 of the [cleanup order](#suggested-cleanup-order) before any new experiment, and the rest alongside milestone 1.
+0. **Clean up the code under test.** Carry out the [cleanup order](#suggested-cleanup-order) alongside milestone 1, finishing its step 1 before milestone 2.
 1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9, specify rules and komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring. Establish a reproducible benchmark containing weak external opponents and frozen initial networks.
 2. **Test evolution with shared local patterns.** Use a compact scorer and a simple mutation-based evolutionary baseline. Compare it with random search using the same representation and game budget. Preserve the original dense-policy implementation as a reference; if comparing representations, use the same breeding procedure and account explicitly for differing genome sizes. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.

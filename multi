@@ -16,7 +16,7 @@ end
 
 experiments.each do |e|
   unless File.exist?("experiments/#{e}")
-    puts "#{next_input} is no experiment!"
+    puts "#{e} is no experiment!"
     exit(1)
   end
 end
