@@ -1,7 +1,7 @@
-CFLAGS = -Wall -Wshadow -O3 -g -march=native -I../pcg-c/include
+CFLAGS = -Wall -Wshadow -O3 -g -march=native -I../lib -I../pcg-c/include
 LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
-OBJS = genann.o
+OBJS = main.o
 
 default: initial-population
 
@@ -9,7 +9,7 @@ default: initial-population
 	$(CC) -M -MP $(CFLAGS) $< > $@
 include $(OBJS:.o=.dep)
 
-initial-population: $(OBJS) main.o
+initial-population: $(OBJS) ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # The same seed must give the same networks, another seed different ones.

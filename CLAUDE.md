@@ -18,19 +18,19 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 | Create an experiment without prompts | `mise run new-experiment NAME --board-size 9 ...` (without arguments it lists the options) |
 | Run/resume experiment | `mise run run NAME [CONCURRENCY [one-generation]]` |
 
-- Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
+- Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and `../lib/libann.a`, and fail if `make pcg` and `make lib` have not run.
 - `mise run example` opens the GoGui window. Do not use it headless. `gogui-twogtp` runs without a display.
 - Ruby tests live in `test/` (minitest). They build `RunGeneration` with `allocate` and set its instance variables directly (settings, a seeded `rng`, a fake pool), and they stub `../evolve` by overriding `run_evolve` on that object (and `initial-population` by overriding `system`). The PR script tests run `scripts/pr-checks.sh` against a fake `gh` on `PATH` (`test/fake_gh.rb`). `PR_CHECKS_TRIES` and `PR_CHECKS_SLEEP` shorten the wait for checks to register. There is no Ruby linter yet.
 - `ExperimentDatabase#save_state` and `RunGeneration#save_data` take a keyword argument besides the state hash (the test helper `write_data` accepts either form). In Ruby 3 a brace-less hash argument such as `save_state(1, 'round' => 0)` is then taken as keywords and fails with a wrong-number-of-arguments error, so pass the state in braces: `save_state(1, { 'round' => 0 })`.
 
 ## Layout
 
-- `engine/`: `evo`, a GTP engine built on Brown's board code (`brown.c`, `gtp.c`) plus the network move policy (`generate_move.c`). `engine/test.c` tests GENANN only, not Go rules.
+- `engine/`: `evo`, a GTP engine built on Brown's board code (`brown.c`, `gtp.c`) plus the network move policy (`generate_move.c`). Nothing tests its Go rules.
 - `initial-population/`: `initial-population POP SIZE LAYERS NEURONS [SEED]` writes random networks named `0001.ann`, `0002.ann`, and so on.
 - `evolve/`: `evolve RATE A.ann B.ann OUT.ann [SEED]` writes the child to `OUT.ann`. Its last stdout line is `summary operator=crossover|mutation differs_from_first=N differs_from_second=N` (weights differing from each parent; 0 means an identical copy). It either crosses over or mutates; it never does both. It exits 1 without writing anything when an input cannot be read. The runner checks the exit status and that the file exists, and stops breeding before deleting the parents if either fails.
   - `evolve/test.c` (`make test` in `evolve/`) pins `mutate()`'s hard-coded values statistically: it mutates seeded networks thousands of times and checks the shares against tolerances of about four standard errors. Changing a mutation value means updating those tests. The statistical checks do not depend on the exact random draws; only the copy and seed tests rely on a particular seed.
 - `ruby/`, `runner`: tournament orchestration. `stats`, `ranking`: viewers. `multi`: rotates between several experiments.
-- `lib/` is **unused**. `genann.c/h` has four identical copies (`lib/`, `engine/`, `evolve/`, `initial-population/`), and every Makefile compiles its own local copy. A GENANN change must go into all four until the cleanup consolidates them.
+- `lib/`: the network code every program links, built once as `lib/libann.a`. `genann.c` and `genann.h` are upstream GENANN v1.1.1, unchanged (license in `lib/GENANN-LICENSE`); to update GENANN, copy the new upstream files over them. Evo's additions live in `ann.h` and `ann.c`: the PCG `GENANN_RANDOM`, and `ann_binary_read`/`ann_binary_write` for the `.ann` format. Programs include `ann.h`, never `genann.h`. `lib/test.c` (`make test` in `lib/`) tests GENANN and the `.ann` round trip. `lib/minctest.h` is the test framework for `lib/` and `evolve/`.
 - `pcg-c/` is an upstream submodule (`imneme/pcg-c`). Do not edit it.
 
 ## Things that trip agents up

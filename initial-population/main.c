@@ -29,7 +29,7 @@ SOFTWARE.
 #include <stdlib.h>
 #include <time.h>
 
-#include "genann.h"
+#include "ann.h"
 
 pcg32_random_t rng;
 
@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
 
     FILE *fd = fopen(buffer, "wb");
     genann *ann = genann_init(inputs, hidden_layers, hidden, outputs);
-    genann_binary_write(ann, fd);
+    ann_binary_write(ann, fd);
     genann_free(ann);
     fclose(fd);
   }

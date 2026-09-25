@@ -33,7 +33,7 @@
  * without prior written authorization of the copyright holder.  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#include "genann.h"
+#include "ann.h"
 
 int boot(int argc, char **argv);
 extern genann *ann;

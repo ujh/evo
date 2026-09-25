@@ -102,7 +102,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\nCould not open %s: %s\n", output_name, strerror(errno));
     exit(1);
   }
-  genann_binary_write(child, fd);
+  ann_binary_write(child, fd);
   if (fclose(fd) != 0) {
     fprintf(stderr, "\nCould not write %s: %s\n", output_name, strerror(errno));
     exit(1);

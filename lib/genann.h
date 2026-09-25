@@ -28,15 +28,16 @@
 #define GENANN_H
 
 #include <stdio.h>
-#include <pcg_variants.h>
-
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// As suggested by the pcg-random library
-#define GENANN_RANDOM() (ldexp(pcg32_random(), -32))
+#ifndef GENANN_RANDOM
+/* We use the following for uniform random numbers between 0 and 1.
+ * If you have a better function, redefine this macro. */
+#define GENANN_RANDOM() (((double)rand())/RAND_MAX)
+#endif
 
 struct genann;
 
@@ -75,9 +76,6 @@ genann *genann_init(int inputs, int hidden_layers, int hidden, int outputs);
 /* Creates ANN from file saved with genann_write. */
 genann *genann_read(FILE *in);
 
-/* Creates ANN from file saved with genann_binary_write. */
-genann *genann_binary_read(FILE *in);
-
 /* Sets weights randomly. Called by init. */
 void genann_randomize(genann *ann);
 
@@ -95,14 +93,14 @@ void genann_train(genann const *ann, double const *inputs, double const *desired
 
 /* Saves the ann. */
 void genann_write(genann const *ann, FILE *out);
-/* Saves the ann in a binary format. */
-void genann_binary_write(genann const *ann, FILE *out);
 
 void genann_init_sigmoid_lookup(const genann *ann);
 double genann_act_sigmoid(const genann *ann, double a);
 double genann_act_sigmoid_cached(const genann *ann, double a);
 double genann_act_threshold(const genann *ann, double a);
 double genann_act_linear(const genann *ann, double a);
+double genann_act_tanh(const genann *ann, double a);
+double genann_act_relu(const genann *ann, double a);
 
 
 #ifdef __cplusplus

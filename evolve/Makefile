@@ -1,7 +1,7 @@
-CFLAGS = -Wall -Wshadow -O3 -g -march=native -I../pcg-c/include
+CFLAGS = -Wall -Wshadow -O3 -g -march=native -I../lib -I../pcg-c/include
 LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
-OBJS = genann.o evolve.o
+OBJS = evolve.o
 
 .PHONY: test evolvetest clean
 
@@ -11,7 +11,7 @@ default: evolve
 	$(CC) -M -MP $(CFLAGS) $< > $@
 include $(OBJS:.o=.dep)
 
-evolve: $(OBJS) main.o
+evolve: $(OBJS) main.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # evolve must write the child where it is told, and fail without writing
@@ -45,7 +45,7 @@ evolvetest: evolve
 	! ./evolve 0.5 ../engine/example.ann child.ann seeded-c.ann not-a-seed
 	rm -rf parents cross-a.ann cross-b.ann cross-c.ann cross-a.out mutated.ann mutated.out
 
-test: $(OBJS) test.o
+test: $(OBJS) test.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 	./$@
 
