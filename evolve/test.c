@@ -46,8 +46,9 @@ void test_cross_over() {
 }
 
 // The mutation tests pin down what mutate() does today, so that a change to
-// it shows up as a failing test. Their tolerances are four to five standard
-// errors wide. The generator is seeded, so each run draws the same numbers.
+// it shows up as a failing test. Their tolerances are about four standard
+// errors wide (3.8 to 5). The generator is seeded, so each run draws the same
+// numbers.
 
 // Like lfequal, with a tolerance chosen by the test.
 static void check_close(const char *what, double actual, double expected, double tolerance) {
@@ -92,8 +93,10 @@ static mutation_counts mutate_many(genann *parent, int children) {
 }
 
 void test_mutate_copies_the_parent() {
+  // Large enough that the child has changed weights, so writing them into
+  // the parent would show.
   pcg32_srandom(1, 54u);
-  genann *parent = genann_init(82, 1, 10, 82);
+  genann *parent = genann_init(82, 1, 250, 82);
   genann *before = genann_copy(parent);
   genann *child = mutate(parent);
 
@@ -104,11 +107,14 @@ void test_mutate_copies_the_parent() {
   lequal(child->hidden, parent->hidden);
   lequal(child->outputs, parent->outputs);
   lequal(child->total_weights, parent->total_weights);
-  // The parent itself is left alone.
+  // The child changed, and the parent itself is left alone.
+  bool child_changed = false;
   bool parent_unchanged = true;
   for (int i = 0; i < parent->total_weights; i++) {
+    if (child->weight[i] != before->weight[i]) child_changed = true;
     if (parent->weight[i] != before->weight[i]) parent_unchanged = false;
   }
+  lok(child_changed);
   lok(parent_unchanged);
 
   genann_free(child);
