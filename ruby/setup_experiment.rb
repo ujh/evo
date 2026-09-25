@@ -98,12 +98,20 @@ class SetupExperiment
     settings
   end
 
+  # Raises before anything is saved if input ends or a required setting is
+  # left empty; saving empty settings would leave an experiment that looks
+  # configured but plays zero rounds.
   def self.prompt_for_settings
     SETTINGS.to_h do |key, (prompt, default)|
       label = default.nil? ? prompt : "#{prompt} (default #{default.respond_to?(:call) ? 'random' : default})"
       print "#{label}: "
-      answer = $stdin.gets.to_s.chomp
-      [key, answer.empty? && !default.nil? ? default_for(default) : answer]
+      line = $stdin.gets
+      raise ArgumentError, "input ended before #{key} was set" if line.nil?
+
+      answer = line.chomp
+      raise ArgumentError, "#{key} is required" if answer.empty? && default.nil?
+
+      [key, answer.empty? ? default_for(default) : answer]
     end
   end
 end

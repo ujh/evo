@@ -81,6 +81,35 @@ class SetupExperimentTest < Minitest::Test
     $stdin = STDIN
   end
 
+  def with_stdin(text)
+    $stdin = StringIO.new(text)
+    capture_io { yield }
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_input_ending_during_the_prompts_saves_nothing
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      with_stdin("9\n4\n") do
+        error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+        assert_includes error.message, 'hidden_layers'
+      end
+      assert_empty database.settings
+    end
+  end
+
+  def test_an_empty_answer_to_a_required_prompt_saves_nothing
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      with_stdin("\n" * SetupExperiment::SETTINGS.size) do
+        error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+        assert_includes error.message, 'board_size'
+      end
+      assert_empty database.settings
+    end
+  end
+
   def test_a_settings_json_is_not_read
     in_tmpdir do
       File.write('settings.json', JSON.generate('board_size' => '19'))

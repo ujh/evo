@@ -17,6 +17,11 @@ $stop_now = false
 
 experiment_dir = "experiments/#{experiment_name}"
 
-SetupExperiment.call(experiment_dir) do |settings, database|
-  RunExperiment.call(settings.merge('concurrency' => concurrency, 'one_generation' => one_generation), database)
+begin
+  SetupExperiment.call(experiment_dir) do |settings, database|
+    RunExperiment.call(settings.merge('concurrency' => concurrency, 'one_generation' => one_generation), database)
+  end
+rescue ArgumentError => e
+  warn "\n#{e.message}. Nothing was saved; start again, or create the experiment with mise run new-experiment."
+  exit 1
 end
