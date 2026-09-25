@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
     hidden
   );
 
-  char buffer[10];
+  char buffer[32];
   // Pass in the komi
   int inputs = (board_size * board_size) + 1;
   // Allow pass move
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
 
   for(int i = 1; i <= population_size; i++) {
     printf("\r%d/%d", i, population_size);
-    sprintf(buffer, "%04d.ann", i);
+    snprintf(buffer, sizeof(buffer), "%04d.ann", i);
 
     genann *ann = genann_init(inputs, hidden_layers, hidden, outputs);
     if (ann == NULL) {
