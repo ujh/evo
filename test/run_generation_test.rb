@@ -159,8 +159,8 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   include RunGenerationHelpers
 
   # Sets up generation 0 with the given networks, an SGF, and twogtp stderr files, then runs the breeding
-  # step for generation 1 with `../evolve` replaced by the given block. The block's result is the exit
-  # status `system` reports. `stale_child` is left in 0.ann, as an interrupted earlier run would.
+  # step for generation 1 with `../evolve` replaced by the given block. The block returns what
+  # run_evolve does: [success, stdout]. `stale_child` is left in 0.ann, as an interrupted earlier run would.
   def breed(scores:, settings: {}, stale_child: nil, &evolve)
     in_experiment do |dir|
       File.write('0.ann', stale_child) if stale_child
@@ -176,10 +176,11 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
                  }, File.join(gen0, 'data.json'))
 
       commands = []
-      gen = build_generation(settings: settings)
-      gen.define_singleton_method(:system) do |cmd, **_options|
+      store = ResultStore.new(':memory:')
+      gen = build_generation(settings: settings, store:)
+      gen.define_singleton_method(:run_evolve) do |cmd|
         commands << cmd
-        evolve ? evolve.call(cmd) : true
+        evolve ? evolve.call(cmd) : [true, SUMMARY]
       end
       error = nil
       begin
@@ -192,15 +193,18 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
         error: error,
         children: Dir['*.ann'].sort.to_h { |f| [f, File.read(f)] },
         previous_files: Dir.children(gen0).sort,
-        data: File.exist?('data.json') ? JSON.load_file('data.json') : nil
+        data: File.exist?('data.json') ? JSON.load_file('data.json') : nil,
+        births: store.births(1)
       }
     end
   end
 
-  # Writes the child to the output path, evolve's last argument, and succeeds.
+  SUMMARY = "Loading ...\nsummary operator=mutation differs_from_first=0 differs_from_second=907\n".freeze
+
+  # Writes the child to the output path, evolve's second-to-last argument, and succeeds.
   def write_child(cmd)
-    File.write(cmd.split.last, cmd)
-    true
+    File.write(cmd.split[-2], cmd)
+    [true, SUMMARY]
   end
 
   PARENTS = %r{\A\.\./evolve 0\.5 \.\./0/000[12]\.ann \.\./0/000[12]\.ann}
@@ -209,7 +213,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
     assert_nil state[:error]
     assert_equal 2, state[:commands].size
-    state[:commands].each_with_index { |cmd, i| assert_match(/#{PARENTS} #{i}\.ann\z/, cmd) }
+    state[:commands].each_with_index { |cmd, i| assert_match(/#{PARENTS} #{i}\.ann #{Seeds.derive(1, 'birth', 1, i)}\z/, cmd) }
     assert_equal %w[0.ann 1.ann], state[:children].keys
     assert_equal ['crashed.err', 'data.json'], state[:previous_files]
     assert state[:data]['setup_complete']
@@ -223,29 +227,47 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   end
 
   def test_evolve_failing_stops_breeding_before_the_parents_are_deleted
-    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { false }
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [false, ''] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
     assert_includes state[:previous_files], '0001.ann'
     assert_nil state[:data]
   end
 
   def test_evolve_writing_nothing_stops_breeding
-    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { true }
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [true, SUMMARY] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
     assert_includes state[:previous_files], '0001.ann'
   end
 
   def test_child_left_by_an_interrupted_run_is_not_reused
-    state = breed(scores: { '0001.ann' => 1 }, settings: { 'population_size' => '1' }, stale_child: 'stale') { true }
+    state = breed(scores: { '0001.ann' => 1 }, settings: { 'population_size' => '1' }, stale_child: 'stale') { [true, SUMMARY] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
     assert_empty state[:children]
+  end
+
+  def test_records_a_birth_for_each_child
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
+    assert_equal %w[0.ann 1.ann], state[:births].map { |b| b[:child] }
+    state[:births].each_with_index do |birth, i|
+      parents = state[:commands][i].split[2, 2].map { |path| File.basename(path) }
+      assert_equal [1, parents, 'mutation', 0, 907, Seeds.derive(1, 'birth', 1, i)],
+                   [birth[:generation], birth.values_at(:first_parent, :second_parent), birth[:operator],
+                    birth[:differs_from_first], birth[:differs_from_second], birth[:seed]]
+      assert_equal Digest::SHA256.hexdigest(state[:children]["#{i}.ann"]), birth[:genome]
+    end
+  end
+
+  def test_evolve_without_a_summary_stops_breeding
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) && [true, "Loading ...\n"] }
+    assert_match(/no summary/, state[:error].message)
+    assert_includes state[:previous_files], '0001.ann'
   end
 
   def test_skips_breeding_once_setup_is_complete
     in_experiment do
       write_data('setup_complete' => true)
       gen = build_generation
-      gen.define_singleton_method(:system) { |*| flunk 'evolve should not run' }
+      gen.define_singleton_method(:run_evolve) { |*| flunk 'evolve should not run' }
       gen.send(:evolve_from_previous_population)
     end
   end
@@ -403,10 +425,76 @@ class PlayRoundTest < Minitest::Test
   end
 end
 
+class ReproducibleRoundsTest < Minitest::Test
+  include RunGenerationHelpers
+
+  def ranking(order)
+    order.map { |name, score| { 'name' => name, 'score' => score } }
+  end
+
+  def next_round_games(order)
+    in_experiment do
+      write_data('round' => 0, 'players' => {}, 'games' => [], 'ranking' => ranking(order))
+      gen = build_generation(settings: { 'tournament_rounds' => '3' })
+      gen.send(:setup_next_round)
+      gen.send(:data).values_at('games', 'ranking')
+    end
+  end
+
+  def test_pairings_depend_on_the_scores_not_on_the_order_ties_are_listed_in
+    scores = { 'a.ann' => 2, 'b.ann' => 1, 'c.ann' => 1, 'd.ann' => 1, 'e.ann' => 0, 'f.ann' => 0 }
+    assert_equal next_round_games(scores.to_a), next_round_games(scores.to_a.reverse)
+  end
+
+  def test_tournaments_are_the_same_for_the_same_seed
+    tournament = lambda do |seed|
+      in_experiment do
+        %w[0001.ann 0002.ann 0003.ann].each { |name| File.write(name, '') }
+        build_generation(settings: { 'seed' => seed }).send(:setup_tournament).values_at('ranking', 'games')
+      end
+    end
+    assert_equal tournament.call('1'), tournament.call('1')
+    refute_equal tournament.call('1'), tournament.call('2')
+  end
+
+  def test_the_initial_population_gets_its_seed_and_is_recorded
+    in_experiment(generation: '0') do
+      store = ResultStore.new(':memory:')
+      gen = build_generation(generation: '0', store:)
+      commands = []
+      gen.define_singleton_method(:system) do |cmd|
+        commands << cmd
+        %w[0001.ann 0002.ann].each { |name| File.write(name, name) }
+        true
+      end
+      capture_io { gen.send(:setup_initial_population) }
+      seed = Seeds.derive(1, 'initial-population')
+      assert_equal ["../initial-population 2 9 1 10 #{seed}"], commands
+      assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
+      assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
+      assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]
+    end
+  end
+
+  def test_the_final_ranking_is_stored_when_the_generation_ends
+    in_experiment do
+      write_data('round' => 0, 'games' => [],
+                 'players' => { 'a.ann' => {}, 'Brown1' => { 'external' => true } },
+                 'ranking' => [{ 'name' => 'Brown1', 'score' => 1 }, { 'name' => 'a.ann', 'score' => 0 }])
+      store = ResultStore.new(':memory:')
+      gen = build_generation(store:)
+      gen.instance_variable_set(:@pool, PlayRoundTest::FakePool.new {})
+      capture_io { gen.send(:play_games) }
+      assert_equal [[1, 'Brown1', 1, true], [2, 'a.ann', 0, false]],
+                   store.ranking(1).map { |r| r.values_at(:rank, :name, :score, :external) }
+    end
+  end
+end
+
 class PlayRoundBookkeepingTest < Minitest::Test
   include RunGenerationHelpers
 
-  def test_prepare_game_builds_the_twogtp_command_with_an_unseeded_referee_and_saves_stderr
+  def test_prepare_game_builds_the_twogtp_command_with_a_seeded_referee_and_saves_stderr
     in_experiment do
       write_data('round' => 0, 'players' => {
                    'a.ann' => { 'command' => '../evo a.ann' },
@@ -414,10 +502,24 @@ class PlayRoundBookkeepingTest < Minitest::Test
                  })
       game = { 'black' => 'a.ann', 'white' => 'Brown1' }
       prepared = build_generation.send(:prepare_game, game)
+      seed = Seeds.gnugo(1, 'game', 1, 0, 'a.ann', 'Brown1')
       assert_equal game, prepared['identifier']
-      assert_equal 'gogui-twogtp -black "../evo a.ann" -white "brown" -referee "gnugo --mode gtp" ' \
+      assert_equal %(gogui-twogtp -black "../evo a.ann" -white "brown" -referee "gnugo --mode gtp --seed #{seed}" ) +
                    '-size 9 -auto -games 1 -sgffile axBrown1R0 -time 10 -force -maxmoves 200 2> axBrown1R0.err',
                    prepared['command']
+    end
+  end
+
+  def test_gnugo_players_get_a_seed_per_game
+    in_experiment do
+      write_data('round' => 2, 'players' => {
+                   'a.ann' => { 'command' => '../evo a.ann' },
+                   'GnuGoLevel01' => { 'command' => 'gnugo --level 0 --mode gtp' }
+                 })
+      command = build_generation.send(:prepare_game, { 'black' => 'GnuGoLevel01', 'white' => 'a.ann' })['command']
+      seed = Seeds.gnugo(1, 'game', 1, 2, 'GnuGoLevel01', 'a.ann')
+      assert_includes command, %(-black "gnugo --level 0 --mode gtp --seed #{seed}" -white "../evo a.ann")
+      assert_includes command, %(-referee "gnugo --mode gtp --seed #{seed}")
     end
   end
 

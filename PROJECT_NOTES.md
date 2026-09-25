@@ -20,7 +20,7 @@ The percentages in `stats` divide evolved-player wins by the total number of rou
 
 Parents are chosen by tournament selection with a default size of 3 (`tournament_size`). Nothing yet shows whether that keeps enough variation or selects too weakly to make progress.
 
-**Proposed response:** measure it with the [statistics](#6-record-statistics-to-test-the-assumptions) below, compare a few tournament sizes, and consider preserving a small number of elites.
+**Proposed response:** measure it with the [recorded data](#6-test-the-assumptions-with-the-recorded-data) below, compare a few tournament sizes, and consider preserving a small number of elites.
 
 ### 3. Mutation and crossover deserve separate experiments
 
@@ -34,7 +34,7 @@ Crossover and mutation are mutually exclusive in `evolve/main.c`. Increasing the
 
 Crossing raw weight arrays also assumes that hidden units occupy compatible roles in both parents. They need not: equivalent networks can place their internal features in different orders. This is a known issue discussed in the [original NEAT paper](https://nn.cs.utexas.edu/downloads/papers/stanley.ec02.pdf). Whether it is a major problem for Evo should be measured rather than assumed.
 
-**Proposed response:** establish a mutation-only baseline and compare it with the present crossover scheme at equal game budgets. Treat the number of mutated weights and the size of each perturbation as separate controls. Record the actual fraction of unchanged children and optionally their move agreement on a small bank of positions.
+**Proposed response:** establish a mutation-only baseline and compare it with the present crossover scheme at equal game budgets. Treat the number of mutated weights and the size of each perturbation as separate controls. The share of unchanged children is recorded in `births`; optionally also measure their move agreement on a small bank of positions.
 
 ### 4. The policy has to learn Go structure from very little guidance
 
@@ -48,18 +48,17 @@ Cached sigmoid outputs also create artificial score ties, which favor earlier in
 
 ### 5. Long runs need recoverable evidence
 
-`clean_up_generation` deletes every network from the previous generation, and SGFs are kept only for every `sgf_every`-th generation. That saves space but prevents comparisons with early ancestors. Runs also cannot be reproduced or safely resumed: seeds and code revision are not recorded, executables are symlinks to the current build, and the generation transition is not crash-safe. The fixes are listed under [Code cleanup](#code-cleanup).
+`clean_up_generation` deletes every network from the previous generation, and SGFs are kept only for every `sgf_every`-th generation. That saves space but prevents comparisons with early ancestors. Runs cannot yet be safely resumed or tied to a build: the code revision is not recorded, executables are symlinks to the current build, and the generation transition is not crash-safe. The fixes are listed under [Code cleanup](#code-cleanup).
 
 **Proposed response:** preserve generation zero and a spaced archive of champions, for example as networks stored in the result store.
 
-### 6. Record statistics to test the assumptions
+### 6. Test the assumptions with the recorded data
 
-Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. Record enough per generation to test them later, as new tables in the result store (`results.sqlite3`, added through a migration):
+Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The result store now records what is needed (`games`, `births`, and `rankings` in `results.sqlite3`). What is missing is the analysis:
 
-- for each child, its parents, whether it came from crossover or mutation, and how many weights changed (so the share of unchanged children is visible)
-- how many children each parent got, and how many distinct parents and unique genomes there are
-- the score distribution, and results per opponent and per color
-- game lengths and unscored games
+- a script or `stats` view that reports, per generation, the share of children identical to a parent, the number of distinct parents and unique genomes (`births.genome`), and how many children each parent got
+- win rates per opponent and per color from `games`, and where the bots rank among the networks from `rankings`
+- running a few seeded experiments that vary one setting at a time
 
 ## Go rules and scoring boundary
 
@@ -116,7 +115,6 @@ Fix each with a test that fails before the fix.
 | Location | Problem | Effect |
 | --- | --- | --- |
 | [`multi:19`](multi) | References the undefined variable `next_input`. | A mistyped experiment name raises `NameError` instead of the intended message. |
-| [`ruby/run_generation.rb`](ruby/run_generation.rb) | `initial-population` and `evolve` accept a seed, but the runner does not pass one, and parent selection uses an unseeded `Random`. | Runs cannot be reproduced. Derive every seed from one experiment seed in the settings and record them. |
 
 ### Structure and hygiene
 
@@ -126,7 +124,7 @@ Fix each with a test that fails before the fix.
 - **Move notifications out of `stats`.** `stats` still sends the `ntfy` notification, which belongs in the runner or a separate command, and builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
 - **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
-- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), mutation statistics, the file format round trip, and resuming a generation. Record the fraction of offspring identical to a parent, not only that the code runs.
+- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), mutation statistics, the file format round trip, and resuming a generation.
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library
@@ -150,7 +148,7 @@ The largest structural change suggested by the timing sample is a C program that
 1. Add characterization tests for crossover and mutation statistics, the file round trip, and a short scripted GTP game.
 2. Fix the result-changing defects above, one change at a time, each with its test.
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
-4. Make checkpoints atomic, type the settings, record seeds and revision, and copy the binaries.
+4. Make checkpoints atomic, type the settings, record the code revision, and copy the binaries.
 5. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
 Steps 1–2 are prerequisites for trusting any new experiment. Steps 3–5 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.

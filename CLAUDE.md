@@ -41,8 +41,10 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 - The `.ann` format is native binary with no header: four C `int`s (inputs, hidden_layers, hidden, outputs), then native `double` weights. It is not portable across ABIs.
   - A network for board size N has N²+1 inputs (komi first) and N²+1 outputs (pass last).
   - `engine/example.ann` is a 9×9 test fixture with 2×2 hidden neurons and 418 weights. It is not a trained player.
-- Move choice takes the highest output. It is deterministic for a given network and position. The RNG seed matters only in `initial-population` and `evolve`.
-  - `initial-population` and `evolve` take an optional seed as their last argument; the same seed gives byte-identical output. Without one they seed from `time(NULL)` plus an address. The runner does not pass seeds yet.
+- Move choice takes the highest output. It is deterministic for a given network and position.
+  - `initial-population` and `evolve` take an optional seed as their last argument; the same seed gives byte-identical output. Without one they seed from `time(NULL)` plus an address.
+- Runs are reproducible from the experiment seed (`seed` in `settings.json`; `SetupExperiment` generates and saves one if it is missing). `ruby/seeds.rb` derives every other seed from it and a label: the initial population, each child (`birth`, generation, index), parent selection, tie order and colors per round, and a per-game GNU Go `--seed` for GNU Go players and the referee. Two runs with the same seed, even with parallel games, produce the same networks, pairings, moves, and rankings; only the date in the SGF headers differs. Losing a game on time would still differ.
+- Besides `games`, the result store records `births` (each network's parents, operator, differing weights, seed, and SHA-256 of its `.ann`; generation 0 has operator `initial`) and `rankings` (each generation's final ranking).
 - Brown's own `final_score` is unreliable on arbitrary positions: an empty 9×9 board scores `W+87.5`. Use the referee's result.
 - The build uses `-march=native`. Binaries are for the local machine only.
 
@@ -60,7 +62,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
   - Failed games are never retried, so a broken setup stays visible.
 - Check `RES_R` and `ERR`, not only whether a game finished. A crashed player shows only in `ERR`, and a crashed referee only as `?` in `RES_R`. `scripts/smoke-external-tools.sh` checks both. Keep it that way when changing it.
 - Brown and AmiGo play deterministically. The 5 Brown and 10 AmiGo "instances" are copies of the same opponent, so replaying a pairing with the same colors adds no information.
-- GNU Go seeds its random choices from the clock unless it gets `--seed N`. Runs started in different seconds differ, so compare GNU Go behavior with a fixed seed.
+- GNU Go seeds its random choices from the clock unless it gets `--seed N`. The runner always passes one; outside the runner, compare GNU Go behavior with a fixed seed.
 
 ### Running experiments
 

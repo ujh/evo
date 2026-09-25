@@ -19,16 +19,18 @@ module RunGenerationHelpers
     'game_length' => '10',
     'max_moves' => '200',
     'tournament_rounds' => '1',
+    'seed' => '1',
     'concurrency' => 1
   }.freeze
 
   # Tests build the object without calling initialize and set its instance
   # variables directly. A fixed seed keeps parent selection reproducible.
-  def build_generation(generation: '1', settings: {}, rng: Random.new(42))
+  def build_generation(generation: '1', settings: {}, rng: Random.new(42), store: ResultStore.new(':memory:'))
     gen = RunGeneration.allocate
     gen.instance_variable_set(:@generation, generation)
     gen.instance_variable_set(:@settings, SETTINGS.merge(settings))
     gen.instance_variable_set(:@rng, rng)
+    gen.instance_variable_set(:@store, store)
     gen
   end
 

@@ -44,6 +44,37 @@ class ResultStoreTest < Minitest::Test
     end
   end
 
+  BIRTH = {
+    generation: 2, child: '0.ann', first_parent: '../1/3.ann', second_parent: '../1/5.ann', operator: 'mutation',
+    differs_from_first: 0, differs_from_second: 907, seed: 2**62 + 5, genome: 'ab' * 32
+  }.freeze
+
+  def test_records_births_and_replaces_a_rebred_child
+    with_store do |store|
+      store.record_birth(**BIRTH)
+      store.record_birth(**BIRTH, operator: 'crossover')
+      assert_equal [BIRTH.merge(operator: 'crossover')], store.births(2)
+    end
+  end
+
+  def test_initial_networks_are_births_without_parents
+    with_store do |store|
+      initial = BIRTH.merge(generation: 0, child: '0001.ann', first_parent: nil, second_parent: nil,
+                            operator: 'initial', differs_from_first: nil, differs_from_second: nil)
+      store.record_birth(**initial)
+      assert_equal [initial], store.births(0)
+    end
+  end
+
+  def test_records_the_final_ranking_of_a_generation_once
+    with_store do |store|
+      ranking = [{ rank: 1, name: '3.ann', score: 2, external: false }, { rank: 2, name: 'Brown1', score: 1, external: true }]
+      store.record_ranking(4, ranking.reverse)
+      store.record_ranking(4, ranking)
+      assert_equal ranking.map { |r| r.merge(generation: 4) }, store.ranking(4)
+    end
+  end
+
   def test_a_read_only_store_does_not_create_a_database
     Dir.mktmpdir do |dir|
       path = File.join(dir, 'missing.sqlite3')
