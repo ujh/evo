@@ -106,10 +106,11 @@ Each game launches a new GoGui process, two players, and a GNU Go referee. A pro
 
 The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. GNU Go copies get a different seed per game, but two equal players still decide nothing. Either way it adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
 
-Candidate remedies, to decide between:
+Candidate remedies (only removing GNU Go level 10 is decided):
 
 - Skip pairings between two copies of the same bot. This is for accuracy; it saves only about 12 s of the 142 s of game time in the profile.
-- Use fewer GNU Go level 10 instances, or a lower level, to shorten the slowest rounds.
+- Remove GNU Go level 10 from the tournament for now (the owner's decision). Early networks are far too weak for it, so its games cost the most time and say nothing.
+- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. Roughly from weakest: Brown (random moves), AmiGo, GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. Because a changing panel changes what a tournament score means, the ladder depends on the fixed benchmark from item 1.
 - Play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, keeping GoGui with GNU Go for benchmark games. This removes the per-game overhead, but not the wait for the slow GNU Go games.
 
 The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
@@ -201,4 +202,5 @@ There is precedent for training substantial neural policies with genetic algorit
 - Is it acceptable for network-against-network games to use the project's own Tromp–Taylor scoring instead of the GNU Go referee, with GNU Go kept for benchmarks?
 - Should the harness stay in Ruby, or should orchestration move into the C code along with the arena?
 - Which board size, benchmark, and first opponent would make a satisfying initial milestone?
+- For the opponent ladder: what promotes a network to the next bot (for example, a win rate over a number of games in both colors, sustained for some generations), whether beaten bots leave the panel, and which bots fill the gaps?
 - How much built-in Go knowledge (features, search) is acceptable before improvement no longer counts as coming from evolution?
