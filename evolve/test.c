@@ -280,7 +280,7 @@ void test_mutate_genes_distributions() {
   ann_genes genes = middle_genes();
   double sum[5] = {0}, sum_of_squares[5] = {0};
   long within_tau[5] = {0};
-  double sum_of_products = 0;
+  double sum_of_products[5][5] = {{0}};
   for (int k = 0; k < n; k++) {
     ann_genes child = mutate_genes(genes, tau, 1000);
     double step[5] = {
@@ -295,7 +295,9 @@ void test_mutate_genes_distributions() {
       sum_of_squares[g] += step[g] * step[g];
       if (fabs(step[g]) < tau) within_tau[g]++;
     }
-    sum_of_products += step[0] * step[2];
+    for (int g = 0; g < 5; g++) {
+      for (int h = g + 1; h < 5; h++) sum_of_products[g][h] += step[g] * step[h];
+    }
   }
   for (int g = 0; g < 5; g++) {
     double mean = sum[g] / n;
@@ -306,8 +308,12 @@ void test_mutate_genes_distributions() {
     check_close("sd of the gene step", sd, tau, 0.004);
     check_close("share of gene steps within one sd", (double)within_tau[g] / n, 0.6827, 0.013);
   }
-  // Independent draws: correlation SE 1/sqrt(n) = 0.007.
-  check_close("correlation of two gene steps", sum_of_products / n / (tau * tau), 0.0, 0.028);
+  // Independent draws: the correlation of every pair has SE 1/sqrt(n) = 0.007.
+  for (int g = 0; g < 5; g++) {
+    for (int h = g + 1; h < 5; h++) {
+      check_close("correlation of two gene steps", sum_of_products[g][h] / n / (tau * tau), 0.0, 0.028);
+    }
+  }
 }
 
 // However far the genes step, they stay in their ranges, and weight_changes
