@@ -15,6 +15,11 @@ module Seeds
     derive(base, *parts) % (2**31)
   end
 
+  # Adds the seed to a GNU Go command and leaves other programs' alone.
+  def self.with_gnugo_seed(command, seed)
+    command.start_with?('gnugo ') ? "#{command} --seed #{seed}" : command
+  end
+
   def self.new_experiment_seed
     Random.new_seed % (2**63)
   end

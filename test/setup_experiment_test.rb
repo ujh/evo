@@ -10,6 +10,13 @@ class SetupExperimentTest < Minitest::Test
   REQUIRED = %w[--board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5
                 --game-length 10 --max-moves 200 --tournament-rounds 1].freeze
 
+  # An answer to every prompt: the default seed, board size 9, and the
+  # smallest valid value for the rest.
+  def prompt_answers(overrides = {})
+    answers = { 'seed' => '', 'board_size' => '9', 'benchmark_games' => '2' }.merge(overrides)
+    SetupExperiment::SETTINGS.keys.map { |key| answers.fetch(key, '1') }
+  end
+
   def in_tmpdir(&)
     Dir.mktmpdir { |dir| Dir.chdir(dir, &) }
   end
@@ -19,6 +26,8 @@ class SetupExperimentTest < Minitest::Test
     assert_equal 9, settings['board_size']
     assert_equal 3, settings['tournament_size']
     assert_equal 10, settings['keep_every']
+    assert_equal 20, settings['benchmark_games']
+    assert_equal 4, settings['benchmark_opening_moves']
     assert_kind_of Integer, settings['seed']
     assert_equal SetupExperiment::SETTINGS.keys.sort, settings.keys.sort
   end
@@ -41,7 +50,9 @@ class SetupExperimentTest < Minitest::Test
     %w[--hidden-layers -1], %w[--layer-size 0],
     %w[--cross-over-rate 0,5], %w[--cross-over-rate 1.5], %w[--cross-over-rate -0.1],
     %w[--game-length 0], %w[--max-moves 2.5], %w[--tournament-rounds ten], %w[--tournament-rounds 0],
-    %w[--tournament-size 0], %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808]
+    %w[--tournament-size 0], %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808],
+    %w[--benchmark-games 21], %w[--benchmark-games 0], %w[--benchmark-games -2], %w[--benchmark-games many],
+    %w[--benchmark-games 4.0], %w[--benchmark-opening-moves -1], %w[--benchmark-opening-moves four]
   ].freeze
 
   def test_a_bad_value_is_refused_with_its_option_and_value
@@ -56,9 +67,18 @@ class SetupExperimentTest < Minitest::Test
 
   def test_the_edges_of_each_range_are_accepted
     settings = SetupExperiment.settings_from_arguments(
-      REQUIRED + %w[--board-size 19 --hidden-layers 0 --cross-over-rate 1 --keep-every 0 --seed 0]
+      REQUIRED + %w[--board-size 19 --hidden-layers 0 --cross-over-rate 1 --keep-every 0 --seed 0
+                    --benchmark-games 2 --benchmark-opening-moves 0]
     )
-    assert_equal [19, 0, 1.0, 0, 0], settings.values_at('board_size', 'hidden_layers', 'cross_over_rate', 'keep_every', 'seed')
+    assert_equal [19, 0, 1.0, 0, 0, 2, 0],
+                 settings.values_at('board_size', 'hidden_layers', 'cross_over_rate', 'keep_every', 'seed',
+                                    'benchmark_games', 'benchmark_opening_moves')
+  end
+
+  # Half of a benchmark's games are played with each color.
+  def test_an_odd_number_of_benchmark_games_is_refused_as_not_even
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[--benchmark-games 3]) }
+    assert_equal 'benchmark_games must be an even whole number of at least 2, got 3', error.message
   end
 
   def test_a_missing_required_setting_is_named
@@ -89,6 +109,8 @@ class SetupExperimentTest < Minitest::Test
     help = SetupExperiment.option_parser({}).help
     SetupExperiment::SETTINGS.each_key { |key| assert_includes help, "--#{key.tr('_', '-')}" }
     assert_includes help, 'default 3'
+    assert_includes help, 'an even whole number of at least 2, default 20'
+    assert_includes help, 'a whole number of at least 0, default 4'
   end
 
   def test_create_writes_the_settings_into_a_new_experiment
@@ -109,16 +131,26 @@ class SetupExperimentTest < Minitest::Test
                    database.opponents
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
       assert_equal RunGeneration::SCORING_RULES, database.scoring['rules']
+      assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
+  end
+
+  # The benchmark panel: the three weakest bots, then the two network
+  # opponents the runner picks from the experiment's own generations.
+  def test_the_default_benchmark_panel
+    assert_equal [%w[Brown bot brown], %w[AmiGo bot amigogtp], ['GnuGoLevel0', 'bot', 'gnugo --level 0 --mode gtp'],
+                  ['Gen0Champion', 'initial_champion', nil], ['PreviousCheckpoint', 'previous_checkpoint', nil]],
+                 SetupExperiment::DEFAULT_BENCHMARK.map { |o| o.values_at(:name, :kind, :command) }
   end
 
   def test_prompted_settings_store_the_opponents_and_scoring_too
     in_tmpdir do
       database = ExperimentDatabase.new('experiment.sqlite3')
-      answers = SetupExperiment::SETTINGS.keys.map { |key| { 'seed' => '', 'board_size' => '9' }.fetch(key, '1') }
+      answers = prompt_answers
       with_stdin("#{answers.join("\n")}\n") { SetupExperiment.settings(database) }
       assert_equal 2, database.opponents.size
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
+      assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
   end
 
@@ -128,12 +160,25 @@ class SetupExperimentTest < Minitest::Test
     in_tmpdir do
       database = ExperimentDatabase.new('experiment.sqlite3')
       database.define_singleton_method(:save_scoring) { |_| raise IOError, 'disk full' }
-      answers = SetupExperiment::SETTINGS.keys.map { |key| { 'seed' => '', 'board_size' => '9' }.fetch(key, '1') }
+      answers = prompt_answers
       with_stdin("#{answers.join("\n")}\n") do
         assert_raises(IOError) { SetupExperiment.settings(database) }
       end
       assert_empty database.settings
       assert_empty database.opponents
+    end
+  end
+
+  def test_settings_are_not_saved_without_their_benchmark_panel
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.define_singleton_method(:save_benchmark_opponents) { |_| raise IOError, 'disk full' }
+      with_stdin("#{prompt_answers.join("\n")}\n") do
+        assert_raises(IOError) { SetupExperiment.settings(database) }
+      end
+      assert_empty database.settings
+      assert_empty database.opponents
+      assert_empty database.scoring
     end
   end
 
@@ -159,7 +204,7 @@ class SetupExperimentTest < Minitest::Test
   end
 
   def test_the_prompts_ask_for_every_setting
-    answers = SetupExperiment::SETTINGS.keys.map { |key| { 'seed' => '', 'board_size' => '9' }.fetch(key, '1') }.join("\n")
+    answers = prompt_answers.join("\n")
     $stdin = StringIO.new("#{answers}\n")
     settings = nil
     capture_io { settings = SetupExperiment.prompt_for_settings }
@@ -170,7 +215,7 @@ class SetupExperimentTest < Minitest::Test
   end
 
   def test_a_prompt_asks_again_after_a_bad_answer
-    answers = SetupExperiment::SETTINGS.keys.map { |key| { 'seed' => '', 'board_size' => "9x9\n9" }.fetch(key, '1') }
+    answers = prompt_answers('board_size' => "9x9\n9")
     $stdin = StringIO.new("#{answers.join("\n")}\n")
     settings = nil
     out, = capture_io { settings = SetupExperiment.prompt_for_settings }

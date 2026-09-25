@@ -49,6 +49,15 @@ class ExperimentDatabase
     @db[:opponents].multi_insert(opponents.each_with_index.map { |o, i| o.slice(:name, :command, :copies).merge(position: i) })
   end
 
+  # The benchmark panel, in order; see migration 008.
+  def benchmark_opponents
+    @db[:benchmark_opponents].order(:position).select(:name, :kind, :command).all
+  end
+
+  def save_benchmark_opponents(opponents)
+    @db[:benchmark_opponents].multi_insert(opponents.each_with_index.map { |o, i| o.slice(:name, :kind, :command).merge(position: i) })
+  end
+
   SCORING_POINTS = %w[win draw bye].freeze
 
   # The points for a win, a draw, and a bye as Integers, and the scoring
@@ -100,6 +109,16 @@ class ExperimentDatabase
     end
   end
 
+  # Writes one network to `path` and returns the path; nil, writing nothing,
+  # when the generation has no such network.
+  def export_network(generation, name, path)
+    weights = @db[:networks].where(generation:, name:).get(:weights)
+    return nil unless weights
+
+    File.binwrite(path, weights)
+    path
+  end
+
   # Replaces the generation's whole state in one transaction, so a crash
   # leaves either the old state or the new one. `retire_networks_of` deletes
   # that generation's networks in the same transaction, so parents are only
@@ -134,6 +153,20 @@ class ExperimentDatabase
   # columns, and its rows lack those keys.
   def games(generation)
     @games.where(generation:).order(:round, :black, :white).select(*(COLUMNS & @games.columns)).all
+  end
+
+  BENCHMARK_COLUMNS = %i[
+    generation opponent opening network_color network opponent_network
+    winner failure length referee_result error_message stderr duration time_black time_white
+  ].freeze
+
+  # A replayed benchmark game replaces its row.
+  def record_benchmark_game(**game)
+    @db[:benchmark_games].insert_conflict(:replace).insert(game.slice(*BENCHMARK_COLUMNS))
+  end
+
+  def benchmark_games(generation)
+    @db[:benchmark_games].where(generation:).order(:opponent, :opening, :network_color).select(*BENCHMARK_COLUMNS).all
   end
 
   BIRTH_COLUMNS = %i[

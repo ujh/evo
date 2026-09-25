@@ -11,28 +11,29 @@ class SetupExperiment
   # runner can report this without catching errors from the run itself.
   class PromptAborted < StandardError; end
 
-  # A setting's type: a whole number or a number, and its allowed range.
-  # Parsing is strict, so a typo is refused instead of being read as its
-  # numeric prefix or as 0.
+  # A setting's type: a whole number, an even whole number, or a number, and
+  # its allowed range. Parsing is strict, so a typo is refused instead of
+  # being read as its numeric prefix or as 0.
   Type = Data.define(:kind, :min, :max) do
     def parse(key, text)
-      value = if kind == :integer
-                Integer(text.to_s, 10, exception: false)
-              else
+      value = if kind == :number
                 Float(text.to_s, exception: false)
+              else
+                Integer(text.to_s, 10, exception: false)
               end
-      return value if value && value >= min && (max.nil? || value <= max)
+      return value if value && value >= min && (max.nil? || value <= max) && (kind != :even || value.even?)
 
       raise ArgumentError, "#{key} must be #{description}, got #{text}"
     end
 
     def description
-      name = kind == :integer ? 'a whole number' : 'a number'
+      name = { integer: 'a whole number', even: 'an even whole number', number: 'a number' }.fetch(kind)
       max ? "#{name} from #{min} to #{max}" : "#{name} of at least #{min}"
     end
   end
 
   def self.integer(min, max = nil) = Type.new(:integer, min, max)
+  def self.even(min) = Type.new(:even, min, nil)
   def self.number(min, max) = Type.new(:number, min, max)
 
   # Every setting, with its prompt, its default, and its type. A nil default
@@ -50,22 +51,37 @@ class SetupExperiment
     'tournament_rounds' => ['Rounds (tournament)', nil, integer(1)],
     'tournament_size' => ['Tournament size for parent selection', '3', integer(1)],
     'keep_every' => ['Keep the SGFs and networks of every Nth generation (0 for never)', '10', integer(0)],
-    'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }, integer(0, (2**63) - 1)]
+    'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }, integer(0, (2**63) - 1)],
+    # Half of a benchmark's games are played with each color.
+    'benchmark_games' => ['Benchmark games per opponent', '20', even(2)],
+    'benchmark_opening_moves' => ['Stones in each benchmark opening (0 for none)', '4', integer(0)]
   }.freeze
 
   EXECUTABLES = %w[engine/evo initial-population/initial-population evolve/evolve].freeze
 
-  # What a new experiment plays against and how it scores. They are stored
-  # with the experiment, and the runner reads them from there, so changing
-  # them here only changes experiments created afterwards.
+  # What a new experiment plays against, what benchmarks it, and how it
+  # scores. They are stored with the experiment, and the runner reads them
+  # from there, so changing them here only changes experiments created
+  # afterwards.
   # Early networks are far too weak for GNU Go, at any level, and its games
-  # set most of a generation's wall time, so it stays out until networks beat
-  # these (see the opponent ladder in PROJECT_NOTES.md). GNU Go still
-  # referees. scripts/smoke-external-tools.sh plays each opponent; add new
-  # ones there.
+  # set most of a generation's wall time, so it stays out of the tournament
+  # until networks beat these (see the opponent ladder in PROJECT_NOTES.md).
+  # GNU Go still referees. scripts/smoke-external-tools.sh plays each
+  # opponent and each benchmark bot; add new ones there.
   DEFAULT_OPPONENTS = [
     { name: 'Brown', command: 'brown', copies: 5 },
     { name: 'AmiGo', command: 'amigogtp', copies: 10 }
+  ].freeze
+  # The fixed panel the top network of every checkpoint generation plays, so
+  # checkpoints stay comparable however the tournament's opponents change.
+  # The two network kinds have no command: the runner picks the network
+  # from the experiment's own generations.
+  DEFAULT_BENCHMARK = [
+    { name: 'Brown', kind: 'bot', command: 'brown' },
+    { name: 'AmiGo', kind: 'bot', command: 'amigogtp' },
+    { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
+    { name: 'Gen0Champion', kind: 'initial_champion', command: nil },
+    { name: 'PreviousCheckpoint', kind: 'previous_checkpoint', command: nil }
   ].freeze
   DEFAULT_SCORING = { 'rules' => RunGeneration::SCORING_RULES, 'win' => 1, 'draw' => 0, 'bye' => 0 }.freeze
 
@@ -97,8 +113,8 @@ class SetupExperiment
     database&.close
   end
 
-  # Settings, opponents, and scoring together or not at all, so no
-  # experiment has settings it cannot run with.
+  # Settings, opponents, benchmark panel, and scoring together or not at
+  # all, so no experiment has settings it cannot run with.
   def self.save_new_experiment(database, settings)
     database.transaction do
       database.save_settings(settings)
@@ -108,6 +124,7 @@ class SetupExperiment
 
   def self.save_rules(database)
     database.save_opponents(DEFAULT_OPPONENTS)
+    database.save_benchmark_opponents(DEFAULT_BENCHMARK)
     database.save_scoring(DEFAULT_SCORING)
   end
 

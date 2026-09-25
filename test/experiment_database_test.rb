@@ -9,6 +9,12 @@ class ExperimentDatabaseTest < Minitest::Test
     duration: 2.25, time_black: 0.5, time_white: 1.25
   }.freeze
 
+  BENCHMARK_GAME = {
+    generation: 10, opponent: 'Brown', opening: 3, network_color: 'white', network: '2.ann', opponent_network: nil,
+    winner: 'network', failure: nil, length: 57, referee_result: 'W+12.5', error_message: '', stderr: '',
+    duration: 1.5, time_black: 0.25, time_white: 0.5
+  }.freeze
+
   def with_store
     Dir.mktmpdir do |dir|
       path = File.join(dir, 'experiment.sqlite3')
@@ -149,6 +155,20 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  def test_exports_one_network_to_a_path
+    with_store do |store|
+      store.record_network(2, '0.ann', 'mine'.b)
+      store.record_network(3, '0.ann', 'next'.b)
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, '2-0.ann')
+        assert_equal path, store.export_network(2, '0.ann', path)
+        assert_equal 'mine'.b, File.binread(path)
+        assert_nil store.export_network(2, '1.ann', File.join(dir, 'missing.ann'))
+        refute File.exist?(File.join(dir, 'missing.ann'))
+      end
+    end
+  end
+
   def test_recording_a_network_again_replaces_it
     with_store do |store|
       store.record_network(2, '0.ann', 'old'.b)
@@ -180,6 +200,39 @@ class ExperimentDatabaseTest < Minitest::Test
       path = File.join(dir, 'missing.sqlite3')
       assert_raises(Sequel::DatabaseConnectionError) { ExperimentDatabase.new(path, readonly: true) }
       refute File.exist?(path)
+    end
+  end
+
+  def test_benchmark_opponents_round_trip_in_order
+    with_store do |store|
+      panel = [
+        { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
+        { name: 'Gen0Champion', kind: 'initial_champion', command: nil },
+        { name: 'Brown', kind: 'bot', command: 'brown' }
+      ]
+      store.save_benchmark_opponents(panel)
+      assert_equal panel, store.benchmark_opponents
+    end
+  end
+
+  def test_records_and_returns_benchmark_games_of_one_generation
+    with_store do |store|
+      store.record_benchmark_game(**BENCHMARK_GAME)
+      other = BENCHMARK_GAME.merge(opponent: 'AmiGo', opening: 0, network_color: 'black', winner: nil,
+                                   failure: 'referee gave no score', referee_result: '?')
+      store.record_benchmark_game(**other)
+      store.record_benchmark_game(**BENCHMARK_GAME, generation: 20)
+      assert_equal [other, BENCHMARK_GAME], store.benchmark_games(10)
+      assert_empty store.benchmark_games(0)
+    end
+  end
+
+  def test_a_replayed_benchmark_game_replaces_its_row
+    with_store do |store|
+      store.record_benchmark_game(**BENCHMARK_GAME)
+      replayed = BENCHMARK_GAME.merge(winner: 'opponent', referee_result: 'B+3.5')
+      store.record_benchmark_game(**replayed)
+      assert_equal [replayed], store.benchmark_games(10)
     end
   end
 end
