@@ -105,6 +105,15 @@ Follow these steps in order for every PR:
 2. List what the change makes newly true. Search the whole repository, including files the diff does not touch, for text that still says the old thing, and correct it.
 3. Have the whole branch reviewed (`git diff main...HEAD`) by a reviewer with fresh context, such as a subagent that has not seen the work. Give it the why and ask it to check correctness, repository conventions, and whether the tests would catch a break. Fix what it raises, and review again. Repeat until a review comes back clean. Don't stop for sign-off on findings. Ask the owner only when a finding needs a decision only the owner can make, such as changing scope or approach.
 4. Push and open the PR (see the conventions above).
-5. Wait for CI with `gh pr checks <pr> --watch`. Then confirm that no check has a status other than success, skipped, or neutral in `gh pr view <pr> --json statusCheckRollup`, and that the run belongs to the latest commit. If a check fails, fix the cause. Do not skip or disable it.
-6. Read the inline review comments (`gh api repos/ujh/evo/pulls/<pr>/comments`) and the top-level comments (`gh api repos/ujh/evo/issues/<pr>/comments`). Fix or answer each one and reply on its thread.
-7. Before pushing any later fix, repeat steps 1–3 for the whole branch, then steps 5–6.
+5. Wait for CI with `gh pr checks <pr> --watch`. Then confirm two things. First, `gh pr view <pr> --json headRefOid` matches `git rev-parse HEAD`. Second, this command prints nothing:
+   ```sh
+   gh pr view <pr> --json statusCheckRollup --jq '.statusCheckRollup[] | select((.conclusion // .state) as $s | ($s != "SUCCESS" and $s != "SKIPPED" and $s != "NEUTRAL")) | [(.conclusion // .state // .status), (.name // .context)] | @tsv'
+   ```
+   Check runs report their result in `conclusion`, and status contexts report theirs in `state`. `status` only says whether a check has finished. If a check fails, fix the cause. Do not skip or disable it.
+6. Read every kind of feedback:
+   - reviews, including their summary text and change requests (`gh api repos/ujh/evo/pulls/<pr>/reviews`)
+   - inline comments (`gh api repos/ujh/evo/pulls/<pr>/comments`)
+   - top-level comments (`gh api repos/ujh/evo/issues/<pr>/comments`)
+
+   Fix or answer each one. Reply to an inline comment on its thread (`-F in_reply_to=<id>`). Answer reviews and top-level comments with a new top-level comment.
+7. For any later fix, repeat steps 1–3 for the whole branch, push, then repeat steps 5–6.

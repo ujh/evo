@@ -2,7 +2,7 @@
 
 This file lists only work still to do: defects, cleanup, proposed experiments, and open questions. Delete an item when a change finishes it. Facts a future agent needs go into `CLAUDE.md`.
 
-**Objective:** show that evolution produces measurable improvement in Go. The proposed first milestone is repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure. Playing strength is not the goal.
+**Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
 **Current recommendation:** finish the test-protected cleanup of the defects that change results, then profile a short run, then test evolution of a shared local pattern scorer. Treat search as a possible follow-on that needs its own control experiment.
 
