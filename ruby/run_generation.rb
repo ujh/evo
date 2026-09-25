@@ -223,12 +223,12 @@ class RunGeneration
 
     previous_generation = generation.to_i - 1
     previous_data = JSON.load_file("../#{previous_generation}/data.json")
-    picks = parent_pool(previous_data)
+    candidates = parent_candidates(previous_data)
     # Generate the new population
     total = settings['population_size'].to_i
     total.times do |i|
       print "\rGenerating population ... #{i + 1}/#{total}"
-      `../evolve #{settings['cross_over_rate']} ../#{previous_generation}/#{picks.sample} ../#{previous_generation}/#{picks.sample}`
+      `../evolve #{settings['cross_over_rate']} ../#{previous_generation}/#{select_parent(candidates)} ../#{previous_generation}/#{select_parent(candidates)}`
       FileUtils.mv('child.ann', "#{i}.ann")
     end
     puts "\rGenerating population ... done         "
@@ -236,15 +236,24 @@ class RunGeneration
     save_data(setup_tournament)
   end
 
-  def parent_pool(previous_data)
-    # Use the score to determine how "good" the individual is
-    previous_data['ranking'].reject do |player|
-      previous_data['players'][player['name']]['external']
-    end.flat_map do |player|
-      player_name = player['name']
-      # Make better score _much_ more likely to be picked.
-      [player_name] * (player['score']**3)
-    end.compact
+  def parent_candidates(previous_data)
+    previous_data['ranking'].reject { |player| previous_data['players'][player['name']]['external'] }
+  end
+
+  # Tournament selection: draw tournament_size candidates at random (with
+  # replacement) and keep the one with the highest score. Only the order of
+  # the scores matters, so one lucky high score cannot take over breeding,
+  # and when every score is equal the pick is uniform. max_by keeps the first
+  # of tied draws, which is a random one of the tied candidates.
+  def select_parent(candidates)
+    size = settings.fetch('tournament_size', '3').to_i
+    raise ArgumentError, "tournament_size must be at least 1, got #{size}" if size < 1
+
+    Array.new(size) { candidates.sample(random: rng) }.max_by { |c| c['score'] }['name']
+  end
+
+  def rng
+    @rng ||= Random.new
   end
 
   def clean_up_generation(g)

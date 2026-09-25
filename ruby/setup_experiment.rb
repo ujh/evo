@@ -37,6 +37,9 @@ class SetupExperiment
       settings["max_moves"] = STDIN.gets.chomp
       print "Rounds (tournament): "
       settings["tournament_rounds"] = STDIN.gets.chomp
+      print "Tournament size for parent selection (default 3): "
+      tournament_size = STDIN.gets.chomp
+      settings["tournament_size"] = tournament_size.empty? ? "3" : tournament_size
       File.open("settings.json", "w") do |f|
         f.puts JSON.pretty_generate(settings)
       end

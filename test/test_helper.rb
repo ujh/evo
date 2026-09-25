@@ -23,10 +23,12 @@ module RunGenerationHelpers
 
   # RunGeneration.new starts Ractors and traps SIGINT, so tests build the object
   # without calling initialize.
-  def build_generation(generation: '1', settings: {})
+  # A fixed seed keeps parent selection reproducible in tests.
+  def build_generation(generation: '1', settings: {}, rng: Random.new(42))
     gen = RunGeneration.allocate
     gen.instance_variable_set(:@generation, generation)
     gen.instance_variable_set(:@settings, SETTINGS.merge(settings))
+    gen.instance_variable_set(:@rng, rng)
     gen
   end
 

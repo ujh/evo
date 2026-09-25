@@ -16,11 +16,11 @@ The percentages in `stats` divide evolved-player wins by the total number of rou
 
 **Proposed response:** maintain a fixed benchmark alongside breeding tournaments. Report wins and games played, separated by opponent and color. Keep tournament score and benchmark performance as different quantities.
 
-### 2. Selection may concentrate the population too quickly
+### 2. Selection pressure is a guess
 
-Cubing scores makes a score of 10 worth 1,000 times as much reproductive probability as a score of 1. Combined with external-opponent bonuses and uneven schedules, one exceptional result can dominate reproduction. This is a plausible cause of lost diversity, but no run data exists yet to show that it happened.
+Parents are chosen by tournament selection with a default size of 3 (`tournament_size`). Nothing yet shows whether that keeps enough variation or selects too weakly to make progress.
 
-**Proposed response:** consider rank-based selection or a small parent-selection tournament, with explicit behavior for zero-score populations. Track unique genomes, distinct parents, and how much reproduction each parent receives. Preserve a small number of elites, while measuring whether selection leaves enough variation.
+**Proposed response:** measure it with the [statistics](#6-record-statistics-to-test-the-assumptions) below, compare a few tournament sizes, and consider preserving a small number of elites.
 
 ### 3. Mutation and crossover deserve separate experiments
 
@@ -51,6 +51,15 @@ Cached sigmoid outputs also create artificial score ties, which favor earlier in
 `clean_up_generation` deletes every network and every SGF from the previous generation, and `stats` archives and deletes the result files. That saves space but prevents comparisons with early ancestors and inspection of interesting games. Runs also cannot be reproduced or safely resumed: seeds and code revision are not recorded, executables are symlinks to the current build, and the generation transition is not crash-safe. The fixes are listed under [Code cleanup](#code-cleanup).
 
 **Proposed response:** preserve generation zero and a spaced archive of champions, retain selected SGFs, and keep evidence retention independent of viewing statistics.
+
+### 6. Record statistics to test the assumptions
+
+Many settings rest on assumptions nobody has checked: the tournament size, the points for beating each bot, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. Record enough per generation to test them later, in a file that breeding and `stats` do not delete:
+
+- for each child, its parents, whether it came from crossover or mutation, and how many weights changed (so the share of unchanged children is visible)
+- how many children each parent got, and how many distinct parents and unique genomes there are
+- the score distribution, and results per opponent and per color
+- game lengths and unscored games
 
 ## Go rules and scoring boundary
 
@@ -107,7 +116,6 @@ Fix each with a test that fails before the fix.
 | Location | Problem | Effect |
 | --- | --- | --- |
 | [`stats:65`](stats), [`ranking:37`](ranking) | Result lines are split on whitespace, so an empty column (GoGui leaves `RES_B` or `RES_W` empty when a program gives no score) shifts `RES_R` and `LEN`. Anything not starting with `B` counts as a White win. | Reported win rates and game lengths can be wrong. Reuse `ruby/game_result.rb`, which the runner uses. |
-| [`ruby/run_generation.rb`](ruby/run_generation.rb) `parent_pool` | Parent pool is an array of `score³` copies of each filename. | One score of 500 already means 125 million entries (about 1 GB). An all-zero population gives an empty pool, and `picks.sample` returns `nil`, which breaks the `evolve` call. Small runs hit this in generation 1, because random networks rarely win a game. |
 | [`ruby/run_generation.rb`](ruby/run_generation.rb) `evolve_from_previous_population` | `evolve` runs in backticks, its exit status is ignored, and it writes `child.ann` into the working directory. | A failed breed either stops the run (`mv` of a missing `child.ann`) or silently reuses a stale `child.ann` left by an earlier interrupted run. Breeding cannot safely run in parallel. |
 | [`ruby/run_generation.rb`](ruby/run_generation.rb) `games_from_ranking` | External bots are paired with each other, and an odd player count gives the last-ranked player a free point (a "bye"). | Compute goes to games that carry no selection signal, and byes add points unrelated to play. |
 | [`engine/generate_move.c:114`](engine/generate_move.c) | A network whose size does not match the board calls `exit(1)` inside `genmove`. | The process dies mid-game instead of returning a GTP error. `boardsize` should reject a size the loaded network cannot play. |
@@ -120,13 +128,13 @@ Fix each with a test that fails before the fix.
 ### Structure and hygiene
 
 - **One copy of each shared file.** `genann.c` and `genann.h` exist in identical copies in `lib/`, `engine/`, `evolve/`, and `initial-population/`, and `minctest.h` in `lib/`, `engine/`, and `evolve/`. Every Makefile compiles its local copy. `lib/` is unused. Build shared code once from `lib/` (as a static library or shared object files) so a fix cannot land in one copy only.
-- **Concurrency without Ractors.** The worker pool uses `Ractor.yield` and `Ractor#take`, which Ruby 4.0 removed in favor of `Ractor::Port`, so the harness will not run on current Ruby. Each generation also creates new Ractors and re-installs the `SIGINT` trap without stopping the previous ones. The workers only call `system`, which releases the interpreter lock, so a fixed pool of threads fed from a `Queue`, created once per experiment, is simpler and sufficient. Move the mise Ruby pin to 4.0 in the same change, and test experiment runs under it.
+- **Concurrency without Ractors.** The worker pool uses `Ractor.yield` and `Ractor#take`, which Ruby 4.0 removed in favor of `Ractor::Port`, so the harness will not run on current Ruby. Each generation also creates new Ractors and re-installs the `SIGINT` trap without stopping the previous ones. The workers only call `system`, which releases the interpreter lock, so a fixed pool of threads fed from a `Queue`, created once per experiment, is simpler and sufficient. Move the mise Ruby pin to 4.0 in the same change, and test experiment runs under it. This is urgent: on Ruby 3.3, a worker Ractor often dies inside `system` with `No live threads left. Deadlock? (fatal)`, after which the runner spins at 100% CPU and ignores `SIGTERM`. It happened in most resumed runs of generation 1, on `main` as well as with the new parent selection.
 - **Typed, validated settings.** `settings.json` stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment needs (seed, code revision, opponent panel, scoring rules).
 - **Atomic checkpoints.** `data.json` is rewritten directly after every game and read while being written by `ranking`, which silently skips a refresh when parsing fails. Write to a temporary file and rename it. Save the next generation's setup before deleting the previous generation's files, so a crash in between cannot lose the parents. Stop mixing string and symbol keys in game hashes (`games_from_ranking` creates symbol keys, but after a JSON round trip the code reads string keys).
 - **Separate viewing from housekeeping.** `stats` and `ranking` should be read-only. Archiving, pruning, and notifications belong in the runner or a separate command. The `ntfy` notification builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
 - **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
-- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), parent selection edge cases (see the `parent_pool` defect), mutation statistics, the file format round trip, and resuming a generation. Record the fraction of offspring identical to a parent, not only that the code runs.
+- **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), mutation statistics, the file format round trip, and resuming a generation. Record the fraction of offspring identical to a parent, not only that the code runs.
 - **Document benchmarking in the README.** Explain how to benchmark a saved network against the external bots.
 
 ### Neural network library
