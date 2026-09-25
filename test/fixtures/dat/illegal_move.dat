@@ -1,0 +1,20 @@
+# Black: Brown
+# BlackCommand: brown
+# BlackLabel: Brown
+# BlackVersion: 1.0
+# Date: September 24, 2026, 8:52:07 PM CEST
+# Host: Mac
+# Komi: 6.5
+# Referee: GNU Go
+# RefereeCommand: gnugo --mode gtp
+# RefereeLabel: GNU Go
+# RefereeVersion: 3.8
+# Size: 9
+# White: crashy
+# WhiteCommand: /private/tmp/claude-501/-Users-urbanhafner-Personal-evo/a34c75ad-8277-4a78-a470-64b7873415c4/scratchpad/dat/crashy.sh
+# WhiteLabel: crashy
+# WhiteVersion: 1
+# Xml: 0
+#
+#GAME	RES_B	RES_W	RES_R	ALT	DUP	LEN	TIME_B	TIME_W	CPU_B	CPU_W	ERR	ERR_MSG
+0	W+85.5		W+40.5	0	-	2	0	0	0	0	1	Brown: illegal move

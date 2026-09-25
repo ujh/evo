@@ -6,21 +6,24 @@ require_relative 'test_helper'
 class ScoreGameTest < Minitest::Test
   include RunGenerationHelpers
 
-  GAME = { 'black' => '0001.ann', 'white' => 'GnuGoLevel101' }.freeze
-  PREFIX = '0001xGnuGoLevel101R0'.freeze
+  NETWORK_VS_BOT = { 'black' => '0001.ann', 'white' => 'GnuGoLevel101' }.freeze
+  NETWORK_VS_NETWORK = { 'black' => '0001.ann', 'white' => '0002.ann' }.freeze
 
   def players
     {
       '0001.ann' => { 'command' => '../evo 0001.ann', 'points' => 1 },
+      '0002.ann' => { 'command' => '../evo 0002.ann', 'points' => 1 },
       'GnuGoLevel101' => { 'command' => 'gnugo --level 10 --mode gtp', 'points' => 100, 'external' => true }
     }
   end
 
-  def score(fixture)
+  def score(fixture, game = NETWORK_VS_BOT)
     in_experiment do
       write_data('round' => 0, 'players' => players)
-      copy_dat(fixture, PREFIX)
-      build_generation.send(:score_game, GAME)
+      gen = build_generation
+      copy_dat(fixture, gen.send(:prefix_from, game)) if fixture
+      yield gen.send(:prefix_from, game) if block_given?
+      gen.send(:score_game, game)
     end
   end
 
@@ -32,50 +35,58 @@ class ScoreGameTest < Minitest::Test
     assert_equal({ 'winner' => 'GnuGoLevel101', 'points' => 1 }, score('white_wins'))
   end
 
-  def test_draw_counts_as_white_win_defect
-    assert_equal 'GnuGoLevel101', score('draw')['winner']
+  def test_draw_gives_no_points_and_is_not_a_failure
+    assert_equal({ 'winner' => nil }, score('draw'))
   end
 
-  def test_missing_referee_score_counts_as_white_win_defect
-    assert_equal 'GnuGoLevel101', score('no_referee_score')['winner']
+  def test_missing_referee_score_gives_no_points_and_is_flagged
+    assert_equal({ 'winner' => nil, 'failure' => 'no referee score: ?' }, score('no_referee_score'))
   end
 
-  def test_crashed_player_still_gets_the_referee_score_defect
-    # Evo exited mid-game (ERR 1), yet GNU Go scored the position for Black.
-    assert_equal '0001.ann', score('black_crashed')['winner']
+  def test_crashed_network_loses_whatever_the_referee_said
+    # Evo exited on its first move, yet GNU Go scored the position B+17.5.
+    assert_equal({ 'winner' => 'GnuGoLevel101', 'points' => 1 }, score('black_crashed'))
   end
 
-  def test_move_limit_error_is_ignored_and_the_score_is_used_defect
-    assert_equal 'GnuGoLevel101', score('move_limit')['winner']
+  def test_crashed_white_network_loses_to_black
+    assert_equal({ 'winner' => '0001.ann', 'points' => 1 }, score('white_crashed', NETWORK_VS_NETWORK))
   end
 
-  def test_missing_result_file_raises_defect
-    in_experiment do
-      write_data('round' => 0, 'players' => players)
-      assert_raises(Errno::ENOENT) { build_generation.send(:score_game, GAME) }
-    end
+  def test_crashed_external_bot_gives_no_points_and_is_flagged
+    assert_equal({ 'winner' => nil, 'failure' => 'GnuGoLevel101 crashed' }, score('white_crashed'))
   end
 
-  def test_empty_result_file_raises_defect
-    in_experiment do
-      write_data('round' => 0, 'players' => players)
-      File.write("#{PREFIX}.dat", '')
-      assert_raises(NoMethodError) { build_generation.send(:score_game, GAME) }
-    end
+  def test_crash_without_stderr_gives_no_points_and_is_flagged
+    assert_equal({ 'winner' => nil, 'failure' => 'error: The Go program terminated unexpectedly.' },
+                 score('crash_without_stderr'))
+  end
+
+  def test_illegal_move_gives_no_points_and_is_flagged
+    # This line also has an empty RES_W column, which must not shift RES_R.
+    assert_equal({ 'winner' => nil, 'failure' => 'error: Brown: illegal move' }, score('illegal_move'))
+  end
+
+  def test_move_limit_uses_the_referee_score
+    assert_equal({ 'winner' => 'GnuGoLevel101', 'points' => 1 }, score('move_limit'))
+  end
+
+  def test_missing_result_file_gives_no_points_and_is_flagged
+    assert_equal({ 'winner' => nil, 'failure' => 'no result file' }, score(nil))
+  end
+
+  def test_result_file_without_a_game_line_gives_no_points_and_is_flagged
+    result = score(nil) { |prefix| File.write("#{prefix}.dat", "# Black: Brown\n#GAME\tRES_B\n") }
+    assert_equal({ 'winner' => nil, 'failure' => 'no game in result file' }, result)
   end
 
   def test_bye_goes_to_black_without_reading_a_result
-    in_experiment do
-      write_data('round' => 0, 'players' => players)
-      result = build_generation.send(:score_game, { 'black' => '0001.ann', 'white' => nil })
-      assert_equal({ 'winner' => '0001.ann' }, result)
-    end
+    assert_equal({ 'winner' => '0001.ann' }, score(nil, { 'black' => '0001.ann', 'white' => nil }))
   end
 
   def test_result_file_prefix_uses_basenames_and_round
     in_experiment do
       write_data('round' => 3, 'players' => players)
-      assert_equal '0001xGnuGoLevel101R3', build_generation.send(:prefix_from, GAME)
+      assert_equal '0001xGnuGoLevel101R3', build_generation.send(:prefix_from, NETWORK_VS_BOT)
     end
   end
 end
@@ -112,7 +123,7 @@ end
 class EvolveFromPreviousPopulationTest < Minitest::Test
   include RunGenerationHelpers
 
-  # Sets up generation 0 with the given networks and an SGF, then runs the breeding
+  # Sets up generation 0 with the given networks, an SGF, and twogtp stderr files, then runs the breeding
   # step for generation 1 with `../evolve` replaced by the given block.
   def breed(scores:, settings: {}, stale_child: nil, &evolve)
     in_experiment do |dir|
@@ -121,6 +132,8 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
       FileUtils.mkdir_p(gen0)
       scores.each_key { |name| File.write(File.join(gen0, name), name) }
       File.write(File.join(gen0, 'game.sgf'), '')
+      File.write(File.join(gen0, 'quiet.err'), '')
+      File.write(File.join(gen0, 'crashed.err'), "Black program died\n")
       write_data({
                    'players' => scores.keys.to_h { |name| [name, { 'points' => 1 }] },
                    'ranking' => scores.map { |name, score| { 'name' => name, 'score' => score } }
@@ -158,7 +171,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_nil state[:error]
     assert_equal ['../evolve 0.5 ../0/0001.ann ../0/0001.ann'] * 2, state[:commands]
     assert_equal %w[0.ann 1.ann], state[:children].keys
-    assert_equal ['data.json'], state[:previous_files]
+    assert_equal ['crashed.err', 'data.json'], state[:previous_files]
     assert state[:data]['setup_complete']
     assert_equal 0, state[:data]['round']
   end
@@ -241,7 +254,7 @@ end
 class PlayRoundBookkeepingTest < Minitest::Test
   include RunGenerationHelpers
 
-  def test_prepare_game_builds_the_twogtp_command_with_an_unseeded_referee
+  def test_prepare_game_builds_the_twogtp_command_with_an_unseeded_referee_and_saves_stderr
     in_experiment do
       write_data('round' => 0, 'players' => {
                    'a.ann' => { 'command' => '../evo a.ann' },
@@ -251,7 +264,7 @@ class PlayRoundBookkeepingTest < Minitest::Test
       prepared = build_generation.send(:prepare_game, game)
       assert_equal game, prepared['identifier']
       assert_equal 'gogui-twogtp -black "../evo a.ann" -white "brown" -referee "gnugo --mode gtp" ' \
-                   '-size 9 -auto -games 1 -sgffile axBrown1R0 -time 10 -force -maxmoves 200',
+                   '-size 9 -auto -games 1 -sgffile axBrown1R0 -time 10 -force -maxmoves 200 2> axBrown1R0.err',
                    prepared['command']
     end
   end
@@ -275,6 +288,33 @@ class PlayRoundBookkeepingTest < Minitest::Test
       data = gen.send(:data)
       assert_equal [{ 'black' => 'c.ann', 'white' => nil }], data['games']
       assert_equal [['a.ann', 50], ['b.ann', 2], ['c.ann', 1]], data['ranking'].map(&:values)
+    end
+  end
+
+  def test_update_data_records_a_failed_game_without_awarding_points
+    in_experiment do
+      game = { 'black' => 'a.ann', 'white' => 'b.ann' }
+      write_data('round' => 2, 'games' => [game],
+                 'ranking' => [{ 'name' => 'a.ann', 'score' => 1 }, { 'name' => 'b.ann', 'score' => 0 }])
+      gen = build_generation
+      _out, err = capture_io { gen.send(:update_data, game, { 'winner' => nil, 'failure' => 'no result file' }) }
+      data = gen.send(:data)
+      assert_empty data['games']
+      assert_equal [['a.ann', 1], ['b.ann', 0]], data['ranking'].map(&:values)
+      assert_equal [game.merge('round' => 2, 'failure' => 'no result file')], data['unscored']
+      assert_includes err, 'axbR2: no result file'
+    end
+  end
+
+  def test_update_data_appends_to_earlier_failures
+    in_experiment do
+      game = { 'black' => 'a.ann', 'white' => 'b.ann' }
+      earlier = { 'black' => 'c.ann', 'white' => 'd.ann', 'round' => 0, 'failure' => 'draw' }
+      write_data('round' => 1, 'games' => [game], 'unscored' => [earlier],
+                 'ranking' => [{ 'name' => 'a.ann', 'score' => 0 }, { 'name' => 'b.ann', 'score' => 0 }])
+      gen = build_generation
+      capture_io { gen.send(:update_data, game, { 'winner' => nil, 'failure' => 'no result file' }) }
+      assert_equal [earlier, game.merge('round' => 1, 'failure' => 'no result file')], gen.send(:data)['unscored']
     end
   end
 

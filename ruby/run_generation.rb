@@ -1,3 +1,5 @@
+require_relative 'game_result'
+
 class RunGeneration
   def self.call(generation, settings)
     new(generation, settings).call
@@ -141,6 +143,10 @@ class RunGeneration
       'games' => data['games'].reject { |g| g == game },
       'ranking' => new_ranking
     )
+    if result['failure']
+      warn "\n#{prefix_from(game)}: #{result['failure']}"
+      new_data['unscored'] = data.fetch('unscored', []) + [game.merge('round' => data['round'], 'failure' => result['failure'])]
+    end
     save_data(new_data)
   end
 
@@ -166,7 +172,7 @@ class RunGeneration
     maxmoves = settings['max_moves']
     prefix = prefix_from(game)
     time = settings['game_length']
-    cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves})
+    cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "gnugo --mode gtp" -size #{size} -auto -games 1 -sgffile #{prefix} -time #{time} -force -maxmoves #{maxmoves} 2> #{prefix}.err)
 
     { 'command' => cmd, 'identifier' => game }
   end
@@ -175,11 +181,15 @@ class RunGeneration
     # Odd number of players. Received a bye
     return { 'winner' => game['black'] } unless game['white']
 
-    prefix = prefix_from(game)
-    result = File.readlines("#{prefix}.dat").last.split
-    winner, loser = result[3].start_with?('B') ? [game['black'], game['white']] : [game['white'], game['black']]
-    points = data['players'][loser]['points']
-    { 'winner' => winner, 'points' => points }
+    result = GameResult.read(prefix_from(game))
+    return { 'winner' => nil, 'failure' => result.failure } if result.failure
+    return { 'winner' => nil } unless result.winner
+
+    winner, loser = result.winner == :black ? [game['black'], game['white']] : [game['white'], game['black']]
+    # A bot crashing says nothing about the network that played it.
+    return { 'winner' => nil, 'failure' => "#{loser} crashed" } if result.crashed? && data['players'][loser]['external']
+
+    { 'winner' => winner, 'points' => data['players'][loser]['points'] }
   end
 
   def prefix_from(game)
@@ -249,6 +259,8 @@ class RunGeneration
       #   exit(1)
       # end
       FileUtils.rm(Dir['*.sgf'])
+      # Keep twogtp stderr only where a program said something, such as a crash.
+      FileUtils.rm(Dir['*.err'].select { |f| File.zero?(f) })
     end
   end
 
