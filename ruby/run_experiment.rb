@@ -13,12 +13,15 @@ class RunExperiment
     puts "*** Settings ***"
     puts JSON.pretty_generate(settings)
 
+    pool = WorkerPool.new(settings['concurrency'].to_i)
     generation = start_generation
     loop do
-      r = RunGeneration.call(generation.to_s, settings)
+      r = RunGeneration.call(generation.to_s, settings, pool)
       generation += 1
       break if settings['one_generation'] && (r != :already_done)
     end
+  ensure
+    pool&.stop
   end
 
   private

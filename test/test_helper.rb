@@ -21,9 +21,8 @@ module RunGenerationHelpers
     'concurrency' => 1
   }.freeze
 
-  # RunGeneration.new starts Ractors and traps SIGINT, so tests build the object
-  # without calling initialize.
-  # A fixed seed keeps parent selection reproducible in tests.
+  # Tests build the object without calling initialize and set its instance
+  # variables directly. A fixed seed keeps parent selection reproducible.
   def build_generation(generation: '1', settings: {}, rng: Random.new(42))
     gen = RunGeneration.allocate
     gen.instance_variable_set(:@generation, generation)

@@ -1,21 +1,16 @@
 require_relative 'game_result'
 
 class RunGeneration
-  def self.call(generation, settings)
-    new(generation, settings).call
+  def self.call(generation, settings, pool)
+    new(generation, settings, pool).call
   end
 
-  def initialize(generation, settings)
+  # `pool` is the WorkerPool that plays the games. It lives as long as the
+  # experiment, so every generation shares the same threads.
+  def initialize(generation, settings, pool)
     self.generation = generation
     self.settings = settings
-    self.pipe = initialize_pipe
-    self.ractors = initialize_ractors
-
-    trap 'SIGINT' do
-      puts 'Stopping ...'
-      stop_ractors
-      $stop_now = true
-    end
+    self.pool = pool
   end
 
   def call
@@ -27,42 +22,7 @@ class RunGeneration
 
   private
 
-  attr_accessor :generation, :settings, :ractors, :pipe
-
-  def stop_ractors
-    ractors.each { |r| r.send(:stop) }
-    pipe.send(:stop)
-  end
-
-  def initialize_ractors
-    settings['concurrency'].to_i.times.map do
-      Ractor.new(pipe) do |pipe|
-        while msg = pipe.take
-          if msg == :stop
-            puts "[#{Ractor.current}]\tStopping"
-            break
-          end
-
-          system(msg['command'])
-          Ractor.yield msg['identifier']
-        end
-      end
-    end
-  end
-
-  def initialize_pipe
-    Ractor.new do
-      loop do
-        msg = receive
-        if msg == :stop
-          puts "[#{Ractor.current}]\tStopping"
-          break
-        end
-
-        Ractor.yield msg
-      end
-    end
-  end
+  attr_accessor :generation, :settings, :pool
 
   def setup
     FileUtils.mkdir(generation) unless File.exist?(generation)
@@ -103,23 +63,22 @@ class RunGeneration
   end
 
   def play_round
-    # Put all games into the pipe
     data['games'].each do |game|
       game_data = prepare_game(game)
       if game_data['winner']
         update_data(game, game_data)
         refresh_progress
       else
-        pipe << game_data
+        pool.submit(game_data['command'], game_data['identifier'])
       end
     end
 
-    loop do
-      break if data['games'].empty?
-
-      _r, completed_game = Ractor.select(*ractors)
-      result = score_game(completed_game)
-      update_data(completed_game, result)
+    until data['games'].empty?
+      completed_game = pool.next_finished
+      # Ctrl-C also stops the running games. Leave them unscored so that
+      # resuming plays them again instead of counting a killed game.
+      exit if $stop_now
+      update_data(completed_game, score_game(completed_game))
       refresh_progress
     end
   end

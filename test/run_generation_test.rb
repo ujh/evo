@@ -292,6 +292,78 @@ class GamesFromRankingTest < Minitest::Test
   end
 end
 
+class PlayRoundTest < Minitest::Test
+  include RunGenerationHelpers
+
+  # Stands in for WorkerPool: "runs" a game by calling the block, which writes
+  # its result file, and hands the games back in the order they were queued.
+  class FakePool
+    attr_reader :commands
+
+    def initialize(&run)
+      @run = run
+      @queued = []
+      @commands = []
+    end
+
+    def submit(command, identifier)
+      @commands << command
+      @queued << identifier
+    end
+
+    def next_finished
+      identifier = @queued.shift
+      @run.call(identifier)
+      identifier
+    end
+  end
+
+  def setup_round
+    write_data('round' => 0,
+               'players' => {
+                 'a.ann' => { 'command' => '../evo a.ann', 'points' => 1 },
+                 'b.ann' => { 'command' => '../evo b.ann', 'points' => 1 },
+                 'c.ann' => { 'command' => '../evo c.ann', 'points' => 1 }
+               },
+               'games' => [{ 'black' => 'a.ann', 'white' => 'b.ann' }, { 'black' => 'c.ann', 'white' => nil }],
+               'ranking' => %w[a.ann b.ann c.ann].map { |name| { 'name' => name, 'score' => 0 } })
+  end
+
+  def build_with(pool)
+    gen = build_generation
+    gen.instance_variable_set(:@pool, pool)
+    gen
+  end
+
+  def test_plays_and_scores_every_game_of_the_round
+    in_experiment do
+      setup_round
+      pool = FakePool.new { |game| copy_dat('black_wins', "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R0") }
+      gen = build_with(pool)
+      capture_io { gen.send(:play_round) }
+      data = gen.send(:data)
+      assert_empty data['games']
+      assert_equal({ 'a.ann' => 1, 'b.ann' => 0, 'c.ann' => 1 }, data['ranking'].to_h { |r| r.values_at('name', 'score') })
+      assert_equal 1, pool.commands.size
+      assert_includes pool.commands.first, '-black "../evo a.ann" -white "../evo b.ann"'
+    end
+  end
+
+  def test_stopping_leaves_the_finished_game_to_be_replayed
+    in_experiment do
+      setup_round
+      pool = FakePool.new { $stop_now = true }
+      gen = build_with(pool)
+      capture_io { assert_raises(SystemExit) { gen.send(:play_round) } }
+      data = JSON.load_file('data.json')
+      assert_equal [{ 'black' => 'a.ann', 'white' => 'b.ann' }], data['games']
+      assert_nil data['unscored']
+    ensure
+      $stop_now = false
+    end
+  end
+end
+
 class PlayRoundBookkeepingTest < Minitest::Test
   include RunGenerationHelpers
 
