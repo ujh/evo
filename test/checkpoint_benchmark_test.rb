@@ -108,14 +108,23 @@ class CheckpointBenchmarkTest < Minitest::Test
       gnugo = ->(color) { "gnugo --level 0 --mode gtp --seed #{seed.call(color)}" }
       # twogtp counts the opening's stones toward the move limit.
       assert_equal [%(gogui-twogtp -black "../evo benchmark/0-b.ann" -white "#{gnugo.call('black')}" ) +
-                    %(-referee "gnugo --mode gtp --seed #{seed.call('black')}" -size 9 -auto -games 1 ) +
-                    '-sgffile benchmark/GnuGoLevel0-0-black -time 10 -force -maxmoves 204 ' \
+                    %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed.call('black')}" -size 9 -komi 6.5 ) +
+                    '-auto -games 1 -sgffile benchmark/GnuGoLevel0-0-black -time 10 -force -maxmoves 204 ' \
                     '-openings benchmark/openings/0 2> benchmark/GnuGoLevel0-0-black.err',
                     %(gogui-twogtp -black "#{gnugo.call('white')}" -white "../evo benchmark/0-b.ann" ) +
-                    %(-referee "gnugo --mode gtp --seed #{seed.call('white')}" -size 9 -auto -games 1 ) +
-                    '-sgffile benchmark/GnuGoLevel0-0-white -time 10 -force -maxmoves 204 ' \
+                    %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed.call('white')}" -size 9 -komi 6.5 ) +
+                    '-auto -games 1 -sgffile benchmark/GnuGoLevel0-0-white -time 10 -force -maxmoves 204 ' \
                     '-openings benchmark/openings/0 2> benchmark/GnuGoLevel0-0-white.err'], commands
       assert_equal Openings.sgf(9, Openings.moves(1, 0, 9, 4)), File.read('benchmark/openings/0/opening.sgf')
+    end
+  end
+
+  def test_the_command_gives_the_experiment_komi
+    in_experiment do
+      only_opponents('Brown')
+      store_generations(0)
+      commands = run_benchmark(0, settings: { 'komi' => -3.0 }).commands
+      commands.each { |command| assert_includes command, ' -komi -3.0 ' }
     end
   end
 
@@ -235,6 +244,22 @@ class CheckpointBenchmarkTest < Minitest::Test
       assert_empty database.benchmark_games(0)
     ensure
       $stop_now = false
+    end
+  end
+
+  # Ctrl-C reaches the game as well as the runner, and the game may be back
+  # before the trap has run: its status says it was interrupted.
+  def test_an_interrupted_game_is_left_to_be_replayed_before_the_trap_ran
+    [signal_status('INT'), exit_status(130)].each do |status|
+      in_experiment do
+        only_opponents('Brown')
+        store_generations(0)
+        pool = FakePool.new(status:) { |game| copy_dat('black_wins', game.prefix) }
+        benchmark = CheckpointBenchmark.new(0, SETTINGS.merge('benchmark_games' => 2), pool, database)
+        _, err = capture_io { assert_equal 130, assert_raises(SystemExit) { benchmark.call }.status }
+        assert_includes err, 'benchmark game benchmark/Brown-0-black was interrupted; it stays pending'
+        assert_empty database.benchmark_games(0)
+      end
     end
   end
 

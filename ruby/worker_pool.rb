@@ -1,7 +1,8 @@
-# Runs shell commands on a fixed number of threads. The commands are games
-# (gogui-twogtp), so the threads spend their time in `system`, which releases
-# the interpreter lock; plain threads run them just as much in parallel as
-# Ractors would, without their deadlocks.
+# Runs shell commands on a fixed number of threads. The commands play games
+# (one gogui-twogtp game, or a chunk of games in the arena), so the threads
+# spend their time in `system`, which releases the interpreter lock; plain
+# threads run them just as much in parallel as Ractors would, without their
+# deadlocks.
 class WorkerPool
   def initialize(size)
     raise ArgumentError, "a worker pool needs at least 1 thread, got #{size}" if size < 1
@@ -18,10 +19,33 @@ class WorkerPool
     @jobs << [command, identifier]
   end
 
-  # Blocks until a command finishes and returns its identifier and the
-  # wall-clock seconds it ran.
+  # Blocks until a command finishes and returns its identifier, the
+  # wall-clock seconds it ran, and its Process::Status.
   def next_finished
     @finished.pop
+  end
+
+  # Signals that stop a run: Ctrl-C (SIGINT) and SIGTERM.
+  STOPPING = [Signal.list['INT'], Signal.list['TERM']].freeze
+
+  # Whether `status` says the command was ended by Ctrl-C or SIGTERM. Ctrl-C
+  # reaches the games as well as the runner, and a killed game can come back
+  # before the runner's trap has run, so the status is what tells that its
+  # result is not one. A program killed by the signal shows as signaled; one
+  # that catches it and exits, like the JVM running gogui-twogtp, exits with
+  # 128 plus the signal, as the shell reports a child killed by a signal.
+  def self.interrupted?(status)
+    return false unless status
+
+    STOPPING.include?(status.termsig) || STOPPING.map { |signal| 128 + signal }.include?(status.exitstatus)
+  end
+
+  # Stops the run for a job that `interrupted?` calls interrupted while no
+  # Ctrl-C was seen (the trap may not have run yet, or someone killed one
+  # game), saying so, with the status a shell gives a command Ctrl-C ended.
+  def self.exit_interrupted(job, pending)
+    warn "\n#{job} was interrupted; #{pending}. Stopping."
+    exit 130
   end
 
   # Keeps queued commands from starting; running ones finish. Only sets a
@@ -52,7 +76,8 @@ class WorkerPool
       command, identifier = job
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       system(command)
-      @finished << [identifier, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
+      # $? belongs to this thread.
+      @finished << [identifier, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, $?]
     end
   end
 end

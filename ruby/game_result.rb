@@ -13,6 +13,10 @@ class GameResult
   ERR = 11
   ERR_MSG = 12
   MOVE_LIMIT = 'move limit exceeded'.freeze
+  # The referee whose score RES_R holds, in the tournament and the
+  # benchmark. It scores by area (Chinese rules), as the arena does; twogtp
+  # sends it the experiment's komi. Callers append its --seed.
+  REFEREE = 'gnugo --mode gtp --chinese-rules'.freeze
 
   # length is the number of moves played, referee and error_message are the
   # RES_R and ERR_MSG columns, and time_black and time_white the seconds each
