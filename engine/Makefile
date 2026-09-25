@@ -17,8 +17,10 @@ evo: $(OBJS) main.o ../lib/libann.a
 enginetest: evo
 	sh enginetest.sh
 
-# The Go rules: Brown's board code and the move filter.
-test: $(OBJS) rules_test.o ../lib/libann.a
+# The Go rules: Brown's board code and the move filter. Linked without the
+# GTP code (gtp.o, interface.o), which also checks that a program other than
+# evo can play networks with brown.o and generate_move.o alone.
+test: brown.o generate_move.o rules_test.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o rules_test $^ $(LDLIBS)
 	./rules_test
 

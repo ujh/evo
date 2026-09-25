@@ -85,7 +85,6 @@ static struct gtp_command commands[] = {
 };
 
 genann *ann = NULL;
-double *ann_inputs = NULL;
 
 void allocate_ann(char *ann_save_file) {
   fprintf(stderr, "Loading NN ...");
@@ -116,11 +115,6 @@ void allocate_ann(char *ann_save_file) {
   );
 }
 
-void allocate_ann_inputs() {
-  if (ann_inputs != NULL) free(ann_inputs);
-  ann_inputs = malloc(ann->inputs * sizeof(double));
-}
-
 int boot(int argc, char **argv) {
   /* Make sure that stdout is not block buffered. */
   setbuf(stdout, NULL);
@@ -134,7 +128,6 @@ int boot(int argc, char **argv) {
     exit(1);
   }
   allocate_ann(argv[1]);
-  allocate_ann_inputs();
 
   /* Initialize the board. */
   init_brown();
@@ -212,7 +205,7 @@ gtp_boardsize(char *s)
   if (sscanf(s, "%d", &boardsize) < 1)
     return gtp_failure("boardsize not an integer");
 
-  if (boardsize < MIN_BOARD || boardsize > MAX_BOARD || !ann_fits_board(boardsize))
+  if (boardsize < MIN_BOARD || boardsize > MAX_BOARD || !ann_fits_board(ann, boardsize))
     return gtp_failure("unacceptable size");
 
   board_size = boardsize;
@@ -225,7 +218,7 @@ gtp_boardsize(char *s)
 static int
 gtp_clear_board(char *s)
 {
-  clear_board();
+  new_game();
   return gtp_success("");
 }
 
@@ -236,6 +229,21 @@ gtp_komi(char *s)
     return gtp_failure("komi not a float");
 
   return gtp_success("");
+}
+
+/* Put free placement handicap stones on the board. We do this simply
+ * by generating successive black moves.
+ */
+static void
+place_free_handicap(int handicap)
+{
+  int k;
+  int i, j;
+
+  for (k = 0; k < handicap; k++) {
+    generate_move(ann, &i, &j, BLACK);
+    play_move(i, j, BLACK);
+  }
 }
 
 /* Common code for fixed_handicap and place_free_handicap. */
@@ -257,6 +265,10 @@ place_handicap(char *s, int fixed)
 
   if (fixed && !valid_fixed_handicap(handicap))
     return gtp_failure("invalid handicap");
+
+  // Free handicap stones are the network's moves.
+  if (!fixed && !ann_fits_board(ann, board_size))
+    return gtp_failure("network does not fit the board");
 
   if (fixed)
     place_fixed_handicap(handicap);
@@ -349,10 +361,10 @@ gtp_genmove(char *s)
     return gtp_failure("invalid color");
 
   // Reached when no boardsize was sent: evo starts at size 6.
-  if (!ann_fits_board(board_size))
+  if (!ann_fits_board(ann, board_size))
     return gtp_failure("network does not fit the board");
 
-  generate_move(&i, &j, color);
+  generate_move(ann, &i, &j, color);
   play_move(i, j, color);
 
   gtp_start_response(GTP_SUCCESS);

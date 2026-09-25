@@ -38,7 +38,6 @@
 #include <string.h>
 
 #include "brown.h"
-#include "generate_move.h"
 
 /* The GTP specification leaves the initial board size and komi to the
  * discretion of the engine. We make the uncommon choices of 6x6 board
@@ -64,11 +63,17 @@ static int ko_i, ko_j;
 
 
 void init_brown() {
-  clear_board();
+  new_game();
 }
 
 void clear_board() {
   memset(board, 0, sizeof(board));
+}
+
+void new_game() {
+  clear_board();
+  ko_i = -1;
+  ko_j = -1;
 }
 
 int
@@ -470,20 +475,5 @@ place_fixed_handicap(int handicap)
   if (handicap >= 8) {
     play_move(low, mid, BLACK);    /* top edge */
     play_move(high, mid, BLACK);   /* bottom edge */
-  }
-}
-
-/* Put free placement handicap stones on the board. We do this simply
- * by generating successive black moves.
- */
-void
-place_free_handicap(int handicap)
-{
-  int k;
-  int i, j;
-
-  for (k = 0; k < handicap; k++) {
-    generate_move(&i, &j, BLACK);
-    play_move(i, j, BLACK);
   }
 }
