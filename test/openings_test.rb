@@ -12,6 +12,12 @@ class OpeningsTest < Minitest::Test
     assert_equal openings.size, openings.uniq.size
   end
 
+  # Pinned, so a change to the seed derivation or to the draw, which would
+  # change every experiment's benchmark openings, fails here.
+  def test_a_known_seed_gives_a_known_opening
+    assert_equal [[:black, 2, 4], [:white, 5, 6], [:black, 1, 2], [:white, 6, 2]], Openings.moves(42, 3, 9, 4)
+  end
+
   def test_no_moves_for_a_count_of_zero
     assert_equal [], Openings.moves(42, 0, 9, 0)
   end
