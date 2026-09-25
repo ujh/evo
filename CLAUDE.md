@@ -105,15 +105,6 @@ Follow these steps in order for every PR:
 2. List what the change makes newly true. Search the whole repository, including files the diff does not touch, for text that still says the old thing, and correct it.
 3. Have the whole branch reviewed (`git diff main...HEAD`) by a reviewer with fresh context, such as a subagent that has not seen the work. Give it the why and ask it to check correctness, repository conventions, and whether the tests would catch a break. Fix what it raises, and review again. Repeat until a review comes back clean. Don't stop for sign-off on findings. Ask the owner only when a finding needs a decision only the owner can make, such as changing scope or approach.
 4. Push and open the PR (see the conventions above).
-5. Wait for CI with `gh pr checks <pr> --watch`. Then confirm two things. First, `gh pr view <pr> --json headRefOid` matches `git rev-parse HEAD`. Second, this command prints nothing:
-   ```sh
-   gh pr view <pr> --json statusCheckRollup --jq 'if (.statusCheckRollup | length) == 0 then "NO CHECKS" else .statusCheckRollup[] | ((.conclusion // "") + (.state // "")) as $s | select($s != "SUCCESS" and $s != "SKIPPED" and $s != "NEUTRAL") | [(if $s == "" then "PENDING" else $s end), (.name // .context)] | @tsv end'
-   ```
-   Check runs report their result in `conclusion`, and status contexts report theirs in `state`. `status` only says whether a check has finished. The command prints `NO CHECKS` if nothing has registered yet, and `PENDING` for a check still running. Wait and run it again in either case. If a check fails, fix the cause. Do not skip or disable it.
-6. Read every kind of feedback:
-   - reviews, including their summary text and change requests (`gh api --paginate repos/ujh/evo/pulls/<pr>/reviews`)
-   - inline comments (`gh api --paginate repos/ujh/evo/pulls/<pr>/comments`)
-   - top-level comments (`gh api --paginate repos/ujh/evo/issues/<pr>/comments`)
-
-   Fix or answer each one. Reply to an inline comment on its thread (`-F in_reply_to=<id>`). Answer reviews and top-level comments with a new top-level comment.
+5. Run `mise run pr-checks <pr>`. It waits for CI and fails unless every check passed on the local `HEAD`. If a check fails, fix the cause. Do not skip or disable it.
+6. Run `mise run pr-feedback <pr>`. It lists reviews (including summary text and change requests), inline comments, and top-level comments. Fix or answer each one. Reply to an inline comment on its thread, and answer reviews and top-level comments with a new top-level comment (the output shows both commands).
 7. For any later fix, repeat steps 1–3 for the whole branch, push, then repeat steps 5–6.

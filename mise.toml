@@ -57,3 +57,11 @@ description = "Open the bundled network self-play example in GoGui"
 depends = ["build", "doctor"]
 run = "sh scripts/run-example.sh"
 raw = true
+
+[tasks.pr-checks]
+description = "Wait for a PR's CI and fail unless every check passed on HEAD: mise run pr-checks PR"
+run = "sh scripts/pr-checks.sh"
+
+[tasks.pr-feedback]
+description = "List a PR's reviews, inline comments, and top-level comments: mise run pr-feedback PR"
+run = "sh scripts/pr-feedback.sh"
