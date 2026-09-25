@@ -1,0 +1,62 @@
+require 'minitest/autorun'
+require 'json'
+require 'open3'
+
+# scripts/pr-rollup.jq decides whether `mise run pr-checks` reports a PR as
+# green. These cases use the shape of `gh pr view --json
+# headRefOid,statusCheckRollup`.
+class PrRollupTest < Minitest::Test
+  FILTER = File.expand_path('../scripts/pr-rollup.jq', __dir__)
+  HEAD = 'abc123'.freeze
+
+  def check_run(conclusion, name: 'build-and-test', started: '2026-09-24T19:03:47Z')
+    { '__typename' => 'CheckRun', 'name' => name, 'workflowName' => 'CI',
+      'status' => conclusion.empty? ? 'IN_PROGRESS' : 'COMPLETED',
+      'conclusion' => conclusion, 'startedAt' => started }
+  end
+
+  def status_context(state, context: 'ci/external')
+    { '__typename' => 'StatusContext', 'context' => context, 'state' => state,
+      'startedAt' => '2026-09-24T19:03:47Z' }
+  end
+
+  def run_filter(rollup, head: HEAD)
+    input = JSON.generate('headRefOid' => head, 'statusCheckRollup' => rollup)
+    out, status = Open3.capture2('jq', '-r', '--arg', 'head', HEAD, '-f', FILTER, stdin_data: input)
+    assert status.success?, 'jq failed'
+    out.lines(chomp: true)
+  end
+
+  def test_passing_checks_print_nothing
+    assert_empty run_filter([check_run('SUCCESS'), check_run('SKIPPED', name: 'lint'),
+                             check_run('NEUTRAL', name: 'info'), status_context('SUCCESS')])
+  end
+
+  def test_failed_check_run_is_reported
+    assert_equal ["FAILURE\tbuild-and-test"], run_filter([check_run('FAILURE')])
+  end
+
+  def test_failed_status_context_is_reported
+    assert_equal ["ERROR\tci/external"], run_filter([status_context('ERROR')])
+  end
+
+  def test_running_check_is_pending
+    assert_equal ["PENDING\tbuild-and-test"], run_filter([check_run('')])
+  end
+
+  def test_empty_or_missing_rollup_means_no_checks
+    assert_equal ['NO CHECKS'], run_filter([])
+    assert_equal ['NO CHECKS'], run_filter(nil)
+  end
+
+  def test_pr_at_another_commit_is_reported_first
+    assert_equal ["HEAD MOVED\tdef456"], run_filter([check_run('SUCCESS')], head: 'def456')
+  end
+
+  def test_only_the_latest_run_of_a_rerun_check_counts
+    old_failure = check_run('FAILURE', started: '2026-09-24T18:00:00Z')
+    new_success = check_run('SUCCESS', started: '2026-09-24T19:00:00Z')
+    assert_empty run_filter([old_failure, new_success])
+    assert_equal ["FAILURE\tbuild-and-test"], run_filter([new_success.merge('startedAt' => '2026-09-24T17:00:00Z'), old_failure])
+  end
+end

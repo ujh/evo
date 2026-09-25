@@ -5,7 +5,8 @@ set -eu
 # requests), inline comments, and top-level comments. They come from three
 # separate GitHub endpoints, and each one is paginated.
 
-pr=${1:?usage: mise run pr-feedback PR}
+# The REST paths need the number; gh pr view also accepts a URL or branch.
+pr=$(gh pr view "${1:?usage: mise run pr-feedback PR}" --json number --jq .number)
 
 printf '## Reviews\n'
 gh api --paginate "repos/{owner}/{repo}/pulls/$pr/reviews" --jq '

@@ -6,7 +6,7 @@ Evo evolves the weights of a fixed dense neural network that plays Go. The C pro
 
 ## Commands
 
-Always go through mise. It pins Ruby 3.3.0 and Java 21, and it puts `.local/evo-tools/current/bin` (GNU Go, Brown, AmiGoGtp, GoGui) on `PATH`. A bare shell has none of these. For one-off commands, use `mise exec -- <cmd>`.
+Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local/evo-tools/current/bin` (GNU Go, Brown, AmiGoGtp, GoGui) on `PATH`. A bare shell has none of these. For one-off commands, use `mise exec -- <cmd>`.
 
 | Task | Command |
 | --- | --- |

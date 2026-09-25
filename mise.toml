@@ -1,6 +1,7 @@
 [tools]
 ruby = "3.3.0"
 java = "temurin-21.0.11+10.0.LTS"
+jq = "1.8.2"
 
 [env]
 _.path = ".local/evo-tools/current/bin"
@@ -26,7 +27,7 @@ description = "Run the C test suite"
 run = "make test"
 
 [tasks.test-ruby]
-description = "Run the Ruby tests for the tournament runner"
+description = "Run the Ruby tests (tournament runner and PR check filter)"
 run = "bundle exec ruby -e 'Dir[\"test/**/*_test.rb\"].sort.each { |f| require File.expand_path(f) }'"
 
 [tasks.verify]

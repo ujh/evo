@@ -46,7 +46,7 @@ That makes a compact policy an interesting learning experiment, with substantial
 
 Cached sigmoid outputs also create artificial score ties, which favor earlier intersections or passing; a linear output layer removes them ([Neural network library](#neural-network-library)).
 
-**Proposed representation experiment:** use a small shared scorer for the 3×3 neighborhood around each candidate move. The owner's experience of slow runs without improvement makes this an early candidate, alongside a short check of scoring and variation. Additional tactical features and search remain choices to discuss.
+**Proposed representation experiment:** use a small shared scorer for the 3×3 neighborhood around each candidate move. Run it early, alongside a short check of scoring and variation. Additional tactical features and search remain choices to discuss.
 
 ### 5. Long runs need recoverable evidence
 
@@ -160,7 +160,7 @@ Steps 1–2 are prerequisites for trusting any new experiment. Steps 3–5 can b
 
 ## Proposed sequence
 
-These are candidate milestones for discussion, rather than an implementation commitment. The reported stagnation and long runtime move the shared-pattern experiment earlier in the sequence.
+These are candidate milestones for discussion, rather than an implementation commitment.
 
 0. **Clean up the code under test.** Carry out steps 1–2 of the [cleanup order](#suggested-cleanup-order) before any new experiment, and the rest alongside milestone 1.
 1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9, specify rules and komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring. Establish a reproducible benchmark containing weak external opponents and frozen initial networks.
@@ -185,7 +185,7 @@ There are two useful questions: do descendants play better than the initial popu
 | Final comparison | Compare the chosen policies against the initial champion and random-search champion on reserved opponents or openings. Repeat the entire experiment with independent seeds. |
 | Decision | Look for improvement across runs and on reserved evaluations, rather than a single best tournament result. Agree on a practically meaningful gain and game budget before collecting the final results. |
 
-This design remains provisional. Previous runs showed no visible improvement and took too long; the acceptable feature set and available compute should determine the next experiment's scale.
+This design remains provisional. The acceptable feature set and available compute should determine the experiment's scale.
 
 ## Later directions
 
