@@ -92,7 +92,7 @@ class RunGeneration
   def play_round
     data['games'].each do |game|
       if game['white'].nil?
-        # The odd player out sits the round out and gets nothing for it.
+        # The odd player out sits the round out and gets the bye points.
         update_data(game, { 'winner' => nil })
         refresh_progress
       else
@@ -114,14 +114,9 @@ class RunGeneration
   end
 
   def update_data(game, result)
-    winner = result['winner']
-    # Every win is worth one point, against a network or a bot alike.
+    points = points_for(game, result)
     new_ranking = data['ranking'].map do |s|
-      if s['name'] == winner
-        s.merge('score' => s['score'] + 1)
-      else
-        s
-      end
+      s.merge('score' => s['score'] + points.fetch(s['name'], 0))
     end
     # A stable order while the round is played; ties are shuffled once per
     # round in setup_next_round, so the order games finish in does not matter.
@@ -133,6 +128,22 @@ class RunGeneration
     # The failure itself is in the game's row in the database.
     warn "\n#{prefix_from(game)}: #{result['failure']}" if result['failure']
     save_data(new_data)
+  end
+
+  # Points by player for one game, from the experiment's scoring: a win
+  # counts the same against a network or a bot, the odd player out gets the
+  # bye points, both players of a draw get the draw points, and a failed game
+  # gives none.
+  def points_for(game, result)
+    return {} if result['failure']
+    return { result['winner'] => scoring['win'] } if result['winner']
+    return { game['black'] => scoring['bye'] } if game['white'].nil?
+
+    { game['black'] => scoring['draw'], game['white'] => scoring['draw'] }
+  end
+
+  def scoring
+    @scoring ||= store.scoring
   end
 
   def refresh_progress
@@ -327,16 +338,11 @@ class RunGeneration
     @rng ||= Random.new(Seeds.derive(experiment_seed, 'selection', generation.to_i))
   end
 
-  AMIGO = { 'name' => 'AmiGo', 'command' => 'amigogtp' }
-  BROWN = { 'name' => 'Brown', 'command' => 'brown' }
-  # Early networks are far too weak for GNU Go, at any level, and its games
-  # set most of a generation's wall time, so it stays out until networks beat
-  # these (see the opponent ladder in PROJECT_NOTES.md). GNU Go still referees.
-  # scripts/smoke-external-tools.sh plays each of these; add new opponents there too.
-  EXTERNAL_PLAYERS = [
-    *(1..5).map { |i| BROWN.merge('name' => BROWN['name'] + i.to_s) },
-    *(1..10).map { |i| AMIGO.merge('name' => AMIGO['name'] + i.to_s) }
-  ]
+  # The version of the scoring logic below and in GameResult: what counts as
+  # a win, a draw, or a failure. Bump it when that changes, so an experiment
+  # begun under other rules refuses to run. The points themselves are in
+  # the experiment's scoring.
+  SCORING_RULES = '1'.freeze
 
   def setup_tournament
     data = {
@@ -362,9 +368,12 @@ class RunGeneration
     games
   end
 
+  # The experiment's opponents, each copy numbered from 1, then the networks.
   def setup_players
-    players = EXTERNAL_PLAYERS.each_with_object({}) do |player, hash|
-      hash[player['name']] = { 'command' => player['command'], 'external' => true }
+    players = store.opponents.each_with_object({}) do |opponent, hash|
+      (1..opponent[:copies]).each do |i|
+        hash["#{opponent[:name]}#{i}"] = { 'command' => opponent[:command], 'external' => true }
+      end
     end
     players.merge!(Dir['*.ann'].each_with_object({}) do |player, hash|
                      hash[player] = { 'command' => "../evo #{player}" }

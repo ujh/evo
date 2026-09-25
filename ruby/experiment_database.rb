@@ -35,6 +35,32 @@ class ExperimentDatabase
     end
   end
 
+  # Runs the block in one transaction; nested writes join it.
+  def transaction(&)
+    @db.transaction(&)
+  end
+
+  # The bots the experiment plays against, in order; see migration 007.
+  def opponents
+    @db[:opponents].order(:position).select(:name, :command, :copies).all
+  end
+
+  def save_opponents(opponents)
+    @db[:opponents].multi_insert(opponents.each_with_index.map { |o, i| o.slice(:name, :command, :copies).merge(position: i) })
+  end
+
+  SCORING_POINTS = %w[win draw bye].freeze
+
+  # The points for a win, a draw, and a bye as Integers, and the scoring
+  # logic's version as `rules`.
+  def scoring
+    @db[:scoring].to_hash(:key, :value).to_h { |key, value| [key, SCORING_POINTS.include?(key) ? Integer(value) : value] }
+  end
+
+  def save_scoring(scoring)
+    @db[:scoring].insert_conflict(:replace).multi_insert(scoring.map { |key, value| { key: key.to_s, value: value.to_s } })
+  end
+
   # Where the experiment's executables came from; see migration 006.
   def provenance
     @db[:provenance].to_hash(:key, :value)

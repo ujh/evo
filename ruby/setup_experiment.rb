@@ -2,6 +2,7 @@ require 'fileutils'
 require 'optparse'
 require_relative 'experiment_database'
 require_relative 'seeds'
+require_relative 'run_generation'
 
 class SetupExperiment
   DATABASE = 'experiment.sqlite3'.freeze
@@ -54,6 +55,20 @@ class SetupExperiment
 
   EXECUTABLES = %w[engine/evo initial-population/initial-population evolve/evolve].freeze
 
+  # What a new experiment plays against and how it scores. They are stored
+  # with the experiment, and the runner reads them from there, so changing
+  # them here only changes experiments created afterwards.
+  # Early networks are far too weak for GNU Go, at any level, and its games
+  # set most of a generation's wall time, so it stays out until networks beat
+  # these (see the opponent ladder in PROJECT_NOTES.md). GNU Go still
+  # referees. scripts/smoke-external-tools.sh plays each opponent; add new
+  # ones there.
+  DEFAULT_OPPONENTS = [
+    { name: 'Brown', command: 'brown', copies: 5 },
+    { name: 'AmiGo', command: 'amigogtp', copies: 10 }
+  ].freeze
+  DEFAULT_SCORING = { 'rules' => RunGeneration::SCORING_RULES, 'win' => 1, 'draw' => 0, 'bye' => 0 }.freeze
+
   # Opens the experiment's database and yields its settings and the database.
   def self.call(experiment_dir)
     puts "Setting up ... ✔"
@@ -61,6 +76,7 @@ class SetupExperiment
     database = ExperimentDatabase.new(File.expand_path(DATABASE, experiment_dir))
     # The settings come first, so aborting their prompts leaves nothing.
     settings = settings(database)
+    check_scoring(database)
     install_executables(experiment_dir, database)
     Dir.chdir(experiment_dir) { yield settings, database }
   ensure
@@ -75,10 +91,32 @@ class SetupExperiment
     database = ExperimentDatabase.new(File.join(experiment_dir, DATABASE))
     raise ArgumentError, "#{experiment_dir} already has settings" unless database.settings.empty?
 
-    database.save_settings(settings)
+    save_new_experiment(database, settings)
     settings
   ensure
     database&.close
+  end
+
+  # Settings, opponents, and scoring together or not at all, so no
+  # experiment has settings it cannot run with.
+  def self.save_new_experiment(database, settings)
+    database.transaction do
+      database.save_settings(settings)
+      save_rules(database)
+    end
+  end
+
+  def self.save_rules(database)
+    database.save_opponents(DEFAULT_OPPONENTS)
+    database.save_scoring(DEFAULT_SCORING)
+  end
+
+  # The scoring logic in the code must be the one the experiment began with.
+  def self.check_scoring(database)
+    rules = database.scoring['rules']
+    return if rules == RunGeneration::SCORING_RULES
+
+    raise "this experiment is scored by rules #{rules.inspect}, but the code scores by #{RunGeneration::SCORING_RULES.inspect}"
   end
 
   # Parses settings read as strings, from the database or the options.
@@ -170,7 +208,7 @@ class SetupExperiment
     return parse(stored) unless stored.empty?
 
     settings = prompt_for_settings
-    database.save_settings(settings)
+    save_new_experiment(database, settings)
     settings
   end
 

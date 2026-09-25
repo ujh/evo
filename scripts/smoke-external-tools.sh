@@ -43,7 +43,7 @@ match() {
   fi
 }
 
-# Each opponent type in EXTERNAL_PLAYERS (ruby/run_generation.rb) plays at
+# Each opponent in DEFAULT_OPPONENTS (ruby/setup_experiment.rb) plays at
 # least once, and so does the engine itself. GNU Go is not in the tournament,
 # only its referee, but it plays here too: it comes back as an opponent later,
 # and level 10 move generation checks the gg_sort patch.
