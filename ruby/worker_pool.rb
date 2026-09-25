@@ -18,7 +18,8 @@ class WorkerPool
     @jobs << [command, identifier]
   end
 
-  # Blocks until a command finishes and returns its identifier.
+  # Blocks until a command finishes and returns its identifier and the
+  # wall-clock seconds it ran.
   def next_finished
     @finished.pop
   end
@@ -49,8 +50,9 @@ class WorkerPool
       break if @halted
 
       command, identifier = job
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       system(command)
-      @finished << identifier
+      @finished << [identifier, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
     end
   end
 end

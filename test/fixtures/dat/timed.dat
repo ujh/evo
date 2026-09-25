@@ -1,0 +1,20 @@
+# Black: GNU Go
+# BlackCommand: gnugo --level 10 --mode gtp --seed 2
+# BlackLabel: GNU Go:3.8
+# BlackVersion: 3.8
+# Date: September 25, 2026, 3:01:07 PM CEST
+# Host: Mac
+# Komi: 6.5
+# Referee: GNU Go
+# RefereeCommand: gnugo --mode gtp --seed 1
+# RefereeLabel: GNU Go:3.8
+# RefereeVersion: 3.8
+# Size: 9
+# White: Brown
+# WhiteCommand: brown
+# WhiteLabel: Brown
+# WhiteVersion: 1.0
+# Xml: 0
+#
+#GAME	RES_B	RES_W	RES_R	ALT	DUP	LEN	TIME_B	TIME_W	CPU_B	CPU_W	ERR	ERR_MSG
+0	B+83.5	B+74.5	B+83.5	0	-	86	4.5	0	4.5	0	0	

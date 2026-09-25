@@ -364,10 +364,11 @@ class PlayRoundTest < Minitest::Test
       @queued << identifier
     end
 
+    # Every game "takes" 1.5 seconds.
     def next_finished
       identifier = @queued.shift
       @run.call(identifier)
-      identifier
+      [identifier, 1.5]
     end
   end
 
@@ -406,7 +407,8 @@ class PlayRoundTest < Minitest::Test
       capture_io { build_with(playing_pool, store:).send(:play_round) }
       assert_equal [{ generation: 1, round: 0, black: 'a.ann', white: 'b.ann', black_external: false,
                       white_external: false, winner: 'a.ann', failure: nil, length: 93, referee_result: 'B+R',
-                      error_message: '', stderr: '', sgf: nil }], store.games(1)
+                      error_message: '', stderr: '', sgf: nil, duration: 1.5, time_black: 0.0,
+                      time_white: 0.0 }], store.games(1)
       assert_empty Dir['axbR0*']
     end
   end

@@ -5,7 +5,8 @@ require_relative '../ruby/experiment_database'
 class ExperimentDatabaseTest < Minitest::Test
   GAME = {
     generation: 3, round: 1, black: '0.ann', white: 'Brown1', black_external: false, white_external: true,
-    winner: '0.ann', failure: nil, length: 93, referee_result: 'B+R', error_message: '', stderr: '', sgf: '(;SZ[9])'
+    winner: '0.ann', failure: nil, length: 93, referee_result: 'B+R', error_message: '', stderr: '', sgf: '(;SZ[9])',
+    duration: 2.25, time_black: 0.5, time_white: 1.25
   }.freeze
 
   def with_store
@@ -40,6 +41,22 @@ class ExperimentDatabaseTest < Minitest::Test
       store.record(**GAME)
       reader = ExperimentDatabase.new(path, readonly: true)
       assert_equal [GAME], reader.games(3)
+      reader.close
+    end
+  end
+
+  # stats and ranking open the store read-only, which runs no migrations, so
+  # they must still read a database the runner has not migrated yet.
+  def test_a_read_only_store_reads_games_from_before_the_timing_columns
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 4)
+      old_game = GAME.except(:duration, :time_black, :time_white)
+      db[:games].insert(old_game)
+      db.disconnect
+      reader = ExperimentDatabase.new(path, readonly: true)
+      assert_equal [old_game], reader.games(3)
       reader.close
     end
   end

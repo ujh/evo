@@ -11,7 +11,7 @@ class ExperimentDatabase
   MIGRATIONS = File.expand_path('../db/migrations', __dir__)
   COLUMNS = %i[
     generation round black white black_external white_external
-    winner failure length referee_result error_message stderr sgf
+    winner failure length referee_result error_message stderr sgf duration time_black time_white
   ].freeze
 
   def initialize(path, readonly: false)
@@ -94,9 +94,11 @@ class ExperimentDatabase
     @games.insert_conflict(:replace).insert(game.slice(*COLUMNS))
   end
 
-  # Every game of a generation, as hashes with the keys of `record`.
+  # Every game of a generation, as hashes with the keys of `record`. A
+  # database opened read-only before the runner migrated it lacks the newer
+  # columns, and its rows lack those keys.
   def games(generation)
-    @games.where(generation:).order(:round, :black, :white).select(*COLUMNS).all
+    @games.where(generation:).order(:round, :black, :white).select(*(COLUMNS & @games.columns)).all
   end
 
   BIRTH_COLUMNS = %i[
