@@ -50,7 +50,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 - A GoGui `.dat` file is tab-separated: `GAME RES_B RES_W RES_R ALT DUP LEN TIME_B TIME_W CPU_B CPU_W ERR ERR_MSG`.
   - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` use it too.
-  - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file. Only stderr says which program crashed ("Black program died" or "White program died"). Breeding deletes the empty `.err` files and keeps the rest.
+  - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file while the game runs. Only stderr says which program crashed ("Black program died" or "White program died").
 - Every win is worth 1 point, whether the loser is a network or a bot, and the odd player out in a round sits out with no point. The bots play in the ranking like networks, and against each other, on purpose: their place in the ranking shows how the networks compare to them. Parents are chosen by tournament selection (`select_parent` in `ruby/run_generation.rb`): draw `tournament_size` networks (setting, default 3) with replacement and keep the highest score. Only the order of scores matters, and equal scores pick uniformly.
 - Scoring rules (agreed with the owner, in `score_game` and `ruby/game_result.rb`):
   - A referee win (`B+` or `W+`) counts, including games stopped by the move limit.
@@ -74,10 +74,10 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 - State lives in `GEN/data.json`. It is rewritten after every game and not atomically. On resume, `setup_complete` skips creating or breeding the population. The generation's games are skipped only once `round` reaches `tournament_rounds`. Game hashes are built with symbol keys and read back with string keys after the JSON round trip.
 - The runner passes `-force` to twogtp, which deletes an existing `PREFIX.dat`. A game that was queued but not yet scored when the runner stopped is replayed from scratch on resume, and its `.err` is rewritten.
 - Generation 0 names networks `0001.ann`, `0002.ann`, and so on. Later generations use `0.ann`, `1.ann`, and so on.
-- **Evidence gets destroyed:**
-  - Breeding a new generation deletes every `.ann` and `.sgf`, and every empty `.err`, in the previous generation.
-  - `stats` is not read-only. It moves each generation's `.dat` files into `data.tar.bz2` and caches results in `stats.json`.
-  - Copy anything you need to inspect before running either of them.
+- Game results live in `experiments/NAME/results.sqlite3`, through `ResultStore` (`ruby/result_store.rb`, Sequel on SQLite). After scoring a game, the runner writes its row (players, winner or failure, length, referee result, GoGui's error message, stderr) and deletes the game's `.dat`, `.sgf`, and `.err` files. The SGF is kept in the row only for every `sgf_every`-th generation (setting, default 10; 0 keeps none). Rows are keyed by generation, round, and players, so a replayed game replaces its row.
+- The schema changes only through Sequel migrations in `db/migrations/`. The runner applies pending ones when it opens the store. Add a new numbered migration for a schema change; never edit one that has run.
+- `stats` and `ranking` only read: they open the store read-only and read `data.json`.
+- **Evidence gets destroyed:** breeding a new generation deletes every `.ann` in the previous generation. Copy a network you need before that.
 - `stats` (without `--csv`), `ranking`, and `multi` loop forever. Run them with a timeout or in the background.
 - Games run on a `WorkerPool` (`ruby/worker_pool.rb`): `concurrency` threads, created once per experiment, each running `gogui-twogtp` through `system`. On Ctrl-C the running games stop, the pool starts no queued game (`WorkerPool#halt`, called from the trap in `RunExperiment`), and the runner exits without scoring, leaving the unfinished games in `data.json`, so resuming replays them.
 - GNU Go 3.8 needs `scripts/patches/gnugo-3.8-gg-sort-empty.patch`. Without it, clang builds abort in `final_score` and during level 10 move generation. GCC builds happen to work either way. When changing how external tools are built, bump `release_id` in `scripts/install-external-tools.sh` so existing installs rebuild, then run `mise run verify`.

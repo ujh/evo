@@ -12,8 +12,9 @@ class GameResult
   ERR_MSG = 12
   MOVE_LIMIT = 'move limit exceeded'.freeze
 
-  # length is the number of moves played, or nil without a game line.
-  attr_reader :winner, :failure, :length
+  # length is the number of moves played, and referee and error_message are
+  # the RES_R and ERR_MSG columns; all three are nil without a game line.
+  attr_reader :winner, :failure, :length, :referee, :error_message
 
   def self.read(prefix)
     dat = "#{prefix}.dat"
@@ -29,30 +30,33 @@ class GameResult
   def self.parse(line, stderr = '')
     fields = line.split("\t", -1)
     length = Integer(fields[LEN], exception: false)
+    columns = { length:, referee: fields[RES_R], error_message: fields[ERR_MSG] }
 
     # twogtp says which program died only on stderr; the .dat file just says
     # "The Go program terminated unexpectedly."
-    return new(winner: :white, crashed: true, length:) if stderr.include?('Black program died')
-    return new(winner: :black, crashed: true, length:) if stderr.include?('White program died')
+    return new(winner: :white, crashed: true, **columns) if stderr.include?('Black program died')
+    return new(winner: :black, crashed: true, **columns) if stderr.include?('White program died')
 
     error = fields[ERR]
     message = fields[ERR_MSG]
-    return new(failure: "error: #{message}", length:) if error != '0' && message != MOVE_LIMIT
+    return new(failure: "error: #{message}", **columns) if error != '0' && message != MOVE_LIMIT
 
     referee = fields[RES_R]
     case referee
-    when /\AB\+/ then new(winner: :black, length:)
-    when /\AW\+/ then new(winner: :white, length:)
-    when '0' then new(length:)
-    else new(failure: "no referee score: #{referee}", length:)
+    when /\AB\+/ then new(winner: :black, **columns)
+    when /\AW\+/ then new(winner: :white, **columns)
+    when '0' then new(**columns)
+    else new(failure: "no referee score: #{referee}", **columns)
     end
   end
 
-  def initialize(winner: nil, failure: nil, crashed: false, length: nil)
+  def initialize(winner: nil, failure: nil, crashed: false, length: nil, referee: nil, error_message: nil)
     @winner = winner
     @failure = failure
     @crashed = crashed
     @length = length
+    @referee = referee
+    @error_message = error_message
   end
 
   # True when the loser lost by crashing rather than on the board.

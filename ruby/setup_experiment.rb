@@ -40,6 +40,9 @@ class SetupExperiment
       print "Tournament size for parent selection (default 3): "
       tournament_size = STDIN.gets.chomp
       settings["tournament_size"] = tournament_size.empty? ? "3" : tournament_size
+      print "Keep the SGF of every game in every Nth generation (default 10, 0 for never): "
+      sgf_every = STDIN.gets.chomp
+      settings["sgf_every"] = sgf_every.empty? ? "10" : sgf_every
       File.open("settings.json", "w") do |f|
         f.puts JSON.pretty_generate(settings)
       end

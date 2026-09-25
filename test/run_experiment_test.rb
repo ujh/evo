@@ -20,11 +20,13 @@ class RunExperimentTest < Minitest::Test
   def test_ctrl_c_starts_no_queued_game
     previous = trap('INT', 'DEFAULT')
     Dir.mktmpdir do |dir|
+      jobs = File.join(dir, 'jobs')
+      Dir.mkdir(jobs)
       Dir.chdir(dir) do
         # Stands in for a round with more games than threads, interrupted
         # while the first two play.
-        generation = lambda do |_generation, _settings, pool|
-          4.times { |i| pool.submit("sleep 0.3; touch #{dir}/#{i}", i) }
+        generation = lambda do |_generation, _settings, pool, _store|
+          4.times { |i| pool.submit("sleep 0.3; touch #{jobs}/#{i}", i) }
           sleep 0.1
           Process.kill('INT', Process.pid)
           2.times { pool.next_finished }
@@ -34,7 +36,7 @@ class RunExperimentTest < Minitest::Test
         end
       end
       assert $stop_now
-      assert_equal %w[0 1], Dir.children(dir).sort
+      assert_equal %w[0 1], Dir.children(jobs).sort
     end
   ensure
     $stop_now = false

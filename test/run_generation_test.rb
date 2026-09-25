@@ -335,10 +335,42 @@ class PlayRoundTest < Minitest::Test
                'ranking' => %w[a.ann b.ann c.ann].map { |name| { 'name' => name, 'score' => 0 } })
   end
 
-  def build_with(pool)
-    gen = build_generation
+  def build_with(pool, generation: '1', store: nil)
+    gen = build_generation(generation:)
     gen.instance_variable_set(:@pool, pool)
+    gen.instance_variable_set(:@store, store || ResultStore.new(':memory:'))
     gen
+  end
+
+  # A pool that leaves what gogui-twogtp leaves: result, SGF, and stderr.
+  def playing_pool
+    FakePool.new do |game|
+      prefix = "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R0"
+      copy_dat('black_wins', prefix)
+      File.write("#{prefix}-0.sgf", '(;SZ[9];B[ee])')
+      File.write("#{prefix}.err", '')
+    end
+  end
+
+  def test_stores_each_scored_game_and_deletes_its_files
+    in_experiment do
+      setup_round
+      store = ResultStore.new(':memory:')
+      capture_io { build_with(playing_pool, store:).send(:play_round) }
+      assert_equal [{ generation: 1, round: 0, black: 'a.ann', white: 'b.ann', black_external: false,
+                      white_external: false, winner: 'a.ann', failure: nil, length: 93, referee_result: 'B+R',
+                      error_message: '', stderr: '', sgf: nil }], store.games(1)
+      assert_empty Dir['axbR0*']
+    end
+  end
+
+  def test_keeps_the_sgf_every_sgf_every_generations
+    in_experiment(generation: '10') do
+      setup_round
+      store = ResultStore.new(':memory:')
+      capture_io { build_with(playing_pool, generation: '10', store:).send(:play_round) }
+      assert_equal '(;SZ[9];B[ee])', store.games(10).first[:sgf]
+    end
   end
 
   def test_plays_and_scores_every_game_of_the_round

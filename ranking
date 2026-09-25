@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
+require 'bundler/setup'
 require 'json'
-require_relative 'ruby/game_result'
+require_relative 'ruby/result_store'
 
 experiment_name = ARGV.first
 
@@ -33,8 +34,14 @@ def average(array)
   (total.to_f / array.length).round
 end
 
-def compute_game_lengths
-  Dir["*.dat"].filter_map { |file_name| GameResult.read(File.basename(file_name, ".dat")).length }
+# Runs inside the generation directory; the result store is one level up.
+def compute_game_lengths(generation)
+  return [] unless File.exist?("../results.sqlite3")
+
+  store = ResultStore.new("../results.sqlite3", readonly: true)
+  store.games(generation.to_i).filter_map { |game| game[:length] }
+ensure
+  store&.close
 end
 
 Dir.chdir(experiment_dir) do
@@ -58,7 +65,7 @@ Dir.chdir(experiment_dir) do
       median_score = median(scores)
       average_score = average(scores)
 
-      game_lengths = compute_game_lengths
+      game_lengths = compute_game_lengths(generation)
 
       puts "\033[2J\033[H"
       puts "\033[3mGeneration: #{generation} Round: #{data['round']+1}"

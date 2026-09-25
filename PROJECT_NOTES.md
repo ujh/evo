@@ -48,13 +48,13 @@ Cached sigmoid outputs also create artificial score ties, which favor earlier in
 
 ### 5. Long runs need recoverable evidence
 
-`clean_up_generation` deletes every network and every SGF from the previous generation, and `stats` archives and deletes the result files. That saves space but prevents comparisons with early ancestors and inspection of interesting games. Runs also cannot be reproduced or safely resumed: seeds and code revision are not recorded, executables are symlinks to the current build, and the generation transition is not crash-safe. The fixes are listed under [Code cleanup](#code-cleanup).
+`clean_up_generation` deletes every network from the previous generation, and SGFs are kept only for every `sgf_every`-th generation. That saves space but prevents comparisons with early ancestors. Runs also cannot be reproduced or safely resumed: seeds and code revision are not recorded, executables are symlinks to the current build, and the generation transition is not crash-safe. The fixes are listed under [Code cleanup](#code-cleanup).
 
-**Proposed response:** preserve generation zero and a spaced archive of champions, retain selected SGFs, and keep evidence retention independent of viewing statistics.
+**Proposed response:** preserve generation zero and a spaced archive of champions, for example as networks stored in the result store.
 
 ### 6. Record statistics to test the assumptions
 
-Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. Record enough per generation to test them later, in a file that breeding and `stats` do not delete:
+Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. Record enough per generation to test them later, as new tables in the result store (`results.sqlite3`, added through a migration):
 
 - for each child, its parents, whether it came from crossover or mutation, and how many weights changed (so the share of unchanged children is visible)
 - how many children each parent got, and how many distinct parents and unique genomes there are
@@ -115,7 +115,6 @@ Fix each with a test that fails before the fix.
 
 | Location | Problem | Effect |
 | --- | --- | --- |
-| [`stats`](stats) `stats_for` | Archives each generation's `.dat` files into `data.tar.bz2` and deletes them as a side effect of displaying statistics. | Opening a viewer destroys evidence. |
 | [`multi:19`](multi) | References the undefined variable `next_input`. | A mistyped experiment name raises `NameError` instead of the intended message. |
 | `engine/main.c`, `initial-population/main.c`, `evolve/evolve.c` | RNG seeded with `time(NULL)` and the address of the global `rng`. | Runs cannot be reproduced, and processes started in the same second rely on address randomization for different seeds. Seeds should be passed in and recorded. |
 
@@ -123,8 +122,8 @@ Fix each with a test that fails before the fix.
 
 - **One copy of each shared file.** `genann.c` and `genann.h` exist in identical copies in `lib/`, `engine/`, `evolve/`, and `initial-population/`, and `minctest.h` in `lib/`, `engine/`, and `evolve/`. Every Makefile compiles its local copy. `lib/` is unused. Build shared code once from `lib/` (as a static library or shared object files) so a fix cannot land in one copy only.
 - **Typed, validated settings.** `settings.json` stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment needs (seed, code revision, opponent panel, scoring rules).
-- **Atomic checkpoints.** `data.json` is rewritten directly after every game and read while being written by `ranking`, which silently skips a refresh when parsing fails. Write to a temporary file and rename it. Save the next generation's setup before deleting the previous generation's files, so a crash in between cannot lose the parents. Stop mixing string and symbol keys in game hashes (`games_from_ranking` creates symbol keys, but after a JSON round trip the code reads string keys).
-- **Separate viewing from housekeeping.** `stats` and `ranking` should be read-only. Archiving, pruning, and notifications belong in the runner or a separate command. The `ntfy` notification builds a shell command from data; use `Net::HTTP` instead.
+- **Atomic checkpoints.** `data.json` is rewritten directly after every game and read while being written by `ranking`, which silently skips a refresh when parsing fails. Move the tournament state (ranking, pending games, `unscored`) into the result store, where each update is a transaction. Save the next generation's setup before deleting the previous generation's files, so a crash in between cannot lose the parents. Stop mixing string and symbol keys in game hashes (`games_from_ranking` creates symbol keys, but after a JSON round trip the code reads string keys).
+- **Move notifications out of `stats`.** `stats` still sends the `ntfy` notification, which belongs in the runner or a separate command, and builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
 - **Remove dead paths.** Remove the default 5-layer network created when `evo` starts without a file (it is sized for the default 6×6 board and fails on 9×9). Remove genann's text format and its backpropagation code, unless they are needed.
 - **Test what the experiment depends on.** Add tests for Go rules (capture, ko, suicide, pass), mutation statistics, the file format round trip, and resuming a generation. Record the fraction of offspring identical to a parent, not only that the code runs.
@@ -151,7 +150,7 @@ The largest structural change suggested by the timing sample is a C program that
 1. Add characterization tests for crossover and mutation statistics, the file round trip, and a short scripted GTP game.
 2. Fix the result-changing defects above, one change at a time, each with its test.
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
-4. Make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
+4. Make checkpoints atomic, type the settings, record seeds and revision, and copy the binaries.
 5. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
 Steps 1–2 are prerequisites for trusting any new experiment. Steps 3–5 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
