@@ -101,9 +101,9 @@ The recommendation is to consider using the local scorer to guide exploration af
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Each game launches a new GoGui process, two players, and a GNU Go referee. A timing sample points away from the neural network and toward adjudication (see "Performance" in `CLAUDE.md`). The tournament also spends games on pairings that carry no selection signal: bots playing each other, and repeated deterministic pairings.
+Each game launches a new GoGui process, two players, and a GNU Go referee. A timing sample points away from the neural network and toward adjudication (see "Performance" in `CLAUDE.md`). The tournament also replays deterministic pairings: the Brown and AmiGo instances are copies of the same program, so a repeated pairing in the same colors adds nothing. (Bots playing each other is intended; it places them in the ranking.)
 
-The remedies are to play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, to stop scheduling bot-against-bot games and duplicate deterministic bot instances, and to keep GoGui with GNU Go for benchmark games. Repeat the sample over a full generation, reporting games per minute at the intended concurrency, before relying on it. The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
+The remedies are to play network games in a [C arena](#a-c-arena-for-network-games) with cheap explicit scoring, to stop scheduling duplicate deterministic bot instances, and to keep GoGui with GNU Go for benchmark games. Repeat the sample over a full generation, reporting games per minute at the intended concurrency, before relying on it. The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
 
 ## Code cleanup
 
