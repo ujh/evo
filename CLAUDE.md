@@ -107,13 +107,13 @@ Follow these steps in order for every PR:
 4. Push and open the PR (see the conventions above).
 5. Wait for CI with `gh pr checks <pr> --watch`. Then confirm two things. First, `gh pr view <pr> --json headRefOid` matches `git rev-parse HEAD`. Second, this command prints nothing:
    ```sh
-   gh pr view <pr> --json statusCheckRollup --jq '.statusCheckRollup[] | select((.conclusion // .state) as $s | ($s != "SUCCESS" and $s != "SKIPPED" and $s != "NEUTRAL")) | [(.conclusion // .state // .status), (.name // .context)] | @tsv'
+   gh pr view <pr> --json statusCheckRollup --jq 'if (.statusCheckRollup | length) == 0 then "NO CHECKS" else .statusCheckRollup[] | ((.conclusion // "") + (.state // "")) as $s | select($s != "SUCCESS" and $s != "SKIPPED" and $s != "NEUTRAL") | [(if $s == "" then "PENDING" else $s end), (.name // .context)] | @tsv end'
    ```
-   Check runs report their result in `conclusion`, and status contexts report theirs in `state`. `status` only says whether a check has finished. If a check fails, fix the cause. Do not skip or disable it.
+   Check runs report their result in `conclusion`, and status contexts report theirs in `state`. `status` only says whether a check has finished. The command prints `NO CHECKS` if nothing has registered yet, and `PENDING` for a check still running. Wait and run it again in either case. If a check fails, fix the cause. Do not skip or disable it.
 6. Read every kind of feedback:
-   - reviews, including their summary text and change requests (`gh api repos/ujh/evo/pulls/<pr>/reviews`)
-   - inline comments (`gh api repos/ujh/evo/pulls/<pr>/comments`)
-   - top-level comments (`gh api repos/ujh/evo/issues/<pr>/comments`)
+   - reviews, including their summary text and change requests (`gh api --paginate repos/ujh/evo/pulls/<pr>/reviews`)
+   - inline comments (`gh api --paginate repos/ujh/evo/pulls/<pr>/comments`)
+   - top-level comments (`gh api --paginate repos/ujh/evo/issues/<pr>/comments`)
 
    Fix or answer each one. Reply to an inline comment on its thread (`-F in_reply_to=<id>`). Answer reviews and top-level comments with a new top-level comment.
 7. For any later fix, repeat steps 1–3 for the whole branch, push, then repeat steps 5–6.
