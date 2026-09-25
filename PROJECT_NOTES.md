@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** give the network file a versioned header (step 1 of the [cleanup order](#suggested-cleanup-order)), then test evolution of a shared local pattern scorer, with the rest of the cleanup alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** make the network's activations experiment settings (step 1 of the [cleanup order](#suggested-cleanup-order)), then test evolution of a shared local pattern scorer, with the rest of the cleanup alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -120,6 +120,8 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 ### Structure and hygiene
 
+- **Check that `initial-population` succeeded.** `RunGeneration` runs it with a bare `system` (`ruby/run_generation.rb`) and then stores every `*.ann` in `work/`, so a failed run could leave generation 0 short of networks without stopping. Check the exit status and the number of networks, as breeding already does for `evolve`.
+
 - **Typed, validated settings.** The settings table stores every value as a string and converts with `.to_i` where used. Parse once into typed values, validate them, and add the fields the experiment still needs (code revision, opponent panel, scoring rules).
 - **Move notifications out of `stats`.** `stats` still sends the `ntfy` notification, which belongs in the runner or a separate command, and builds a shell command from data; use `Net::HTTP` instead.
 - **Copy executables into the experiment.** Symlinks to the build output mean a rebuild changes a running experiment. Copy the binaries, and record the git revision and the external tool versions in the experiment's metadata.
@@ -129,10 +131,11 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 ### Neural network library
 
-GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). A shared 3×3 scorer is just a small GENANN network evaluated once per candidate, and inference is negligible next to adjudication, so batching is not needed. What is missing is in Evo's own code:
+GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). A shared 3×3 scorer is just a small GENANN network evaluated once per candidate, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes and both activations. What is still missing:
 
-- **A file format that can evolve.** The `.ann` format writes four native `int`s and native `double`s with no magic number, version, activation choice, or endianness. Activations are not stored, so a network with a linear output would load as sigmoid. The shared 3×3 scorer also needs metadata such as its feature set and symmetry handling. Add a versioned little-endian header in `lib/ann.c`, keep reading the current format, and check that converted networks choose the same moves on a fixed set of positions.
-- **Activations as settings.** Once the header records them, make the hidden and output activations experiment settings, passed to `initial-population` and kept by `evolve`.
+- **Activations as settings.** Make the hidden and output activations experiment settings, passed to `initial-population`, which today always uses GENANN's default, the cached sigmoid. `evolve` already keeps the parents' activations and refuses parents whose activations differ.
+- **Network settings in the genome.** Sizes and activations could later evolve too, as genes of each network rather than settings of the experiment. Changing an activation is a simple mutation; changing sizes needs a rule for the weights that appear or disappear, and crossover between different shapes.
+- **Scorer metadata.** The shared 3×3 scorer will need more in the file, such as its feature set and symmetry handling. Add it under a new format version.
 
 GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
 
@@ -142,11 +145,11 @@ The largest structural change for speed is a C program that loads a set of netwo
 
 ### Suggested cleanup order
 
-1. Give the network file a versioned header with the activations, as described [above](#neural-network-library), verified against the current format.
+1. Make the activations experiment settings, as described [above](#neural-network-library).
 2. Type the settings, record the code revision, and copy the binaries.
 3. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
-The steps can be interleaved with milestone 1 below. Step 1 comes before milestone 2, whose shared scorer needs a file format that can describe it. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
+The steps can be interleaved with milestone 1 below. Step 1 comes before milestone 2, whose comparisons should cover the activations. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
 ## Proposed sequence
 

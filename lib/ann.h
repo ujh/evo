@@ -19,12 +19,29 @@
 
 #include "genann.h"
 
-// The .ann format: four native ints (inputs, hidden_layers, hidden,
-// outputs), then the native double weights. It has no header, so it is not
-// portable across ABIs.
+// The .ann format holds everything a GENANN network is: the magic "EVOANN",
+// a uint32 format version (1), the int32 sizes inputs, hidden_layers,
+// hidden, and outputs, a uint32 code for the hidden and then the output
+// activation, and the weights as IEEE 754 doubles. Every number is
+// little-endian, so a file reads the same on any machine. The codes are
+// ANN_ACTIVATIONS' positions plus one.
+
+typedef struct {
+    const char *name;
+    genann_actfun function;
+} ann_activation;
+
+// Every activation GENANN offers, in code order.
+extern const ann_activation ANN_ACTIVATIONS[];
+extern const int ANN_ACTIVATION_COUNT;
+
+// The activation's name, or NULL for a function GENANN does not offer.
+const char *ann_activation_name(genann_actfun function);
 
 // Returns NULL, after printing why, when the file does not hold a network.
 genann *ann_binary_read(FILE *in);
-void ann_binary_write(genann const *ann, FILE *out);
+// Returns 0, or -1 after printing why: an activation the format has no code
+// for, or a failed write.
+int ann_binary_write(genann const *ann, FILE *out);
 
 #endif

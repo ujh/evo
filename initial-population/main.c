@@ -27,6 +27,7 @@ SOFTWARE.
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "ann.h"
@@ -88,11 +89,24 @@ int main(int argc, char **argv) {
     printf("\r%d/%d", i, population_size);
     sprintf(buffer, "%04d.ann", i);
 
-    FILE *fd = fopen(buffer, "wb");
     genann *ann = genann_init(inputs, hidden_layers, hidden, outputs);
-    ann_binary_write(ann, fd);
+    if (ann == NULL) {
+      fprintf(stderr, "\nCannot build a network with %d hidden layers of %d\n", hidden_layers, hidden);
+      exit(1);
+    }
+    FILE *fd = fopen(buffer, "wb");
+    if (fd == NULL) {
+      fprintf(stderr, "\nCould not open %s: %s\n", buffer, strerror(errno));
+      exit(1);
+    }
+    int written = ann_binary_write(ann, fd);
     genann_free(ann);
-    fclose(fd);
+    // A half-written network is removed, so the runner never stores one.
+    if (fclose(fd) != 0 || written != 0) {
+      fprintf(stderr, "\nCould not write %s\n", buffer);
+      remove(buffer);
+      exit(1);
+    }
   }
   printf("\n");
 }

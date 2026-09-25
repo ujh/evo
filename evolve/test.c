@@ -189,10 +189,34 @@ void test_mutate_leaves_most_small_children_unchanged() {
   genann_free(parent);
 }
 
+// Crossing over mixes weights, so both parents must be the same kind of
+// network: the same sizes and the same activations.
+void test_parents_must_match() {
+  genann *a = genann_init(3, 1, 4, 2);
+  genann *b = genann_init(3, 1, 4, 2);
+  genann *nns[2] = {a, b};
+  lok(nns_compatible(nns));
+
+  b->activation_output = genann_act_linear;
+  lok(!nns_compatible(nns));
+  b->activation_output = a->activation_output;
+  b->activation_hidden = genann_act_tanh;
+  lok(!nns_compatible(nns));
+
+  genann *c = genann_init(3, 1, 5, 2);
+  nns[1] = c;
+  lok(!nns_compatible(nns));
+
+  genann_free(c);
+  genann_free(b);
+  genann_free(a);
+}
+
 int main(int argc, char **argv) {
   printf("Evolve test suite\n");
 
   lrun("cross_over", test_cross_over);
+  lrun("parents_match", test_parents_must_match);
   lrun("mutate_copy", test_mutate_copies_the_parent);
   lrun("mutate_seed", test_mutate_is_deterministic_for_a_seed);
   lrun("mutate_large", test_mutate_statistics_on_a_large_network);
