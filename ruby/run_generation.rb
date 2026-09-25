@@ -504,8 +504,7 @@ class RunGeneration
     count == '-1' ? nil : count.to_i
   end
 
-  # Returns [success, stdout]; evolve's last stdout line is its summary.
-  # [success, stdout, Process::Status].
+  # Returns [success, stdout, Process::Status]; evolve's last stdout line is its summary.
   def run_evolve(command)
     output, status = Open3.capture2(command)
     [status.success?, output, status]

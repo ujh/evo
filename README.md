@@ -98,8 +98,8 @@ experiment does:
 - `mise run stats EXPERIMENT_NAME --watch` redraws them every 5 seconds until
   Ctrl-C.
 - `mise run stats EXPERIMENT_NAME --csv` prints one row per generation with
-  every figure, for a spreadsheet. The columns depend only on the benchmark
-  panel, so experiments with the same panel line up.
+  every figure, for a spreadsheet. The columns depend only on the tournament's
+  opponents and the benchmark panel, so experiments with the same ones line up.
 
 The first table shows whether evolution is healthy: the games, draws, and
 failed games of each generation's tournament and their total time, the share
