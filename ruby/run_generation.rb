@@ -1,5 +1,6 @@
 require 'digest'
 require 'open3'
+require_relative 'arena_result'
 require_relative 'checkpoint_benchmark'
 require_relative 'game_result'
 require_relative 'seeds'
@@ -96,28 +97,106 @@ class RunGeneration
     settings.fetch('seed')
   end
 
+  # Byes are scored at once. Games between two networks go to the arena in
+  # at most `concurrency` chunks, one pool job each; games with a bot go to
+  # gogui-twogtp, one job each. Both kinds share the pool, and each job is
+  # scored when it finishes.
   def play_round
-    data['games'].each do |game|
-      if game['white'].nil?
-        # The odd player out sits the round out and gets the bye points.
-        update_data(game, { 'winner' => nil })
-        refresh_progress
-      else
-        game_data = prepare_game(game)
-        pool.submit(game_data['command'], game_data['identifier'])
-      end
+    byes, games = data['games'].partition { |game| game['white'].nil? }
+    byes.each do |game|
+      # The odd player out sits the round out and gets the bye points.
+      update_data(game, { 'winner' => nil })
+      refresh_progress
+    end
+    arena, gogui = games.partition { |game| arena_game?(game) }
+    jobs = arena_chunks(arena).each { |chunk| pool.submit(prepare_chunk(chunk), chunk) }
+    gogui.each do |game|
+      game_data = prepare_game(game)
+      pool.submit(game_data['command'], game_data['identifier'])
     end
 
-    until data['games'].empty?
-      completed_game, duration = pool.next_finished
+    (jobs.size + gogui.size).times do
+      finished, duration = pool.next_finished
       # Ctrl-C also stops the running games. Leave them unscored so that
       # resuming plays them again instead of counting a killed game.
       exit if $stop_now
-      scored = score_game(completed_game)
-      store_game(completed_game, scored, duration)
-      update_data(completed_game, scored)
+      if finished.is_a?(ArenaChunk)
+        finish_chunk(finished, duration)
+      else
+        finish_game(finished, duration)
+      end
+    end
+  end
+
+  def finish_game(game, duration)
+    result = GameResult.read(prefix_from(game))
+    scored = score_game(game, result)
+    store_game(game, result, scored, duration)
+    update_data(game, scored)
+    refresh_progress
+  end
+
+  # One arena run: `games` maps each game's ID in the schedule to the game.
+  # The files are named after the chunk.
+  ArenaChunk = Struct.new(:name, :games) do
+    def schedule = "#{name}.txt"
+    def out = "#{name}.out"
+    def err = "#{name}.err"
+    def files = [schedule, out, err]
+  end
+
+  def arena_game?(game)
+    !external?(game['black']) && !external?(game['white'])
+  end
+
+  # Deals the games out in turn, so chunks differ by at most one game. A
+  # game's ID is its file prefix, which has no whitespace and, since each
+  # player plays once a round, is distinct within the round.
+  def arena_chunks(games)
+    count = [settings['concurrency'], games.size].min
+    games.each_with_index.group_by { |_, i| i % count }.values.each_with_index.map do |dealt, k|
+      ArenaChunk.new("arena-#{k}", dealt.to_h { |game, _| [prefix_from(game), game] })
+    end
+  end
+
+  def prepare_chunk(chunk)
+    File.write(chunk.schedule, chunk.games.map { |id, game| "#{id} #{game['black']} #{game['white']}\n" }.join)
+    "../arena #{settings['board_size']} #{settings.fetch('komi')} #{settings['max_moves']} " \
+      "#{chunk.schedule} > #{chunk.out} 2> #{chunk.err}"
+  end
+
+  # Scores and stores every game of the chunk, with a result or, when the
+  # arena gave none, a failure, then deletes the chunk's files. A crash
+  # before the files are deleted replays the games not yet scored.
+  def finish_chunk(chunk, duration)
+    output = File.exist?(chunk.out) ? File.read(chunk.out) : ''
+    results = ArenaResult.chunk(output, chunk.games.keys).results
+    stderr = File.exist?(chunk.err) ? File.read(chunk.err) : ''
+    # The chunk's time beyond its games' (starting the arena, loading the
+    # networks) is shared out equally, so the rows add up to the worker's time.
+    played = results.values.sum { |result| result.duration || 0 }
+    share = [duration - played, 0].max / chunk.games.size
+    chunk.games.each do |id, game|
+      result = results.fetch(id)
+      scored = score_game(game, result)
+      store_arena_game(game, result, scored, (result.duration || 0) + share, stderr)
+      update_data(game, scored)
       refresh_progress
     end
+    FileUtils.rm_f(chunk.files)
+  end
+
+  def store_arena_game(game, result, scored, duration, stderr)
+    store.record(
+      generation: generation.to_i, round: data['round'], black: game['black'], white: game['white'],
+      black_external: false, white_external: false,
+      winner: scored['winner'], failure: scored['failure'], length: result.length,
+      referee_result: result.referee, error_message: result.error_message, duration:,
+      # To a tenth, as twogtp gives the times of GoGui games.
+      time_black: result.time_black&.round(1), time_white: result.time_white&.round(1), scorer: 'tromp_taylor',
+      stderr: scored['failure'] && !stderr.empty? ? stderr : nil,
+      sgf: keep_sgf? ? result.sgf(size: settings['board_size'], komi: settings.fetch('komi')) : nil
+    )
   end
 
   def update_data(game, result)
@@ -182,8 +261,8 @@ class RunGeneration
     { 'command' => cmd, 'identifier' => game }
   end
 
-  def score_game(game)
-    result = GameResult.read(prefix_from(game))
+  # `result` is a GameResult or an ArenaResult; both answer alike.
+  def score_game(game, result)
     return { 'winner' => nil, 'failure' => result.failure } if result.failure
     return { 'winner' => nil } unless result.winner
 
@@ -198,9 +277,8 @@ class RunGeneration
   # left, so an experiment does not pile up three files per game. The SGF is
   # kept for every keep_every-th generation only. A crash between the two
   # steps replays the game, and its row is replaced.
-  def store_game(game, scored, duration)
+  def store_game(game, result, scored, duration)
     prefix = prefix_from(game)
-    result = GameResult.read(prefix)
     sgf_file = "#{prefix}-0.sgf"
     err_file = "#{prefix}.err"
     store.record(
@@ -343,11 +421,12 @@ class RunGeneration
     @rng ||= Random.new(Seeds.derive(experiment_seed, 'selection', generation.to_i))
   end
 
-  # The version of the scoring logic below and in GameResult: what counts as
-  # a win, a draw, or a failure. Bump it when that changes, so an experiment
+  # The version of the scoring logic below and in GameResult and ArenaResult:
+  # what counts as a win, a draw, or a failure. 2: games between networks
+  # are played in the arena and scored by Tromp-Taylor. Bump it when that changes, so an experiment
   # begun under other rules refuses to run. The points themselves are in
   # the experiment's scoring.
-  SCORING_RULES = '1'.freeze
+  SCORING_RULES = '2'.freeze
 
   def setup_tournament
     data = {

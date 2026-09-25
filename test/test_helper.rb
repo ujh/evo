@@ -72,26 +72,54 @@ module RunGenerationHelpers
   end
 end
 
-# Stands in for WorkerPool: "runs" a game by calling the block, which writes
-# its result file, and hands the games back in the order they were queued.
-class FakePool
-  attr_reader :commands
+# One line of the arena's output for a played game, in its exact format.
+def arena_played(id, result: 'B+3.5', finish: 'passes', moves: %w[C3 D4 pass pass],
+                 time_black: 0.012, time_white: 0.034, duration: 0.05)
+  times = [time_black, time_white, duration].map { |t| format('%.6f', t) }
+  [id, "result=#{result}", "end=#{finish}", "length=#{moves.size}", "time_black=#{times[0]}",
+   "time_white=#{times[1]}", "duration=#{times[2]}", "moves=#{moves.join(',')}", 'ok'].join("\t")
+end
 
-  def initialize(&run)
+# The arena's line for a game where a network cannot play.
+def arena_errored(id, side: 'black', message: 'x.ann does not fit a 9x9 board')
+  [id, "error=#{side}", "message=#{message}", 'ok'].join("\t")
+end
+
+# Stands in for WorkerPool: "runs" a job and hands the jobs back in the
+# order they were queued. A GoGui game is "run" by calling the block, which
+# writes its result file. An arena chunk (one with a schedule) is "run" by
+# writing its stdout: `arena` gives each scheduled game's line from its ID
+# and game (black wins by default), then the trailer; `arena_stderr` is
+# written to its stderr.
+class FakePool
+  attr_reader :commands, :identifiers
+
+  def initialize(arena: ->(id, _game) { arena_played(id) }, arena_stderr: '', duration: 1.5, &run)
     @run = run
+    @arena = arena
+    @arena_stderr = arena_stderr
+    @duration = duration
     @queued = []
     @commands = []
+    @identifiers = []
   end
 
   def submit(command, identifier)
     @commands << command
+    @identifiers << identifier
     @queued << identifier
   end
 
-  # Every game "takes" 1.5 seconds.
+  # Every job "takes" 1.5 seconds unless told otherwise.
   def next_finished
     identifier = @queued.shift
-    @run.call(identifier)
-    [identifier, 1.5]
+    if identifier.respond_to?(:schedule)
+      lines = identifier.games.map { |id, game| @arena.call(id, game) }
+      File.write(identifier.out, (lines + ["done #{lines.size}"]).map { |l| "#{l}\n" }.join)
+      File.write(identifier.err, @arena_stderr)
+    else
+      @run&.call(identifier)
+    end
+    [identifier, @duration]
   end
 end

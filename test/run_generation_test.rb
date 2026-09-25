@@ -23,8 +23,34 @@ class ScoreGameTest < Minitest::Test
       gen = build_generation
       copy_dat(fixture, gen.send(:prefix_from, game)) if fixture
       yield gen.send(:prefix_from, game) if block_given?
-      gen.send(:score_game, game)
+      gen.send(:score_game, game, GameResult.read(gen.send(:prefix_from, game)))
     end
+  end
+
+  # Scores an arena game from its line in the arena's output.
+  def score_arena(line, game = NETWORK_VS_NETWORK)
+    in_experiment do
+      write_data('round' => 0, 'players' => players)
+      result = ArenaResult.chunk("#{line}\ndone 1\n", ['g']).results.fetch('g')
+      build_generation.send(:score_game, game, result)
+    end
+  end
+
+  def test_arena_black_win_names_black_as_winner
+    assert_equal({ 'winner' => '0001.ann' }, score_arena(arena_played('g', result: 'B+3.5')))
+  end
+
+  def test_arena_draw_gives_no_points_and_is_not_a_failure
+    assert_equal({ 'winner' => nil }, score_arena(arena_played('g', result: '0')))
+  end
+
+  def test_arena_network_that_cannot_play_loses
+    assert_equal({ 'winner' => '0002.ann' }, score_arena(arena_errored('g', side: 'black')))
+  end
+
+  def test_arena_game_neither_network_can_play_is_a_failure
+    assert_equal({ 'winner' => nil, 'failure' => 'arena: neither network can play' },
+                 score_arena(arena_errored('g', side: 'both')))
   end
 
   def test_black_win_names_black_as_winner
@@ -398,79 +424,218 @@ end
 class PlayRoundTest < Minitest::Test
   include RunGenerationHelpers
 
-  def setup_round(generation: 1)
-    write_data(generation:, 'round' => 0,
-               'players' => {
-                 'a.ann' => { 'command' => '../evo a.ann' },
-                 'b.ann' => { 'command' => '../evo b.ann' },
-                 'c.ann' => { 'command' => '../evo c.ann' }
-               },
-               'games' => [{ 'black' => 'a.ann', 'white' => 'b.ann' }, { 'black' => 'c.ann', 'white' => nil }],
-               'ranking' => %w[a.ann b.ann c.ann].map { |name| { 'name' => name, 'score' => 0 } })
+  NETWORKS = %w[a.ann b.ann c.ann d.ann e.ann f.ann g.ann h.ann i.ann j.ann].freeze
+
+  # A round with the given games among the networks above and Brown1.
+  def setup_round(games, generation: 1)
+    players = NETWORKS.to_h { |name| [name, { 'command' => "../evo #{name}" }] }
+    players['Brown1'] = { 'command' => 'brown', 'external' => true }
+    write_data(generation:, 'round' => 0, 'players' => players,
+               'games' => games.map { |black, white| { 'black' => black, 'white' => white } },
+               'ranking' => players.keys.map { |name| { 'name' => name, 'score' => 0 } })
   end
 
-  def build_with(pool, generation: '1', store: nil)
-    gen = build_generation(generation:)
+  # a.ann against b.ann in the arena, c.ann against Brown1 through GoGui, and
+  # d.ann sits out.
+  MIXED = [%w[a.ann b.ann], ['c.ann', 'Brown1'], ['d.ann', nil]].freeze
+
+  def build_with(pool, generation: '1', settings: {}, store: nil)
+    gen = build_generation(generation:, settings:)
     gen.instance_variable_set(:@pool, pool)
     gen.instance_variable_set(:@store, store || database)
     gen
   end
 
+  def prefix(game)
+    "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R0"
+  end
+
   # A pool that leaves what gogui-twogtp leaves: result, SGF, and stderr.
-  def playing_pool
-    FakePool.new do |game|
-      prefix = "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R0"
-      copy_dat('black_wins', prefix)
-      File.write("#{prefix}-0.sgf", '(;SZ[9];B[ee])')
-      File.write("#{prefix}.err", '')
+  def playing_pool(fixture = 'black_wins', **arena)
+    FakePool.new(**arena) do |game|
+      copy_dat(fixture, prefix(game))
+      File.write("#{prefix(game)}-0.sgf", '(;SZ[9];B[ee])')
+      File.write("#{prefix(game)}.err", '')
     end
   end
 
-  def test_stores_each_scored_game_and_deletes_its_files
+  def play(games, pool, **options)
+    setup_round(games, generation: options.fetch(:generation, '1').to_i)
+    gen = build_with(pool, **options)
+    capture_io { gen.send(:play_round) }
+    gen
+  end
+
+  def scores(gen)
+    gen.send(:data)['ranking'].to_h { |r| r.values_at('name', 'score') }
+  end
+
+  def chunks(pool)
+    pool.identifiers.select { |identifier| identifier.respond_to?(:schedule) }
+  end
+
+  def test_stores_each_gogui_game_and_deletes_its_files
     in_experiment do
-      setup_round
       store = database
-      capture_io { build_with(playing_pool, store:).send(:play_round) }
-      assert_equal [{ generation: 1, round: 0, black: 'a.ann', white: 'b.ann', black_external: false,
-                      white_external: false, winner: 'a.ann', failure: nil, length: 93, referee_result: 'B+R',
+      play([['a.ann', 'Brown1']], playing_pool, store:)
+      assert_equal [{ generation: 1, round: 0, black: 'a.ann', white: 'Brown1', black_external: false,
+                      white_external: true, winner: 'a.ann', failure: nil, length: 93, referee_result: 'B+R',
                       error_message: '', stderr: '', sgf: nil, duration: 1.5, time_black: 0.0,
                       time_white: 0.0, scorer: 'gnugo' }], store.games(1)
-      assert_empty Dir['axbR0*']
+      assert_empty Dir['axBrown1R0*']
     end
   end
 
-  def test_keeps_the_sgf_every_keep_every_generations
+  def test_keeps_the_gogui_sgf_every_keep_every_generations
     in_experiment(generation: '10') do
-      setup_round(generation: 10)
       store = database
-      capture_io { build_with(playing_pool, generation: '10', store:).send(:play_round) }
+      play([['a.ann', 'Brown1']], playing_pool, generation: '10', store:)
       assert_equal '(;SZ[9];B[ee])', store.games(10).first[:sgf]
     end
   end
 
-  def test_plays_and_scores_every_game_of_the_round
+  def test_a_mixed_round_plays_networks_in_the_arena_and_bots_through_gogui
     in_experiment do
-      setup_round
-      pool = FakePool.new { |game| copy_dat('black_wins', "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R0") }
-      gen = build_with(pool)
-      capture_io { gen.send(:play_round) }
-      data = gen.send(:data)
-      assert_empty data['games']
-      # c.ann sat the round out and gets nothing for it.
-      assert_equal({ 'a.ann' => 1, 'b.ann' => 0, 'c.ann' => 0 }, data['ranking'].to_h { |r| r.values_at('name', 'score') })
-      assert_equal 1, pool.commands.size
-      assert_includes pool.commands.first, '-black "../evo a.ann" -white "../evo b.ann"'
+      pool = playing_pool('white_wins')
+      gen = play(MIXED, pool)
+      assert_empty gen.send(:data)['games']
+      # a.ann beat b.ann in the arena, Brown1 beat c.ann, and d.ann sat the
+      # round out and gets nothing for it.
+      assert_equal({ 'a.ann' => 1, 'b.ann' => 0, 'c.ann' => 0, 'd.ann' => 0, 'Brown1' => 1 },
+                   scores(gen).slice('a.ann', 'b.ann', 'c.ann', 'd.ann', 'Brown1'))
+      assert_equal 2, pool.commands.size
+      assert_equal ['../arena 9 6.5 200 arena-0.txt > arena-0.out 2> arena-0.err'],
+                   pool.commands.grep(/arena/)
+      gogui = pool.commands.grep(/gogui-twogtp/)
+      assert_equal 1, gogui.size
+      assert_includes gogui.first, '-black "../evo c.ann" -white "brown"'
+      assert_equal({ %w[a.ann b.ann] => 'tromp_taylor', %w[c.ann Brown1] => 'gnugo' },
+                   database.games(1).to_h { |row| [row.values_at(:black, :white), row[:scorer]] })
+    end
+  end
+
+  def test_the_schedule_names_each_game_and_its_networks
+    in_experiment do
+      schedule = nil
+      pool = FakePool.new(arena: lambda { |id, _game|
+        schedule = File.read(chunks(pool).first.schedule)
+        arena_played(id)
+      })
+      play([%w[a.ann b.ann], %w[d.ann c.ann]], pool, settings: { 'komi' => 7.0, 'max_moves' => 50 })
+      assert_equal "axbR0 a.ann b.ann\ndxcR0 d.ann c.ann\n", schedule
+      assert_equal ['../arena 9 7.0 50 arena-0.txt > arena-0.out 2> arena-0.err'], pool.commands
+    end
+  end
+
+  def test_stores_arena_rows_and_deletes_the_chunks_files
+    in_experiment do
+      store = database
+      # Two games of 0.25 s in a chunk of 1.5 s: each gets half the 1.0 s overhead.
+      pool = FakePool.new(arena: ->(id, _game) { arena_played(id, time_black: 0.26, time_white: 0.04, duration: 0.25) },
+                          arena_stderr: 'a warning')
+      play([%w[a.ann b.ann], %w[c.ann d.ann]], pool, store:)
+      row = { generation: 1, round: 0, black_external: false, white_external: false, failure: nil, length: 4,
+              referee_result: 'B+3.5', error_message: nil, stderr: nil, sgf: nil, duration: 0.75,
+              time_black: 0.3, time_white: 0.0, scorer: 'tromp_taylor' }
+      assert_equal [row.merge(black: 'a.ann', white: 'b.ann', winner: 'a.ann'),
+                    row.merge(black: 'c.ann', white: 'd.ann', winner: 'c.ann')], store.games(1)
+      assert_empty Dir['arena-*']
+    end
+  end
+
+  def test_a_chunk_faster_than_its_games_adds_no_overhead
+    in_experiment do
+      store = database
+      pool = FakePool.new(arena: ->(id, _game) { arena_played(id, duration: 0.25) }, duration: 0.1)
+      play([%w[a.ann b.ann], %w[c.ann d.ann]], pool, store:)
+      assert_equal [0.25, 0.25], store.games(1).map { |row| row[:duration] }
+    end
+  end
+
+  def test_a_game_stopped_at_the_move_limit_is_scored_on_the_board
+    in_experiment do
+      store = database
+      pool = FakePool.new(arena: ->(id, _game) { arena_played(id, result: 'W+6.5', finish: 'limit') })
+      gen = play([%w[a.ann b.ann]], pool, store:)
+      assert_equal ['b.ann', 'move limit exceeded'], store.games(1).first.values_at(:winner, :error_message)
+      assert_equal 1, scores(gen)['b.ann']
+    end
+  end
+
+  def test_an_arena_draw_gives_no_points
+    in_experiment do
+      store = database
+      pool = FakePool.new(arena: ->(id, _game) { arena_played(id, result: '0') })
+      gen = play([%w[a.ann b.ann]], pool, store:)
+      assert_equal [nil, nil, '0'], store.games(1).first.values_at(:winner, :failure, :referee_result)
+      assert_equal [0, 0], scores(gen).values_at('a.ann', 'b.ann')
+    end
+  end
+
+  def test_a_network_that_cannot_play_loses
+    in_experiment do
+      store = database
+      pool = FakePool.new(arena: ->(id, _game) { arena_errored(id, side: 'white', message: 'b.ann is missing') },
+                          arena_stderr: 'a warning')
+      gen = play([%w[a.ann b.ann]], pool, store:)
+      row = store.games(1).first
+      assert_equal ['a.ann', nil, nil, nil, 'b.ann is missing', nil, 'tromp_taylor'],
+                   row.values_at(:winner, :failure, :length, :referee_result, :error_message, :stderr, :scorer)
+      assert_equal [1, 0], scores(gen).values_at('a.ann', 'b.ann')
+    end
+  end
+
+  def test_a_failed_arena_game_keeps_the_chunks_stderr
+    in_experiment do
+      store = database
+      pool = FakePool.new(arena: ->(id, _game) { arena_errored(id, side: 'both') }, arena_stderr: 'a warning')
+      gen = play([%w[a.ann b.ann]], pool, store:)
+      assert_equal ['arena: neither network can play', 'a warning'], store.games(1).first.values_at(:failure, :stderr)
+      assert_equal [0, 0], scores(gen).values_at('a.ann', 'b.ann')
+    end
+  end
+
+  def test_a_failed_arena_game_with_empty_stderr_stores_none
+    in_experiment do
+      store = database
+      pool = FakePool.new(arena: ->(id, _game) { arena_errored(id, side: 'both') })
+      play([%w[a.ann b.ann]], pool, store:)
+      assert_nil store.games(1).first[:stderr]
+    end
+  end
+
+  def test_keeps_the_arena_sgf_every_keep_every_generations
+    in_experiment(generation: '10') do
+      store = database
+      play([%w[a.ann b.ann]], FakePool.new, generation: '10', store:)
+      assert_equal '(;GM[1]FF[4]SZ[9]KM[6.5]RE[B+3.5];B[cg];W[df];B[];W[])', store.games(10).first[:sgf]
+    end
+  end
+
+  def test_arena_games_go_into_at_most_concurrency_chunks_covering_each_game_once
+    games = NETWORKS.each_slice(2).to_a
+    { 1 => 1, 2 => 2, 3 => 3, 5 => 5, 8 => 5 }.each do |concurrency, expected|
+      in_experiment do
+        pool = FakePool.new
+        gen = play(games + [['Brown1', nil]], pool, settings: { 'concurrency' => concurrency })
+        assert_equal expected, chunks(pool).size, "concurrency #{concurrency}"
+        assert_equal expected, pool.commands.size
+        scheduled = chunks(pool).flat_map { |chunk| chunk.games.values.map { |g| g.values_at('black', 'white') } }
+        assert_equal games.sort, scheduled.sort
+        assert_equal games.map(&:first).sort, scores(gen).select { |_, score| score == 1 }.keys.sort
+        assert_equal games.size, database.games(1).size
+      end
     end
   end
 
   def test_stopping_leaves_the_finished_game_to_be_replayed
     in_experiment do
-      setup_round
+      setup_round([['a.ann', 'Brown1']])
       pool = FakePool.new { $stop_now = true }
       gen = build_with(pool)
       capture_io { assert_raises(SystemExit) { gen.send(:play_round) } }
       data = database.state(1)
-      assert_equal [{ 'black' => 'a.ann', 'white' => 'b.ann' }], data['games']
+      assert_equal [{ 'black' => 'a.ann', 'white' => 'Brown1' }], data['games']
     ensure
       $stop_now = false
     end
@@ -722,9 +887,8 @@ class GenerationBenchmarkTest < Minitest::Test
                              'players' => { 'a.ann' => { 'command' => '../evo a.ann' }, 'b.ann' => { 'command' => '../evo b.ann' } },
                              'ranking' => [{ 'name' => 'b.ann', 'score' => 0 }, { 'name' => 'a.ann', 'score' => 0 }] })
       gen = build_generation(generation: '10', settings: { 'benchmark_games' => 2 }, store:)
-      gen.instance_variable_set(:@pool, FakePool.new do |game|
-        copy_dat('black_wins', game.is_a?(Hash) ? gen.send(:prefix_from, game) : game.prefix)
-      end)
+      # a.ann plays black in the arena and wins.
+      gen.instance_variable_set(:@pool, FakePool.new { |game| copy_dat('black_wins', game.prefix) })
       capture_io { gen.call }
       assert_equal %w[a.ann a.ann], store.benchmark_games(10).map { |row| row[:network] }
     end

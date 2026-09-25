@@ -148,7 +148,8 @@ class SetupExperimentTest < Minitest::Test
       assert_equal [{ name: 'Brown', command: 'brown', copies: 5 }, { name: 'AmiGo', command: 'amigogtp', copies: 10 }],
                    database.opponents
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
-      assert_equal RunGeneration::SCORING_RULES, database.scoring['rules']
+      # Rules 2: networks play each other in the arena, scored by Tromp-Taylor.
+      assert_equal '2', database.scoring['rules']
       assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
   end
@@ -262,10 +263,10 @@ class SetupExperimentTest < Minitest::Test
     end
   end
 
-  # A fake checkout: the three executables, committed to git, and an
+  # A fake checkout: the four executables, committed to git, and an
   # installed external tools release.
   def fake_checkout
-    { 'engine/evo' => 'evo v1', 'initial-population/initial-population' => 'ip v1', 'evolve/evolve' => 'evolve v1' }.each do |path, text|
+    { 'engine/evo' => 'evo v1', 'engine/arena' => 'arena v1', 'initial-population/initial-population' => 'ip v1', 'evolve/evolve' => 'evolve v1' }.each do |path, text|
       FileUtils.mkdir_p(File.dirname(path))
       File.write(path, text)
     end
@@ -285,12 +286,13 @@ class SetupExperimentTest < Minitest::Test
       fake_checkout
       provenance = nil
       capture_io { provenance = run_setup }
-      %w[evo initial-population evolve].each do |name|
+      %w[evo arena initial-population evolve].each do |name|
         path = "experiments/x/#{name}"
         refute File.symlink?(path), name
         assert File.executable?(path) || File.file?(path), name
       end
       assert_equal 'evo v1', File.read('experiments/x/evo')
+      assert_equal 'arena v1', File.read('experiments/x/arena')
       assert_equal `git rev-parse HEAD`.strip, provenance['code_revision']
       assert_equal 'false', provenance['uncommitted_changes']
       assert_equal 'tools_r7', provenance['external_tools']

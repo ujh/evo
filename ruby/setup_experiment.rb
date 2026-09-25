@@ -71,7 +71,7 @@ class SetupExperiment
     'komi' => ['Komi', '6.5', half(-50, 50)]
   }.freeze
 
-  EXECUTABLES = %w[engine/evo initial-population/initial-population evolve/evolve].freeze
+  EXECUTABLES = %w[engine/evo engine/arena initial-population/initial-population evolve/evolve].freeze
 
   # What a new experiment plays against, what benchmarks it, and how it
   # scores. They are stored with the experiment, and the runner reads them
