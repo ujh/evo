@@ -131,7 +131,16 @@ class SetupExperimentTest < Minitest::Test
                    database.opponents
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
       assert_equal RunGeneration::SCORING_RULES, database.scoring['rules']
+      assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
+  end
+
+  # The benchmark panel: the three weakest bots, then the two network
+  # opponents the runner picks from the experiment's own generations.
+  def test_the_default_benchmark_panel
+    assert_equal [%w[Brown bot brown], %w[AmiGo bot amigogtp], ['GnuGoLevel0', 'bot', 'gnugo --level 0 --mode gtp'],
+                  ['Gen0Champion', 'initial_champion', nil], ['PreviousCheckpoint', 'previous_checkpoint', nil]],
+                 SetupExperiment::DEFAULT_BENCHMARK.map { |o| o.values_at(:name, :kind, :command) }
   end
 
   def test_prompted_settings_store_the_opponents_and_scoring_too
@@ -141,6 +150,7 @@ class SetupExperimentTest < Minitest::Test
       with_stdin("#{answers.join("\n")}\n") { SetupExperiment.settings(database) }
       assert_equal 2, database.opponents.size
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
+      assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
   end
 
@@ -156,6 +166,19 @@ class SetupExperimentTest < Minitest::Test
       end
       assert_empty database.settings
       assert_empty database.opponents
+    end
+  end
+
+  def test_settings_are_not_saved_without_their_benchmark_panel
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.define_singleton_method(:save_benchmark_opponents) { |_| raise IOError, 'disk full' }
+      with_stdin("#{prompt_answers.join("\n")}\n") do
+        assert_raises(IOError) { SetupExperiment.settings(database) }
+      end
+      assert_empty database.settings
+      assert_empty database.opponents
+      assert_empty database.scoring
     end
   end
 

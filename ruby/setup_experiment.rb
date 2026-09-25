@@ -59,17 +59,29 @@ class SetupExperiment
 
   EXECUTABLES = %w[engine/evo initial-population/initial-population evolve/evolve].freeze
 
-  # What a new experiment plays against and how it scores. They are stored
-  # with the experiment, and the runner reads them from there, so changing
-  # them here only changes experiments created afterwards.
+  # What a new experiment plays against, what benchmarks it, and how it
+  # scores. They are stored with the experiment, and the runner reads them
+  # from there, so changing them here only changes experiments created
+  # afterwards.
   # Early networks are far too weak for GNU Go, at any level, and its games
-  # set most of a generation's wall time, so it stays out until networks beat
-  # these (see the opponent ladder in PROJECT_NOTES.md). GNU Go still
-  # referees. scripts/smoke-external-tools.sh plays each opponent; add new
-  # ones there.
+  # set most of a generation's wall time, so it stays out of the tournament
+  # until networks beat these (see the opponent ladder in PROJECT_NOTES.md).
+  # GNU Go still referees. scripts/smoke-external-tools.sh plays each
+  # opponent and each benchmark bot; add new ones there.
   DEFAULT_OPPONENTS = [
     { name: 'Brown', command: 'brown', copies: 5 },
     { name: 'AmiGo', command: 'amigogtp', copies: 10 }
+  ].freeze
+  # The fixed panel the top network of every checkpoint generation plays, so
+  # checkpoints stay comparable however the tournament's opponents change.
+  # The two network kinds have no command: the runner picks the network
+  # from the experiment's own generations.
+  DEFAULT_BENCHMARK = [
+    { name: 'Brown', kind: 'bot', command: 'brown' },
+    { name: 'AmiGo', kind: 'bot', command: 'amigogtp' },
+    { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
+    { name: 'Gen0Champion', kind: 'initial_champion', command: nil },
+    { name: 'PreviousCheckpoint', kind: 'previous_checkpoint', command: nil }
   ].freeze
   DEFAULT_SCORING = { 'rules' => RunGeneration::SCORING_RULES, 'win' => 1, 'draw' => 0, 'bye' => 0 }.freeze
 
@@ -101,8 +113,8 @@ class SetupExperiment
     database&.close
   end
 
-  # Settings, opponents, and scoring together or not at all, so no
-  # experiment has settings it cannot run with.
+  # Settings, opponents, benchmark panel, and scoring together or not at
+  # all, so no experiment has settings it cannot run with.
   def self.save_new_experiment(database, settings)
     database.transaction do
       database.save_settings(settings)
@@ -112,6 +124,7 @@ class SetupExperiment
 
   def self.save_rules(database)
     database.save_opponents(DEFAULT_OPPONENTS)
+    database.save_benchmark_opponents(DEFAULT_BENCHMARK)
     database.save_scoring(DEFAULT_SCORING)
   end
 
