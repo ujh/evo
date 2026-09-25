@@ -9,7 +9,7 @@ default: evo
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
-include $(OBJS:.o=.dep)
+include $(OBJS:.o=.dep) rules_test.dep
 
 evo: $(OBJS) main.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)

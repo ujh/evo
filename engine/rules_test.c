@@ -164,7 +164,8 @@ static void predict(double *prediction, int points, int best, int second, int pa
 
 // generate_move plays the highest-scoring point that is legal, not suicide,
 // and not the opponent's suicide point (an own eye) unless it touches an
-// opponent stone; otherwise, or when pass scores higher, it passes.
+// opponent stone. It passes when nothing is allowed or pass scores at least
+// as high.
 void test_the_move_filter() {
   genann *saved = ann;
   ann = genann_init(26, 0, 0, 26);
@@ -190,6 +191,15 @@ void test_the_move_filter() {
   find_and_set_best_move(&i, &j, BLACK, prediction);
   lok(i == 3 && j == 3);
 
+  // White's suicide point is still played when it touches a white stone:
+  // here it captures the white stone in the corner.
+  const char *atari[] = {"O.X..", "XX...", ".....", ".....", "....."};
+  setup(atari);
+  lok(suicide(0, 1, WHITE));
+  predict(prediction, 25, POS(0, 1), POS(3, 3), 0);
+  find_and_set_best_move(&i, &j, BLACK, prediction);
+  lok(i == 0 && j == 1);
+
   // Illegal ko recapture: skipped.
   const char *ko[] = {".XO..", "X.XO.", ".XO..", ".....", "....."};
   setup(ko);
@@ -201,6 +211,12 @@ void test_the_move_filter() {
   // Pass scores highest: pass.
   setup(occupied);
   predict(prediction, 25, POS(2, 2), -1, 1);
+  find_and_set_best_move(&i, &j, BLACK, prediction);
+  lok(i == -1 && j == -1);
+
+  // A tie with pass passes too, as saturated cached sigmoid outputs do.
+  predict(prediction, 25, POS(2, 2), -1, 0);
+  prediction[25] = prediction[POS(2, 2)];
   find_and_set_best_move(&i, &j, BLACK, prediction);
   lok(i == -1 && j == -1);
 
