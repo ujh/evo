@@ -8,6 +8,7 @@ class WorkerPool
 
     @jobs = Queue.new
     @finished = Queue.new
+    @halted = false
     @threads = Array.new(size) { Thread.new { work } }
   end
 
@@ -20,6 +21,14 @@ class WorkerPool
   # Blocks until a command finishes and returns its identifier.
   def next_finished
     @finished.pop
+  end
+
+  # Keeps queued commands from starting; running ones finish. Only sets a
+  # flag, so it is safe to call from a signal trap. Without it, a thread whose
+  # game was killed by Ctrl-C would start the next queued game, which never
+  # got the signal and would play to the end.
+  def halt
+    @halted = true
   end
 
   # Drops queued commands and waits for the running ones to exit.
@@ -37,6 +46,8 @@ class WorkerPool
 
   def work
     while (job = @jobs.pop)
+      break if @halted
+
       command, identifier = job
       system(command)
       @finished << identifier

@@ -48,6 +48,21 @@ class WorkerPoolTest < Minitest::Test
     end
   end
 
+  def test_halt_from_a_signal_trap_keeps_queued_jobs_from_starting
+    Dir.mktmpdir do |dir|
+      pool = WorkerPool.new(2)
+      previous = trap('INT') { pool.halt }
+      4.times { |i| pool.submit("sleep 0.3; touch #{dir}/#{i}", i) }
+      sleep 0.1 # both threads are running a job
+      Process.kill('INT', Process.pid)
+      2.times { pool.next_finished }
+      pool.stop
+      assert_equal %w[0 1], Dir.children(dir).sort
+    ensure
+      trap('INT', previous || 'DEFAULT')
+    end
+  end
+
   def test_size_below_one_is_rejected
     assert_raises(ArgumentError) { WorkerPool.new(0) }
   end
