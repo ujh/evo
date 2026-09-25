@@ -133,21 +133,8 @@ int main(int argc, char **argv) {
       remove(buffer);
       exit(1);
     }
-    // One machine-readable line per network, in file order. The width is 0
-    // without hidden layers, as in the file.
-    printf(
-      "genes layers=%d width=%d act_hidden=%s act_output=%s copy_chance=%.17g weight_changes=%.17g "
-      "weight_step=%.17g activation_rate=%.17g structure_rate=%.17g\n",
-      ann->hidden_layers,
-      ann->hidden_layers ? ann->hidden : 0,
-      ann_activation_name(ann->activation_hidden),
-      ann_activation_name(ann->activation_output),
-      genes.copy_chance,
-      genes.weight_changes,
-      genes.weight_step,
-      genes.activation_rate,
-      genes.structure_rate
-    );
+    // One machine-readable line per network, in file order.
+    ann_print_genes_line(stdout, ann, &genes);
     genann_free(ann);
   }
 }

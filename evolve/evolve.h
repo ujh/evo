@@ -34,18 +34,26 @@ extern pcg32_random_t rng;
 void seed();
 // Reads both parents and their genes; exits 1 if either cannot be read.
 genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2]);
+// Whether the parents can breed: the same inputs, outputs, hidden layers, and
+// width. Their activations and genes may differ.
 bool nns_compatible(genann **nns);
 void check_nns(genann **nns);
-// Both store in *picked which parent (0 or 1) the child is built from: the
-// one mutated, or the one whose weights come first in a crossover.
-genann *child_from_cross_over(genann **nns, int *picked);
-// Stores the child's genes in *child_genes.
-genann *child_from_mutation(genann **nns, ann_genes const genes[2], double meta_rate,
-                            int *picked, ann_genes *child_genes);
-genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_point);
 
-// The meta rate τ of self-adaptive mutation, until the command line takes it.
-#define EVOLVE_META_RATE 0.2
+// What happened to a mutated child besides its weights.
+typedef struct {
+  bool copy;               // an exact copy of the parent, genes included
+  bool activation_changed; // an activation switched
+} mutation_outcome;
+
+// Both store in *picked which parent (0 or 1) the child is built from: the
+// one mutated, or the one whose weights come first in a crossover. A
+// crossover child has that parent's activations.
+genann *child_from_cross_over(genann **nns, int *picked);
+// Stores the child's genes in *child_genes and, unless outcome is NULL,
+// what happened in *outcome.
+genann *child_from_mutation(genann **nns, ann_genes const genes[2], double meta_rate,
+                            int *picked, ann_genes *child_genes, mutation_outcome *outcome);
+genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_point);
 
 // A standard normal draw from the PCG generator, by Box-Muller.
 double standard_normal(void);
@@ -54,9 +62,15 @@ double standard_normal(void);
 // logit⁻¹(logit(p) + τ·N(0,1)), in the struct's order, then clamped to their
 // ranges (weight_changes to at most total_weights).
 ann_genes mutate_genes(ann_genes genes, double meta_rate, int total_weights);
+// With probability activation_rate each, the hidden and then the output
+// activation is replaced by one of the other activations in ANN_ACTIVATIONS,
+// chosen uniformly. Returns whether either switched.
+bool mutate_activations(genann *child, double activation_rate);
 // A mutated copy of the parent. With the parent's copy_chance the child is an
-// exact copy, genes included. Otherwise its genes mutate first, and then
-// each weight changes with probability weight_changes / total_weights by a
-// uniform amount in [-weight_step, +weight_step] of the new genes.
+// exact copy, genes included. Otherwise its genes mutate first, then its
+// activations switch with the new activation_rate, and then each weight
+// changes with probability weight_changes / total_weights by a uniform
+// amount in [-weight_step, +weight_step] of the new genes. Unless outcome is
+// NULL, stores in *outcome what happened.
 genann *mutate(genann const *parent, ann_genes const *parent_genes, double meta_rate,
-               ann_genes *child_genes);
+               ann_genes *child_genes, mutation_outcome *outcome);

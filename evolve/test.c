@@ -30,6 +30,9 @@ SOFTWARE.
 #include "evolve.h"
 #include "minctest.h"
 
+// The meta rate τ the runner passes by default.
+#define META_RATE 0.2
+
 void test_cross_over() {
   genann *nn1 = genann_init(1, 1, 1, 1);
   genann *nn2 = genann_init(1, 1, 1, 1);
@@ -99,7 +102,7 @@ static mutation_counts mutate_many(genann *parent, ann_genes genes, double meta_
   counts.children = children;
   for (int c = 0; c < children; c++) {
     ann_genes child_genes;
-    genann *child = mutate(parent, &genes, meta_rate, &child_genes);
+    genann *child = mutate(parent, &genes, meta_rate, &child_genes, NULL);
     long changed = 0;
     for (int i = 0; i < parent->total_weights; i++) {
       double change = child->weight[i] - parent->weight[i];
@@ -129,7 +132,7 @@ void test_mutate_copies_the_parent() {
   ann_genes genes = middle_genes();
   genes.copy_chance = ANN_COPY_CHANCE_MIN;
   ann_genes child_genes;
-  genann *child = mutate(parent, &genes, EVOLVE_META_RATE, &child_genes);
+  genann *child = mutate(parent, &genes, META_RATE, &child_genes, NULL);
 
   lok(child != parent);
   lok(child->weight != parent->weight);
@@ -174,11 +177,11 @@ void test_mutate_is_deterministic_for_a_seed() {
   ann_genes first_genes, second_genes, other_genes;
 
   pcg32_srandom(3, 54u);
-  genann *first = mutate(parent, &genes, EVOLVE_META_RATE, &first_genes);
+  genann *first = mutate(parent, &genes, META_RATE, &first_genes, NULL);
   pcg32_srandom(3, 54u);
-  genann *second = mutate(parent, &genes, EVOLVE_META_RATE, &second_genes);
+  genann *second = mutate(parent, &genes, META_RATE, &second_genes, NULL);
   pcg32_srandom(4, 54u);
-  genann *other = mutate(parent, &genes, EVOLVE_META_RATE, &other_genes);
+  genann *other = mutate(parent, &genes, META_RATE, &other_genes, NULL);
 
   static unsigned char a[200000], b[200000], c[200000];
   size_t a_length = child_bytes(first, &first_genes, a, sizeof a);
@@ -201,7 +204,7 @@ void test_mutate_copies_with_copy_chance() {
   genann *parent = genann_init(82, 2, 2, 82);
   lequal(parent->total_weights, 418);
   ann_genes genes = middle_genes();
-  mutation_counts counts = mutate_many(parent, genes, EVOLVE_META_RATE, 20000);
+  mutation_counts counts = mutate_many(parent, genes, META_RATE, 20000);
 
   // SE = sqrt(0.05 * 0.95 / 20000) = 0.0015.
   check_close("share of copies", (double)counts.copies / counts.children, 0.05, 0.006);
@@ -273,7 +276,7 @@ void test_mutate_uses_the_mutated_genes() {
 void test_mutate_genes_distributions() {
   pcg32_srandom(9, 54u);
   const int n = 20000;
-  const double tau = EVOLVE_META_RATE;
+  const double tau = META_RATE;
   ann_genes genes = middle_genes();
   double sum[5] = {0}, sum_of_squares[5] = {0};
   long within_tau[5] = {0};
@@ -336,8 +339,8 @@ void test_mutate_genes_clamps() {
   lok(ann_genes_invalid(&same, 26) == NULL);
 }
 
-// Crossing over mixes weights, so both parents must be the same kind of
-// network: the same sizes and the same activations.
+// Crossing over mixes weights, so both parents must have the same sizes.
+// Their activations may differ: the child takes the picked parent's.
 void test_parents_must_match() {
   genann *a = genann_init(3, 1, 4, 2);
   genann *b = genann_init(3, 1, 4, 2);
@@ -345,16 +348,142 @@ void test_parents_must_match() {
   lok(nns_compatible(nns));
 
   b->activation_output = genann_act_linear;
-  lok(!nns_compatible(nns));
-  b->activation_output = a->activation_output;
   b->activation_hidden = genann_act_tanh;
-  lok(!nns_compatible(nns));
+  lok(nns_compatible(nns));
 
-  genann *c = genann_init(3, 1, 5, 2);
-  nns[1] = c;
-  lok(!nns_compatible(nns));
+  genann *wider = genann_init(3, 1, 5, 2);
+  genann *deeper = genann_init(3, 2, 4, 2);
+  genann *more_inputs = genann_init(4, 1, 4, 2);
+  genann *more_outputs = genann_init(3, 1, 4, 3);
+  genann *others[] = {wider, deeper, more_inputs, more_outputs};
+  for (int i = 0; i < 4; i++) {
+    nns[1] = others[i];
+    lok(!nns_compatible(nns));
+    genann_free(others[i]);
+  }
 
-  genann_free(c);
+  genann_free(b);
+  genann_free(a);
+}
+
+// The position of a network's activation in ANN_ACTIVATIONS.
+static int activation_index(genann_actfun function) {
+  for (int i = 0; i < ANN_ACTIVATION_COUNT; i++) {
+    if (ANN_ACTIVATIONS[i].function == function) return i;
+  }
+  return -1;
+}
+
+// With the given rate each activation switches on its own, always to a
+// different one, chosen uniformly among the other five, from whichever it
+// starts with.
+void test_mutate_activations_switches_uniformly() {
+  pcg32_srandom(11, 54u);
+  lequal(ANN_ACTIVATION_COUNT, 6);
+  const int trials = 3000;
+  const double rate = 0.3;
+  genann *net = genann_init(3, 1, 4, 2);
+  long hidden_switches = 0, output_switches = 0, both = 0, invalid = 0, changed_reported = 0;
+  long targets[6][6] = {{0}};
+  long switches_from[6] = {0};
+  for (int start = 0; start < 6; start++) {
+    for (int k = 0; k < trials; k++) {
+      net->activation_hidden = ANN_ACTIVATIONS[start].function;
+      net->activation_output = ANN_ACTIVATIONS[(start + 3) % 6].function;
+      bool changed = mutate_activations(net, rate);
+      int hidden = activation_index(net->activation_hidden);
+      int output = activation_index(net->activation_output);
+      bool hidden_switched = hidden != start;
+      bool output_switched = output != (start + 3) % 6;
+      if (hidden < 0 || output < 0) invalid++;
+      if (changed != (hidden_switched || output_switched)) invalid++;
+      if (changed) changed_reported++;
+      if (hidden_switched) {
+        hidden_switches++;
+        switches_from[start]++;
+        targets[start][hidden]++;
+      }
+      if (output_switched) output_switches++;
+      if (hidden_switched && output_switched) both++;
+    }
+  }
+  const double n = 6.0 * trials;
+  // SE = sqrt(0.3 * 0.7 / 18000) = 0.0034; of both 0.0024.
+  check_close("share of hidden switches", hidden_switches / n, rate, 0.014);
+  check_close("share of output switches", output_switches / n, rate, 0.014);
+  check_close("share of both switching", both / n, rate * rate, 0.01);
+  check_close("share reported changed", changed_reported / n, 1 - (1 - rate) * (1 - rate), 0.016);
+  lequal((int)invalid, 0);
+  for (int start = 0; start < 6; start++) {
+    lequal((int)targets[start][start], 0);
+    for (int target = 0; target < 6; target++) {
+      if (target == start) continue;
+      // About 900 switches from each start: SE sqrt(0.2 * 0.8 / 900) = 0.013.
+      check_close("share of switches to one activation",
+                  (double)targets[start][target] / switches_from[start], 0.2, 0.053);
+    }
+  }
+  genann_free(net);
+}
+
+// A mutated child switches each activation with its activation_rate gene
+// (meta_rate 0 keeps the gene as it is), and says so. A copy never switches.
+void test_mutate_switches_activations_by_the_gene() {
+  pcg32_srandom(12, 54u);
+  genann *parent = genann_init(3, 1, 4, 2);
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MAX;
+  genes.activation_rate = 0.4;
+  const int children = 20000;
+  long copies = 0, hidden_switches = 0, output_switches = 0, mismatched = 0;
+  for (int c = 0; c < children; c++) {
+    ann_genes child_genes;
+    mutation_outcome outcome;
+    genann *child = mutate(parent, &genes, 0, &child_genes, &outcome);
+    bool hidden_switched = child->activation_hidden != parent->activation_hidden;
+    bool output_switched = child->activation_output != parent->activation_output;
+    if (outcome.activation_changed != (hidden_switched || output_switched)) mismatched++;
+    if (outcome.copy) {
+      copies++;
+      if (hidden_switched || output_switched || !same_genes(&child_genes, &genes)) mismatched++;
+      for (int i = 0; i < parent->total_weights; i++) {
+        if (child->weight[i] != parent->weight[i]) mismatched++;
+      }
+    } else {
+      if (hidden_switched) hidden_switches++;
+      if (output_switched) output_switches++;
+    }
+    genann_free(child);
+  }
+  lequal((int)mismatched, 0);
+  // SE = sqrt(0.1 * 0.9 / 20000) = 0.0021.
+  check_close("share of copies", (double)copies / children, 0.1, 0.0085);
+  // About 18,000 mutated children: SE sqrt(0.4 * 0.6 / 18000) = 0.0037.
+  check_close("share of hidden switches", (double)hidden_switches / (children - copies), 0.4, 0.015);
+  check_close("share of output switches", (double)output_switches / (children - copies), 0.4, 0.015);
+  genann_free(parent);
+}
+
+// A crossover child takes the activations of the parent whose weights come
+// first, and none switches.
+void test_cross_over_keeps_the_picked_parents_activations() {
+  pcg32_srandom(13, 54u);
+  genann *a = genann_init(3, 1, 4, 2);
+  genann *b = genann_init(3, 1, 4, 2);
+  b->activation_hidden = genann_act_tanh;
+  b->activation_output = genann_act_linear;
+  genann *nns[2] = {a, b};
+  int picked_first = 0, wrong = 0;
+  for (int k = 0; k < 1000; k++) {
+    int picked;
+    genann *child = child_from_cross_over(nns, &picked);
+    if (picked == 0) picked_first++;
+    if (child->activation_hidden != nns[picked]->activation_hidden) wrong++;
+    if (child->activation_output != nns[picked]->activation_output) wrong++;
+    genann_free(child);
+  }
+  lequal(wrong, 0);
+  lok(picked_first > 400 && picked_first < 600);
   genann_free(b);
   genann_free(a);
 }
@@ -372,6 +501,9 @@ int main(int argc, char **argv) {
   lrun("mutate_new_genes", test_mutate_uses_the_mutated_genes);
   lrun("mutate_gene_distributions", test_mutate_genes_distributions);
   lrun("mutate_gene_clamps", test_mutate_genes_clamps);
+  lrun("mutate_activations", test_mutate_activations_switches_uniformly);
+  lrun("mutate_activation_gene", test_mutate_switches_activations_by_the_gene);
+  lrun("cross_over_activations", test_cross_over_keeps_the_picked_parents_activations);
 
   lresults();
 

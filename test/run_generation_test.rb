@@ -235,7 +235,10 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     end
   end
 
-  SUMMARY = "Loading ...\nsummary operator=mutation differs_from_first=0 differs_from_second=907\n".freeze
+  GENES_LINE = 'genes layers=1 width=10 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 ' \
+               "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02\n".freeze
+  SUMMARY = "Loading ...\nsummary operator=mutation parent=first structure=none activation_changed=0 " \
+            "differs_from_first=0 differs_from_second=907\n#{GENES_LINE}".freeze
 
   # Writes the child to the output path, evolve's second-to-last argument, and succeeds.
   def write_child(cmd)
@@ -243,7 +246,9 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     [true, SUMMARY]
   end
 
-  PARENTS = %r{\A\.\./evolve 0\.5 parents/000[12]\.ann parents/000[12]\.ann}
+  # The crossover rate, the meta rate, and the bounds on the child's shape
+  # (the generation-0 shape for now), then the parents.
+  PARENTS = %r{\A\.\./evolve 0\.5 0\.2 1 10 10 parents/000[12]\.ann parents/000[12]\.ann}
 
   def test_breeds_children_from_selected_parents_and_deletes_the_parents
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
@@ -287,11 +292,41 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
     assert_equal %w[0.ann 1.ann], state[:births].map { |b| b[:child] }
     state[:births].each_with_index do |birth, i|
-      parents = state[:commands][i].split[2, 2].map { |path| File.basename(path) }
+      parents = state[:commands][i].split[6, 2].map { |path| File.basename(path) }
       assert_equal [1, parents, 'mutation', 0, 907, Seeds.derive(1, 'birth', 1, i)],
                    [birth[:generation], birth.values_at(:first_parent, :second_parent), birth[:operator],
                     birth[:differs_from_first], birth[:differs_from_second], birth[:seed]]
       assert_equal Digest::SHA256.hexdigest(state[:children]["#{i}.ann"]), birth[:genome]
+    end
+  end
+
+  # Writes the child and prints the given summary line.
+  def write_child_with(summary)
+    lambda do |cmd|
+      File.write(cmd.split[-2], cmd)
+      [true, "Loading ...\n#{summary}\n#{GENES_LINE}"]
+    end
+  end
+
+  def test_records_copies_and_counts_for_other_shapes_as_unknown
+    summary = 'summary operator=copy parent=second structure=none activation_changed=0 ' \
+              'differs_from_first=-1 differs_from_second=0'
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, &write_child_with(summary))
+    assert_nil state[:error]
+    state[:births].each do |birth|
+      assert_equal ['copy', nil, 0], birth.values_at(:operator, :differs_from_first, :differs_from_second)
+    end
+  end
+
+  def test_summary_with_an_unknown_field_value_stops_breeding
+    ['summary operator=mutation differs_from_first=0 differs_from_second=907',
+     'summary operator=clone parent=first structure=none activation_changed=0 differs_from_first=0 differs_from_second=1',
+     'summary operator=mutation parent=third structure=none activation_changed=0 differs_from_first=0 differs_from_second=1',
+     'summary operator=mutation parent=first structure=grow activation_changed=0 differs_from_first=0 differs_from_second=1',
+     'summary operator=mutation parent=first structure=none activation_changed=2 differs_from_first=0 differs_from_second=1',
+     'summary operator=mutation parent=first structure=none activation_changed=0 differs_from_first=-2 differs_from_second=1'].each do |summary|
+      state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, &write_child_with(summary))
+      assert_match(/no summary/, state[:error]&.message, summary)
     end
   end
 

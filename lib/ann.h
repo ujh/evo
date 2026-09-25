@@ -68,6 +68,11 @@ extern const int ANN_ACTIVATION_COUNT;
 // The activation's name, or NULL for a function GENANN does not offer.
 const char *ann_activation_name(genann_actfun function);
 
+// Prints the network's machine-readable genes line: "genes layers=L width=W
+// act_hidden=NAME act_output=NAME" and each gene as NAME=%.17g in ann_genes'
+// order. The width is 0 without hidden layers, as in the file.
+void ann_print_genes_line(FILE *out, genann const *ann, ann_genes const *genes);
+
 // Returns NULL, after printing why, when the file does not hold a network
 // with valid genes. Stores the genes in *genes unless genes is NULL.
 genann *ann_binary_read(FILE *in, ann_genes *genes);

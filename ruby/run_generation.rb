@@ -414,17 +414,45 @@ class RunGeneration
     FileUtils.rm_f(child)
     parents = Array.new(2) { select_parent(candidates) }
     seed = Seeds.derive(experiment_seed, 'birth', generation.to_i, index)
-    command = "../evolve #{settings['cross_over_rate']} #{parents.map { |p| "#{PARENTS}/#{p}" }.join(' ')} #{child} #{seed}"
+    command = "../evolve #{evolve_arguments.join(' ')} #{parents.map { |p| "#{PARENTS}/#{p}" }.join(' ')} #{child} #{seed}"
     success, output = run_evolve(command)
     raise "evolve failed to breed #{child}: #{command}" unless success && File.exist?(child)
 
-    summary = output.match(/^summary operator=(\w+) differs_from_first=(\d+) differs_from_second=(\d+)$/)
+    summary = output.match(EVOLVE_SUMMARY)
     raise "evolve printed no summary for #{child}: #{command}" unless summary
 
     store.record_network(generation.to_i, child, File.binread(child))
     store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
-                       operator: summary[1], differs_from_first: summary[2].to_i, differs_from_second: summary[3].to_i,
+                       operator: summary[:operator], differs_from_first: differs(summary[:first]),
+                       differs_from_second: differs(summary[:second]),
                        seed:, genome: Digest::SHA256.file(child).hexdigest)
+  end
+
+  # evolve's summary line. differs is -1 when the child's shape differs from
+  # that parent's.
+  EVOLVE_SUMMARY = /
+    ^summary
+    \ operator=(?<operator>crossover|mutation|copy)
+    \ parent=(?<parent>first|second)
+    \ structure=(?<structure>none|widen|narrow|add_layer|remove_layer)
+    \ activation_changed=(?<activation_changed>[01])
+    \ differs_from_first=(?<first>-1|\d+)
+    \ differs_from_second=(?<second>-1|\d+)$
+  /x
+
+  # The meta rate τ of self-adaptive mutation, until it is a setting.
+  META_RATE = 0.2
+
+  # evolve's arguments before the parents: the crossover rate, the meta rate,
+  # and the bounds on a child's shape with the width of an added first layer.
+  # Until the bounds are settings, they are the generation-0 shape.
+  def evolve_arguments
+    [settings['cross_over_rate'], META_RATE, settings['hidden_layers'], settings['layer_size'], settings['layer_size']]
+  end
+
+  # A differs count as stored: nil when the shapes differ.
+  def differs(count)
+    count == '-1' ? nil : count.to_i
   end
 
   # Returns [success, stdout]; evolve's last stdout line is its summary.

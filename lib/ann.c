@@ -45,6 +45,21 @@ ann_genes ann_default_genes(int total_weights) {
     return genes;
 }
 
+void ann_print_genes_line(FILE *out, const genann *ann, const ann_genes *genes) {
+    fprintf(out,
+            "genes layers=%d width=%d act_hidden=%s act_output=%s copy_chance=%.17g weight_changes=%.17g "
+            "weight_step=%.17g activation_rate=%.17g structure_rate=%.17g\n",
+            ann->hidden_layers,
+            ann->hidden_layers ? ann->hidden : 0,
+            ann_activation_name(ann->activation_hidden),
+            ann_activation_name(ann->activation_output),
+            genes->copy_chance,
+            genes->weight_changes,
+            genes->weight_step,
+            genes->activation_rate,
+            genes->structure_rate);
+}
+
 // NaN fails both comparisons, so it is outside every range.
 static int in_range(double value, double min, double max) {
     return isfinite(value) && value >= min && value <= max;
