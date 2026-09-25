@@ -3,21 +3,28 @@ LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
 OBJS = brown.o gtp.o generate_move.o interface.o
 
-.PHONY: enginetest test clean
+.PHONY: enginetest arenatest test clean
 
-# score.o, the Tromp-Taylor count, is not part of evo; it is built for the
-# programs that score games themselves.
-default: evo score.o
+default: evo arena
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
-include $(OBJS:.o=.dep) score.dep rules_test.dep score_test.dep
+include $(OBJS:.o=.dep) score.dep arena.dep rules_test.dep score_test.dep
 
 evo: $(OBJS) main.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 enginetest: evo
 	sh enginetest.sh
+
+# Plays network-against-network games in one process, scored by the
+# Tromp-Taylor count. Linked without the GTP code (gtp.o, interface.o).
+arena: brown.o generate_move.o score.o arena.o ../lib/libann.a
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
+# Needs ../initial-population/initial-population for its random networks.
+arenatest: evo arena
+	sh arenatest.sh
 
 # The Go rules: Brown's board code and the move filter. Linked without the
 # GTP code (gtp.o, interface.o), which also checks that a program other than
@@ -36,4 +43,4 @@ score_test: brown.o score.o score_test.o
 
 clean:
 	$(RM) *.o *.dep
-	$(RM) evo rules_test score_test
+	$(RM) evo arena rules_test score_test
