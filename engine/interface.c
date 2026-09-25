@@ -33,6 +33,7 @@
  * without prior written authorization of the copyright holder.  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>  /* for rand() and srand() */
 #include <string.h>
@@ -99,9 +100,19 @@ void allocate_ann(char *ann_save_file) {
   if (ann_save_file == NULL) {
     ann = genann_init(input_size, 5, points * 10, output_size);
   } else {
+    // Exits instead of playing on without a network: GTP has no way to
+    // report that the engine itself is unusable.
     FILE *fd = fopen(ann_save_file, "rb");
+    if (fd == NULL) {
+      fprintf(stderr, "\nCould not open %s: %s\n", ann_save_file, strerror(errno));
+      exit(1);
+    }
     ann = ann_binary_read(fd);
     fclose(fd);
+    if (ann == NULL) {
+      fprintf(stderr, "\nCould not read a network from %s\n", ann_save_file);
+      exit(1);
+    }
   }
 
   fprintf(

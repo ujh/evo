@@ -49,7 +49,28 @@ if [ "$count" -ne 9 ]; then
   failed=1
 fi
 
+# A network file that is missing or does not hold a network must stop evo
+# with exit status 1 and a message naming the file, not crash it.
+refuses() {
+  file=$1
+  status=0
+  message=$(./evo "$file" </dev/null 2>&1 >/dev/null) || status=$?
+  if [ "$status" -ne 1 ]; then
+    printf '%s: expected exit status 1, got %s\n' "$file" "$status" >&2
+    return 1
+  fi
+  case "$message" in
+    *"$file"*) ;;
+    *) printf '%s: message does not name the file: %s\n' "$file" "$message" >&2; return 1 ;;
+  esac
+}
+truncated=$(mktemp)
+printf 'abc' >"$truncated"
+refuses does-not-exist.ann || failed=1
+refuses "$truncated" || failed=1
+rm -f "$truncated"
+
 if [ "$failed" -ne 0 ]; then
   exit 1
 fi
-printf 'GTP session answered as expected\n'
+printf 'GTP session answered as expected, and bad network files were refused\n'
