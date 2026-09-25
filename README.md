@@ -95,24 +95,24 @@ lowest, median, and highest network score. A generation is done once its
 rounds and, at a checkpoint, its benchmark are played. The second table shows
 progress: each checkpoint's benchmark, with the network's wins and losses as
 Black and as White against each opponent. For example, after two generations
-with `--keep-every 1 --benchmark-games 2` (trimmed):
+of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (trimmed; the times vary):
 
 ```text
 Generations
 +-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
 | Gen | Done | Games | Draws | Failed | Time | Copies | Parents | Genomes | Min | Med | Max |
 +-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
-|   0 |  yes |     9 |     0 |      0 | 3.2s |      - |       0 |       4 |   0 |   0 |   1 |
-|   1 |  yes |     9 |     0 |      0 | 1.6s |    75% |       3 |       3 |   0 |   0 |   0 |
+|   0 |  yes |     9 |     0 |      0 | 2.2s |      - |       0 |       4 |   0 | 0.5 |   1 |
+|   1 |  yes |     9 |     0 |      0 | 1.7s |    50% |       2 |       3 |   0 |   0 |   1 |
 +-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
 
 Benchmark
 +-----+----------+--------------+-------+-------+-------+-------+--------+
 | Gen | Network  | Opponent     | Games | Black | White | Draws | Failed |
 +-----+----------+--------------+-------+-------+-------+-------+--------+
-|   0 | 0002.ann | Brown        |   2/2 |   0-1 |   0-1 |     0 |      0 |
-|   1 | 1.ann    | Brown        |   2/2 |   0-1 |   0-1 |     0 |      0 |
-|   1 | 1.ann    | Gen0Champion |   2/2 |   1-0 |   0-1 |     0 |      0 |
+|   0 | 0002.ann | Brown        |   2/2 |   1-0 |   0-1 |     0 |      0 |
+|   1 | 3.ann    | Brown        |   2/2 |   1-0 |   0-1 |     0 |      0 |
+|   1 | 3.ann    | Gen0Champion |   2/2 |   0-1 |   1-0 |     0 |      0 |
 +-----+----------+--------------+-------+-------+-------+-------+--------+
 ```
 
