@@ -5,3 +5,14 @@ updates:
     schedule:
       interval: daily
       time: "04:00"
+  # Gems change rarely, so check weekly and bundle every update into one PR.
+  - package-ecosystem: bundler
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    groups:
+      gems:
+        patterns:
+          - "*"
