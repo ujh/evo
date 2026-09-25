@@ -64,7 +64,8 @@ class SetupExperimentTest < Minitest::Test
     %w[--initial-weight-changes 0.5], %w[--initial-weight-changes 2e9], %w[--initial-weight-changes some],
     %w[--initial-weight-step 0.00009], %w[--initial-weight-step 10.5],
     %w[--initial-activation-rate 0.00009], %w[--initial-activation-rate 0.6],
-    %w[--initial-structure-rate 0], %w[--initial-structure-rate 0.51]
+    %w[--initial-structure-rate 0], %w[--initial-structure-rate 0.51],
+    %w[--max-hidden-layers -1], %w[--max-hidden-layers many], %w[--max-layer-size 0], %w[--max-layer-size 2.5]
   ].freeze
 
   def test_a_bad_value_is_refused_with_its_option_and_value
@@ -118,7 +119,8 @@ class SetupExperimentTest < Minitest::Test
       [9, 1, 10] => 1.0,
       [5, 1, 10] => 1.0
     }.each do |(board_size, layers, width), expected|
-      arguments = REQUIRED + %W[--board-size #{board_size} --hidden-layers #{layers} --layer-size #{width}]
+      arguments = REQUIRED + %W[--board-size #{board_size} --hidden-layers #{layers} --layer-size #{width}
+                                --max-layer-size 400]
       assert_equal expected, SetupExperiment.settings_from_arguments(arguments)['initial_weight_changes'],
                    [board_size, layers, width].inspect
     end
@@ -142,7 +144,7 @@ class SetupExperimentTest < Minitest::Test
   # changes an experiment that exists.
   def test_create_stores_the_computed_initial_weight_changes
     in_tmpdir do
-      SetupExperiment.create('experiments/x', REQUIRED + %w[--hidden-layers 3 --layer-size 400])
+      SetupExperiment.create('experiments/x', REQUIRED + %w[--hidden-layers 3 --layer-size 400 --max-layer-size 400])
       database = ExperimentDatabase.new('experiments/x/experiment.sqlite3', readonly: true)
       expected = 0.0004 * SetupExperiment.total_weights(9, 3, 400)
       assert_equal expected, Float(database.settings['initial_weight_changes'])
@@ -151,7 +153,7 @@ class SetupExperimentTest < Minitest::Test
   end
 
   def test_a_prompt_offers_the_computed_initial_weight_changes
-    answers = prompt_answers('hidden_layers' => '3', 'layer_size' => '400')
+    answers = prompt_answers('hidden_layers' => '3', 'layer_size' => '400', 'max_layer_size' => '400')
     $stdin = StringIO.new("#{answers.join("\n")}\n")
     settings = nil
     out, = capture_io { settings = SetupExperiment.prompt_for_settings }
@@ -179,6 +181,61 @@ class SetupExperimentTest < Minitest::Test
       database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED).merge('initial_weight_changes' => '1733'))
       error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
       assert_includes error.message, 'initial_weight_changes'
+    end
+  end
+
+  # The bounds on the shape evolution may give a network.
+  def test_the_shape_bounds_have_defaults
+    settings = SetupExperiment.settings_from_arguments(REQUIRED)
+    assert_equal [4, 200], settings.values_at('max_hidden_layers', 'max_layer_size')
+  end
+
+  def test_an_initial_shape_at_the_bounds_is_accepted
+    settings = SetupExperiment.settings_from_arguments(
+      REQUIRED + %w[--hidden-layers 2 --layer-size 30 --max-hidden-layers 2 --max-layer-size 30]
+    )
+    assert_equal [2, 30, 2, 30], settings.values_at('hidden_layers', 'layer_size', 'max_hidden_layers', 'max_layer_size')
+    none = SetupExperiment.settings_from_arguments(REQUIRED + %w[--hidden-layers 0 --max-hidden-layers 0])
+    assert_equal [0, 0], none.values_at('hidden_layers', 'max_hidden_layers')
+  end
+
+  def test_more_initial_layers_than_the_bound_are_refused
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[--hidden-layers 5]) }
+    assert_equal 'max_hidden_layers must be at least hidden_layers (5), got 4', error.message
+  end
+
+  def test_wider_initial_layers_than_the_bound_are_refused
+    error = assert_raises(ArgumentError) do
+      SetupExperiment.settings_from_arguments(REQUIRED + %w[--layer-size 30 --max-layer-size 20])
+    end
+    assert_equal 'max_layer_size must be at least layer_size (30), got 20', error.message
+  end
+
+  # Without hidden layers the width is unused until a layer is added, and
+  # then it is clamped to max_layer_size.
+  def test_the_width_of_no_hidden_layers_is_not_bounded
+    settings = SetupExperiment.settings_from_arguments(REQUIRED + %w[--hidden-layers 0 --layer-size 500])
+    assert_equal [500, 200], settings.values_at('layer_size', 'max_layer_size')
+  end
+
+  def test_a_prompt_asks_again_for_a_bound_below_the_initial_shape
+    answers = prompt_answers('hidden_layers' => '6', 'max_hidden_layers' => "\n3\n6")
+    $stdin = StringIO.new("#{answers.join("\n")}\n")
+    settings = nil
+    out, = capture_io { settings = SetupExperiment.prompt_for_settings }
+    assert_equal 6, settings['max_hidden_layers']
+    assert_includes out, 'max_hidden_layers must be at least hidden_layers (6), got 4'
+    assert_includes out, 'max_hidden_layers must be at least hidden_layers (6), got 3'
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_loading_refuses_an_initial_shape_above_the_bounds
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED).merge('max_layer_size' => '9'))
+      error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+      assert_includes error.message, 'max_layer_size must be at least layer_size (10)'
     end
   end
 

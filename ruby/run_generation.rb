@@ -490,11 +490,12 @@ class RunGeneration
   /x
 
   # evolve's arguments before the parents: the crossover rate, the meta rate,
-  # and the bounds on a child's shape with the width of an added first layer.
-  # Until the bounds are settings, they are the generation-0 shape.
+  # the bounds on a child's shape, and the width of a layer added to a
+  # network without hidden layers: the generation-0 width, within the bound.
   def evolve_arguments
-    [settings['cross_over_rate'], settings['meta_rate'], settings['hidden_layers'], settings['layer_size'],
-     settings['layer_size']]
+    max_width = settings['max_layer_size']
+    [settings['cross_over_rate'], settings['meta_rate'], settings['max_hidden_layers'], max_width,
+     [settings['layer_size'], max_width].min]
   end
 
   # A differs count as stored: nil when the shapes differ.
