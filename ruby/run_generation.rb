@@ -237,8 +237,17 @@ class RunGeneration
 
     puts 'Generating initial population ...'
     seed = Seeds.derive(experiment_seed, 'initial-population')
-    system("../initial-population #{settings['population_size']} #{settings['board_size']} #{settings['hidden_layers']} #{settings['layer_size']} #{seed}")
-    Dir['*.ann'].sort.each do |network|
+    command = "../initial-population #{settings['population_size']} #{settings['board_size']} " \
+              "#{settings['hidden_layers']} #{settings['layer_size']} #{seed}"
+    # Stop before storing anything, so generation 0 never starts short of
+    # networks, as breeding does when evolve fails.
+    raise "initial-population failed: #{command}" unless system(command)
+
+    networks = Dir['*.ann'].sort
+    expected = settings['population_size'].to_i
+    raise "initial-population wrote #{networks.size} networks, expected #{expected}: #{command}" unless networks.size == expected
+
+    networks.each do |network|
       store.record_network(0, network, File.binread(network))
       store.record_birth(generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
                          differs_from_first: nil, differs_from_second: nil, seed:,
