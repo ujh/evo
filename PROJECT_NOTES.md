@@ -8,11 +8,9 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 ## What most affects the experiment
 
-### 1. Fitness and reported progress need a clearer meaning
+### 1. Fitness needs a clearer meaning
 
-The tournament has a useful idea: match roughly comparable players while including fixed external bots. However, different networks can face very different schedules, colors are randomized rather than paired, and repeat pairings are allowed. A tournament score measures success in that particular schedule; it is not a stable measure of strength across generations. The benchmark (see `CLAUDE.md`) measures strength instead; keep tournament score and benchmark results as separate quantities.
-
-`stats` still shows the old percentages, which divide evolved-player wins by the total number of rounds played by external bot instances. Those rounds include games between external bots, so the display is not the evolved population's win rate in its actual games against each bot, and changes in pairings can change it independently of playing strength. The next step is a `stats` redesign around the benchmark results (wins and games, by opponent and color) and population health.
+The tournament has a useful idea: match roughly comparable players while including fixed external bots. However, different networks can face very different schedules, colors are randomized rather than paired, and repeat pairings are allowed. A tournament score measures success in that particular schedule; it is not a stable measure of strength across generations. The benchmark (see `CLAUDE.md`) measures strength instead.
 
 **Proposed experiment:** now that progress is measured apart from the tournament, test whether bots belong in the tournament at all. Compare an experiment with the default `opponents` panel against one with an empty `opponents` table, on the benchmark, at equal game budgets. If the bot-free run drifts or cycles (the usual coevolution pathologies), try a hall of fame of frozen past champions in the tournament instead; those games would be cheap in the [C arena](#a-c-arena-for-network-games).
 
@@ -56,11 +54,11 @@ Networks and SGFs are kept only for every `keep_every`-th generation. That saves
 
 ### 6. Test the assumptions with the recorded data
 
-Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The experiment database now records what is needed (`games`, `births`, and `rankings` in `experiment.sqlite3`). What is missing is the analysis:
+Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The experiment database records what is needed (`games`, `births`, and `rankings` in `experiment.sqlite3`). Still to do:
 
-- a script or `stats` view that reports, per generation, the share of children identical to a parent, the number of distinct parents and unique genomes (`births.genome`), and how many children each parent got
-- win rates per opponent and per color from `games`, and where the bots rank among the networks from `rankings`
-- running a few seeded experiments that vary one setting at a time
+- report how many children each parent got, from `births`
+- report where the bots rank among the networks, from `rankings`
+- run a few seeded experiments that vary one setting at a time
 
 ## Go rules and scoring boundary
 
