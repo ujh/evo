@@ -131,8 +131,7 @@ The largest structural change for speed is a C program that loads a set of netwo
 
 ### Suggested cleanup order
 
-1. Run CI on every pull request. `.github/workflows/ci.yml` triggers only on pull requests into `main`, so a PR stacked on another branch (as #60 was on #59) gets no checks until its base merges and it is retargeted. Drop the `branches` filter under `pull_request` (keep it under `push`), check that branch protection still requires the three jobs by name, and confirm on a stacked test PR that the checks run.
-2. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
+1. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
 
 The arena can be interleaved with milestone 1 below, and should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
