@@ -57,15 +57,23 @@ done
 gh pr checks "$pr" --watch --interval 20 >/dev/null 2>&1 || true
 
 # Main can move during the wait, and the first answer after that can be an
-# UNKNOWN merge state. Ask again before trusting it.
+# UNKNOWN merge state. GitHub can also still say BLOCKED just after the last
+# check finishes. Ask again before trusting either.
 tries=0
 while :; do
   result=$(not_passed)
   stop_early "$result"
-  [ "$result" = "MERGE STATE UNKNOWN" ] || break
+  case "$result" in
+    'MERGE STATE UNKNOWN'|'MERGE BLOCKED') ;;
+    *) break ;;
+  esac
   tries=$((tries + 1))
   if [ "$tries" -gt "$max_tries" ]; then
-    printf 'GitHub has not worked out whether PR %s is up to date with main. Run pr-checks again.\n' "$pr" >&2
+    if [ "$result" = 'MERGE BLOCKED' ]; then
+      printf 'GitHub blocks merging PR %s although every check passed. A check that branch protection requires is probably missing; compare the checks with the rule for main.\n' "$pr" >&2
+    else
+      printf 'GitHub has not worked out whether PR %s is up to date with main. Run pr-checks again.\n' "$pr" >&2
+    fi
     exit 1
   fi
   sleep "$pause"

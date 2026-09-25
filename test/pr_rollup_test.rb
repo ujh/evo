@@ -68,9 +68,13 @@ class PrRollupTest < Minitest::Test
     assert_equal ['NO CHECKS'], run_filter([], merge_state: 'UNKNOWN')
   end
 
-  def test_mergeable_states_pass
+  def test_blocked_merge_is_reported_once_checks_pass
+    assert_equal ['MERGE BLOCKED'], run_filter([check_run('SUCCESS')], merge_state: 'BLOCKED')
+    assert_equal ["PENDING\tbuild-and-test"], run_filter([check_run('')], merge_state: 'BLOCKED')
+  end
+
+  def test_mergeable_state_passes
     assert_empty run_filter([check_run('SUCCESS')], merge_state: 'CLEAN')
-    assert_empty run_filter([check_run('SUCCESS')], merge_state: 'BLOCKED')
   end
 
   def test_empty_or_missing_rollup_means_no_checks
