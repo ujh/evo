@@ -23,6 +23,63 @@ class ExperimentDatabase
     @rankings = @db[:rankings]
   end
 
+  # Settings are strings, as settings.json held them.
+  def settings
+    @db[:settings].to_hash(:key, :value)
+  end
+
+  def save_settings(settings)
+    @db.transaction do
+      @db[:settings].delete
+      @db[:settings].multi_insert(settings.map { |key, value| { key: key.to_s, value: value.to_s } })
+    end
+  end
+
+  def generations
+    @db[:generations].order(:generation).select_map(:generation)
+  end
+
+  # A generation's tournament state in the shape data.json had: round,
+  # setup_complete, players, ranking, and games (pending, in pairing order).
+  # nil for a generation that has not started.
+  def state(generation)
+    row = @db[:generations].where(generation:).first
+    return nil unless row
+
+    players = @db[:players].where(generation:).order(:name).all.to_h do |player|
+      [player[:name], { 'command' => player[:command] }.merge(player[:external] ? { 'external' => true } : {})]
+    end
+    {
+      'round' => row[:round],
+      'setup_complete' => row[:setup_complete],
+      'players' => players,
+      'ranking' => @rankings.where(generation:).order(:rank).all.map { |r| { 'name' => r[:name], 'score' => r[:score] } },
+      'games' => @db[:pending_games].where(generation:).order(:position).all.map { |g| { 'black' => g[:black], 'white' => g[:white] } }
+    }
+  end
+
+  # Replaces the generation's whole state in one transaction, so a crash
+  # leaves either the old state or the new one.
+  def save_state(generation, state)
+    players = state.fetch('players', {})
+    @db.transaction do
+      @db[:generations].insert_conflict(:replace).insert(
+        generation:, round: state.fetch('round', 0), setup_complete: state.fetch('setup_complete', false)
+      )
+      [@db[:players], @rankings, @db[:pending_games]].each { |table| table.where(generation:).delete }
+      @db[:players].multi_insert(players.map do |name, player|
+        { generation:, name:, command: player.fetch('command', ''), external: player['external'] ? true : false }
+      end)
+      @rankings.multi_insert(state.fetch('ranking', []).each_with_index.map do |entry, i|
+        { generation:, rank: i + 1, name: entry['name'], score: entry['score'],
+          external: players.dig(entry['name'], 'external') ? true : false }
+      end)
+      @db[:pending_games].multi_insert(state.fetch('games', []).each_with_index.map do |game, i|
+        { generation:, position: i, black: game['black'] || game[:black], white: game['white'] || game[:white] }
+      end)
+    end
+  end
+
   def record(**game)
     @games.insert_conflict(:replace).insert(game.slice(*COLUMNS))
   end
@@ -45,15 +102,7 @@ class ExperimentDatabase
     @births.where(generation:).order(:child).select(*BIRTH_COLUMNS).all
   end
 
-  # Replaces the generation's ranking, so recording it again is harmless.
-  # `entries` are hashes with rank, name, score, and external.
-  def record_ranking(generation, entries)
-    @db.transaction do
-      @rankings.where(generation:).delete
-      @rankings.multi_insert(entries.map { |entry| entry.merge(generation:) })
-    end
-  end
-
+  # The standings, as rows with rank, name, score, and external.
   def ranking(generation)
     @rankings.where(generation:).order(:rank).select(:rank, :name, :score, :external, :generation).all
   end

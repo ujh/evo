@@ -1,12 +1,14 @@
 require 'json'
 
 class RunExperiment
-  def self.call(settings)
-    new(settings).call
+  def self.call(settings, store)
+    new(settings, store).call
   end
 
-  def initialize(settings)
+  # `store` is the experiment's ExperimentDatabase, opened by SetupExperiment.
+  def initialize(settings, store)
     self.settings = settings
+    self.store = store
   end
 
   def call
@@ -14,7 +16,6 @@ class RunExperiment
     puts JSON.pretty_generate(settings)
 
     pool = WorkerPool.new(settings['concurrency'].to_i)
-    store = ExperimentDatabase.new(File.expand_path('experiment.sqlite3'))
     # Ctrl-C reaches the running games too, and they stop. The runner checks
     # the flag between games, and the pool starts no queued game after it.
     # The trap is installed here, after the settings prompts, so Ctrl-C at a
@@ -32,15 +33,14 @@ class RunExperiment
     end
   ensure
     pool&.stop
-    store&.close
   end
 
   private
 
-  attr_accessor :settings
+  attr_accessor :settings, :store
 
+  # Resume with the last generation the database knows about.
   def start_generation
-    generations = ["0"] + Dir["*"].find_all {|f| File.directory?(f)}
-    generations.uniq.sort_by {|d| d.to_i }.last.to_i
+    store.generations.last || 0
   end
 end

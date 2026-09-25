@@ -43,7 +43,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
   - `engine/example.ann` is a 9×9 test fixture with 2×2 hidden neurons and 418 weights. It is not a trained player.
 - Move choice takes the highest output. It is deterministic for a given network and position.
   - `initial-population` and `evolve` take an optional seed as their last argument; the same seed gives byte-identical output. Without one they seed from `time(NULL)` plus an address.
-- Runs are reproducible from the experiment seed (`seed` in `settings.json`; `SetupExperiment` generates and saves one if it is missing). `ruby/seeds.rb` derives every other seed from it and a label: the initial population, each child (`birth`, generation, index), parent selection, tie order and colors per round, and a per-game GNU Go `--seed` for GNU Go players and the referee. Two runs with the same seed, even with parallel games, produce the same networks, pairings, moves, and rankings; only the date in the SGF headers differs. Losing a game on time would still differ.
+- Runs are reproducible from the experiment seed (the `seed` setting; `SetupExperiment` generates and saves one if it is missing). `ruby/seeds.rb` derives every other seed from it and a label: the initial population, each child (`birth`, generation, index), parent selection, tie order and colors per round, and a per-game GNU Go `--seed` for GNU Go players and the referee. Two runs with the same seed, even with parallel games, produce the same networks, pairings, moves, and rankings; only the date in the SGF headers differs. Losing a game on time would still differ.
 - Besides `games`, the experiment database records `births` (each network's parents, operator, differing weights, seed, and SHA-256 of its `.ann`; generation 0 has operator `initial`) and `rankings` (each generation's final ranking).
 - Brown's own `final_score` is unreliable on arbitrary positions: an empty 9×9 board scores `W+87.5`. Use the referee's result.
 - The build uses `-march=native`. Binaries are for the local machine only.
@@ -58,7 +58,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
   - A referee win (`B+` or `W+`) counts, including games stopped by the move limit.
   - A draw gives no points.
   - A network that crashes loses, whatever the referee said.
-  - These give no points and are logged and listed under `unscored` in `GEN/data.json`: a crashed external bot, a missing referee score (`?`), any other GoGui error (an illegal move is blamed on the program that rejected it, not the one that played it), and a missing or empty `.dat` file.
+  - These give no points and are logged, with the reason in their row's `failure` column: a crashed external bot, a missing referee score (`?`), any other GoGui error (an illegal move is blamed on the program that rejected it, not the one that played it), and a missing or empty `.dat` file.
   - Failed games are never retried, so a broken setup stays visible.
 - Check `RES_R` and `ERR`, not only whether a game finished. A crashed player shows only in `ERR`, and a crashed referee only as `?` in `RES_R`. `scripts/smoke-external-tools.sh` checks both. Keep it that way when changing it.
 - Brown and AmiGo play deterministically. The 5 Brown and 10 AmiGo "instances" are copies of the same opponent, so replaying a pairing with the same colors adds no information.
@@ -66,22 +66,22 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 
 ### Running experiments
 
-- On a first run, `mise run run NAME` prompts on STDIN for settings. When running non-interactively, write `experiments/NAME/settings.json` first. Every value is a **string**:
+- On a first run, `mise run run NAME` prompts on STDIN for settings. When running non-interactively, write `experiments/NAME/settings.json` first: the first run imports it into the experiment database and deletes it. Settings are stored as **strings**:
   ```json
   {"board_size": "9", "population_size": "4", "hidden_layers": "1", "layer_size": "10",
    "cross_over_rate": "0.5", "game_length": "10", "max_moves": "200", "tournament_rounds": "1"}
   ```
   With `4 one-generation`, that runs one generation of 12 pairings (11 games plus a bye for the odd player out) in a few seconds, which makes it a good smoke run. Delete `experiments/NAME` afterwards. Running it again breeds and plays the next generation. `experiments/` is gitignored.
 - The runner works inside `experiments/NAME/GEN/` and calls `../evo`, `../evolve`, and `../initial-population`. Those are **symlinks** to the build output, so rebuilding changes a running experiment.
-- State lives in `GEN/data.json`. It is rewritten after every game and not atomically. On resume, `setup_complete` skips creating or breeding the population. The generation's games are skipped only once `round` reaches `tournament_rounds`. Game hashes are built with symbol keys and read back with string keys after the JSON round trip.
+- Everything but the networks and a game's files in progress lives in `experiments/NAME/experiment.sqlite3`: the settings, and each generation's round, players, standings (`rankings`), and pending games. `RunGeneration#data` loads a generation's state in the shape `data.json` used to have, and `save_data` replaces it in one transaction after every game. On resume, `setup_complete` skips creating or breeding the population, the runner starts from the last generation in the database, and a generation's games are skipped only once `round` reaches `tournament_rounds`.
 - The runner passes `-force` to twogtp, which deletes an existing `PREFIX.dat`. A game that was queued but not yet scored when the runner stopped is replayed from scratch on resume, and its `.err` is rewritten.
 - Generation 0 names networks `0001.ann`, `0002.ann`, and so on. Later generations use `0.ann`, `1.ann`, and so on.
 - Game results live in `experiments/NAME/experiment.sqlite3`, through `ExperimentDatabase` (`ruby/experiment_database.rb`, Sequel on SQLite). After scoring a game, the runner writes its row (players, winner or failure, length, referee result, GoGui's error message, stderr) and deletes the game's `.dat`, `.sgf`, and `.err` files. The SGF is kept in the row only for every `sgf_every`-th generation (setting, default 10; 0 keeps none). Rows are keyed by generation, round, and players, so a replayed game replaces its row.
 - The schema changes only through Sequel migrations in `db/migrations/`. The runner applies pending ones when it opens the store. Add a new numbered migration for a schema change; never edit one that has run.
-- `stats` and `ranking` only read: they open the store read-only and read `data.json`.
+- `stats` and `ranking` only read: they open the experiment database read-only.
 - **Evidence gets destroyed:** breeding a new generation deletes every `.ann` in the previous generation. Copy a network you need before that.
 - `stats` (without `--csv`), `ranking`, and `multi` loop forever. Run them with a timeout or in the background.
-- Games run on a `WorkerPool` (`ruby/worker_pool.rb`): `concurrency` threads, created once per experiment, each running `gogui-twogtp` through `system`. On Ctrl-C the running games stop, the pool starts no queued game (`WorkerPool#halt`, called from the trap in `RunExperiment`), and the runner exits without scoring, leaving the unfinished games in `data.json`, so resuming replays them.
+- Games run on a `WorkerPool` (`ruby/worker_pool.rb`): `concurrency` threads, created once per experiment, each running `gogui-twogtp` through `system`. On Ctrl-C the running games stop, the pool starts no queued game (`WorkerPool#halt`, called from the trap in `RunExperiment`), and the runner exits without scoring, leaving the unfinished games pending in the database, so resuming replays them.
 - GNU Go 3.8 needs `scripts/patches/gnugo-3.8-gg-sort-empty.patch`. Without it, clang builds abort in `final_score` and during level 10 move generation. GCC builds happen to work either way. When changing how external tools are built, bump `release_id` in `scripts/install-external-tools.sh` so existing installs rebuild, then run `mise run verify`.
 - The installer downloads only from the GitHub release named in `mirror_url` in `scripts/install-external-tools.sh`, never from upstream. `scripts/external-tools.txt` lists each archive's SHA-256 and upstream URL. To change an archive, edit the manifest, give `mirror_url` a new release tag (a published release's files should not change under the same tag), bump `release_id`, and run `mise run mirror-external-tools`. That task fetches from upstream and uploads to the release.
 

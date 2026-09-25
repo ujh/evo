@@ -32,7 +32,7 @@ class RunExperimentTest < Minitest::Test
           2.times { pool.next_finished }
         end
         with_generation(generation) do
-          capture_io { RunExperiment.call(SETTINGS) }
+          capture_io { RunExperiment.call(SETTINGS, ExperimentDatabase.new(':memory:')) }
         end
       end
       assert $stop_now

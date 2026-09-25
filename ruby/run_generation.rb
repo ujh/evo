@@ -41,12 +41,7 @@ class RunGeneration
   end
 
   def play_games
-    if data['round'] >= settings['tournament_rounds'].to_i
-      # The runner can stop between saving the last round and storing the
-      # ranking; storing it again only replaces the same rows.
-      record_final_ranking
-      return :already_done
-    end
+    return :already_done if data['round'] >= settings['tournament_rounds'].to_i
 
     loop do
       play_round
@@ -54,15 +49,7 @@ class RunGeneration
 
       break if data['round'] >= settings['tournament_rounds'].to_i
     end
-    record_final_ranking
     puts "\rPlaying ... done".ljust(70)
-  end
-
-  def record_final_ranking
-    entries = data['ranking'].each_with_index.map do |entry, i|
-      { rank: i + 1, name: entry['name'], score: entry['score'], external: external?(entry['name']) }
-    end
-    store.record_ranking(generation.to_i, entries)
   end
 
   def setup_next_round
@@ -136,10 +123,8 @@ class RunGeneration
       'games' => data['games'].reject { |g| g == game },
       'ranking' => new_ranking
     )
-    if result['failure']
-      warn "\n#{prefix_from(game)}: #{result['failure']}"
-      new_data['unscored'] = data.fetch('unscored', []) + [game.merge('round' => data['round'], 'failure' => result['failure'])]
-    end
+    # The failure itself is in the game's row in the database.
+    warn "\n#{prefix_from(game)}: #{result['failure']}" if result['failure']
     save_data(new_data)
   end
 
@@ -219,16 +204,16 @@ class RunGeneration
     "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R#{data['round']}"
   end
 
+  # The generation's tournament state, from the experiment database; {} before
+  # the generation starts.
   def data
-    return {} unless File.exist?('data.json')
-
-    @data ||= JSON.load_file('data.json')
+    @data ||= store.state(generation.to_i) || {}
   end
 
+  # Replaces the state in one transaction, so a crash leaves the old state or
+  # the new one, never half of it.
   def save_data(hash)
-    File.open('data.json', 'w') do |f|
-      f.puts JSON.pretty_generate(hash)
-    end
+    store.save_state(generation.to_i, hash)
     @data = nil
     exit if $stop_now
   end
@@ -251,7 +236,7 @@ class RunGeneration
     return if data['setup_complete']
 
     previous_generation = generation.to_i - 1
-    previous_data = JSON.load_file("../#{previous_generation}/data.json")
+    previous_data = store.state(previous_generation)
     candidates = parent_candidates(previous_data)
     # Generate the new population
     total = settings['population_size'].to_i

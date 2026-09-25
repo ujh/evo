@@ -1,6 +1,5 @@
 #!/usr/bin/env ruby
 require 'bundler/setup'
-require 'json'
 require_relative 'ruby/experiment_database'
 
 experiment_name = ARGV.first
@@ -8,11 +7,6 @@ experiment_name = ARGV.first
 if experiment_name.nil?
   puts "Name of experiment required as argument!"
   exit 1
-end
-
-def latest_generation
-  generations = Dir["*"].find_all {|f| File.directory?(f)}
-  generations.uniq.sort_by {|d| d.to_i }.last
 end
 
 experiment_dir = "experiments/#{experiment_name}"
@@ -34,28 +28,24 @@ def average(array)
   (total.to_f / array.length).round
 end
 
-# Runs inside the generation directory; the experiment database is one level up.
-def compute_game_lengths(generation)
-  return [] unless File.exist?("../experiment.sqlite3")
+# The latest generation's state and game lengths from the experiment
+# database, or nil before the runner has created it.
+def latest
+  return nil unless File.exist?("experiment.sqlite3")
 
-  store = ExperimentDatabase.new("../experiment.sqlite3", readonly: true)
-  store.games(generation.to_i).filter_map { |game| game[:length] }
+  database = ExperimentDatabase.new("experiment.sqlite3", readonly: true)
+  generation = database.generations.last
+  return nil unless generation
+
+  [generation, database.state(generation), database.games(generation).filter_map { |game| game[:length] }]
 ensure
-  store&.close
+  database&.close
 end
 
 Dir.chdir(experiment_dir) do
   loop do
-    generation = latest_generation
-    Dir.chdir(generation) do
-      break unless File.exist?("data.json")
-      # Reading while file is being written
-      data = begin
-        JSON.load_file("data.json")
-      rescue
-        nil
-      end
-      break unless data
+    generation, data, game_lengths = latest
+    if data
 
       rankings = data["ranking"]
 
@@ -65,7 +55,6 @@ Dir.chdir(experiment_dir) do
       median_score = median(scores)
       average_score = average(scores)
 
-      game_lengths = compute_game_lengths(generation)
 
       puts "\033[2J\033[H"
       puts "\033[3mGeneration: #{generation} Round: #{data['round']+1}"

@@ -66,12 +66,55 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
-  def test_records_the_final_ranking_of_a_generation_once
+  STATE = {
+    'round' => 1, 'setup_complete' => true,
+    'players' => { '0.ann' => { 'command' => '../evo 0.ann' }, 'Brown1' => { 'command' => 'brown', 'external' => true } },
+    'ranking' => [{ 'name' => 'Brown1', 'score' => 1 }, { 'name' => '0.ann', 'score' => 0 }],
+    'games' => [{ 'black' => '0.ann', 'white' => 'Brown1' }, { 'black' => '1.ann', 'white' => nil }]
+  }.freeze
+
+  def test_saves_and_loads_a_generations_state
     with_store do |store|
-      ranking = [{ rank: 1, name: '3.ann', score: 2, external: false }, { rank: 2, name: 'Brown1', score: 1, external: true }]
-      store.record_ranking(4, ranking.reverse)
-      store.record_ranking(4, ranking)
-      assert_equal ranking.map { |r| r.merge(generation: 4) }, store.ranking(4)
+      store.save_state(2, STATE)
+      assert_equal STATE, store.state(2)
+      assert_nil store.state(3)
+    end
+  end
+
+  def test_saving_a_state_replaces_the_previous_one
+    with_store do |store|
+      store.save_state(2, STATE)
+      store.save_state(2, STATE.merge('round' => 2, 'games' => [], 'ranking' => STATE['ranking'].reverse))
+      assert_equal STATE.merge('round' => 2, 'games' => [], 'ranking' => STATE['ranking'].reverse), store.state(2)
+    end
+  end
+
+  def test_the_state_accepts_symbol_keys_for_games
+    with_store do |store|
+      store.save_state(2, STATE.merge('games' => [{ black: '0.ann', white: nil }]))
+      assert_equal [{ 'black' => '0.ann', 'white' => nil }], store.state(2)['games']
+    end
+  end
+
+  def test_the_standings_are_the_ranking
+    with_store do |store|
+      store.save_state(2, STATE)
+      assert_equal [[1, 'Brown1', 1, true], [2, '0.ann', 0, false]], store.ranking(2).map { |r| r.values_at(:rank, :name, :score, :external) }
+    end
+  end
+
+  def test_lists_generations_in_order
+    with_store do |store|
+      [3, 0, 1].each { |g| store.save_state(g, STATE) }
+      assert_equal [0, 1, 3], store.generations
+    end
+  end
+
+  def test_settings_round_trip_as_strings
+    with_store do |store|
+      assert_empty store.settings
+      store.save_settings('board_size' => '9', 'seed' => '7')
+      assert_equal({ 'board_size' => '9', 'seed' => '7' }, store.settings)
     end
   end
 

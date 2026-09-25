@@ -49,7 +49,7 @@ $starting = true
 TO_COMBINE = %w[Brown AmiGo GnuGoLevel0 GnuGoLevel10]
 
 # stats only reads: games come from the experiment database the runner writes, and
-# the ranking from each generation's data.json.
+# the ranking and players from each generation's state in the same database.
 def experiment_database
   $experiment_database ||= ExperimentDatabase.new('experiment.sqlite3', readonly: true)
 end
@@ -57,7 +57,7 @@ end
 def stats_for(generation)
   return $stats[generation] if $stats[generation]
 
-  data = JSON.load_file(File.join(generation, 'data.json'))
+  data = experiment_database.state(generation.to_i)
   external_engines = data['players'].keys.find_all { |p| data['players'][p]['external'] }
   wins = external_engines.each_with_object({}) { |player, hash| hash[player] = Hash.new { |h, k| h[k] = 0 } }
   games = experiment_database.games(generation.to_i)
@@ -122,7 +122,7 @@ def flatten_hash(param, prefix = nil)
 end
 
 loop do
-  generations = Dir['*'].find_all { |f| File.directory?(f) }.uniq.sort_by { |d| d.to_i }
+  generations = File.exist?('experiment.sqlite3') ? experiment_database.generations.map(&:to_s) : []
   if generations == previous_generations
     sleep(5)
     next
