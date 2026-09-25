@@ -150,7 +150,7 @@ gtp_protocol_version(char *s)
 static int
 gtp_name(char *s)
 {
-  return gtp_success("Brown");
+  return gtp_success("Evo");
 }
 
 static int
@@ -207,7 +207,7 @@ gtp_boardsize(char *s)
   if (sscanf(s, "%d", &boardsize) < 1)
     return gtp_failure("boardsize not an integer");
 
-  if (boardsize < MIN_BOARD || boardsize > MAX_BOARD)
+  if (boardsize < MIN_BOARD || boardsize > MAX_BOARD || !ann_fits_board(boardsize))
     return gtp_failure("unacceptable size");
 
   board_size = boardsize;
@@ -342,6 +342,10 @@ gtp_genmove(char *s)
 
   if (!gtp_decode_color(s, &color))
     return gtp_failure("invalid color");
+
+  // Reached when no boardsize was sent: evo starts at size 6.
+  if (!ann_fits_board(board_size))
+    return gtp_failure("network does not fit the board");
 
   generate_move(&i, &j, color);
   play_move(i, j, color);

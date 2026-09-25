@@ -35,8 +35,8 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 ### Engine and network files
 
 - `evo` starts at board size 6. Without a file argument it builds a random 5-layer network sized for 6×6. Always pass an `.ann` file and send `boardsize` before `genmove`.
-- When the network size does not match the board, `genmove` calls `exit(1)` and the process dies. The engine does not return a GTP error.
-- The engine answers `name` with `Brown`, so in SGF and GoGui output it looks like the real Brown bot.
+- `boardsize` answers `? unacceptable size` for a size the loaded network does not fit, and `genmove` answers `? network does not fit the board` if no fitting `boardsize` came first. The process keeps running. `engine/enginetest.sh` (`make test`) checks a whole GTP session.
+- The engine answers `name` with `Evo`.
 - The startup message reads "total neurons", but the number it prints is `total_weights`.
 - The `.ann` format is native binary with no header: four C `int`s (inputs, hidden_layers, hidden, outputs), then native `double` weights. It is not portable across ABIs.
   - A network for board size N has N²+1 inputs (komi first) and N²+1 outputs (pass last).
@@ -49,7 +49,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 ### Game results
 
 - A GoGui `.dat` file is tab-separated: `GAME RES_B RES_W RES_R ALT DUP LEN TIME_B TIME_W CPU_B CPU_W ERR ERR_MSG`.
-  - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` still split on whitespace, so an empty column shifts `RES_R` and `LEN`, and anything not starting with `B` counts as a White win there.
+  - Columns can be empty, so split on tabs. The runner does this in `ruby/game_result.rb`. `stats` and `ranking` use it too.
   - The runner saves twogtp's stderr to `PREFIX.err` next to the `.dat` file. Only stderr says which program crashed ("Black program died" or "White program died"). Breeding deletes the empty `.err` files and keeps the rest.
 - Every win is worth 1 point, whether the loser is a network or a bot, and the odd player out in a round sits out with no point. The bots play in the ranking like networks, and against each other, on purpose: their place in the ranking shows how the networks compare to them. Parents are chosen by tournament selection (`select_parent` in `ruby/run_generation.rb`): draw `tournament_size` networks (setting, default 3) with replacement and keep the highest score. Only the order of scores matters, and equal scores pick uniformly.
 - Scoring rules (agreed with the owner, in `score_game` and `ruby/game_result.rb`):
