@@ -71,6 +71,20 @@ class PrChecksScriptTest < Minitest::Test
     refute_includes out, 'All checks passed'
   end
 
+  def test_asks_again_while_github_computes_the_merge_state
+    unknown = view([success], merge_state: 'UNKNOWN')
+    out, _err, status = run_checks(unknown, unknown, view([success]))
+    assert_equal 0, status
+    assert_includes out, 'All checks passed'
+  end
+
+  def test_merge_state_that_stays_unknown_fails
+    out, err, status = run_checks(view([success], merge_state: 'UNKNOWN'))
+    assert_equal 1, status
+    assert_includes err, 'GitHub has not worked out whether PR 7 is up to date with main'
+    refute_includes out, 'All checks passed'
+  end
+
   def test_gh_failure_fails_instead_of_reading_as_green
     out, err, status = run_checks
     refute_equal 0, status

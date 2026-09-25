@@ -62,9 +62,15 @@ class PrRollupTest < Minitest::Test
     assert_equal ['CONFLICTS'], run_filter([check_run('SUCCESS')], merge_state: 'DIRTY')
   end
 
-  def test_merge_states_github_is_still_computing_do_not_fail
-    assert_empty run_filter([check_run('SUCCESS')], merge_state: 'UNKNOWN')
+  def test_unknown_merge_state_is_reported_once_checks_pass
+    assert_equal ['MERGE STATE UNKNOWN'], run_filter([check_run('SUCCESS')], merge_state: 'UNKNOWN')
+    assert_equal ["FAILURE\tbuild-and-test"], run_filter([check_run('FAILURE')], merge_state: 'UNKNOWN')
+    assert_equal ['NO CHECKS'], run_filter([], merge_state: 'UNKNOWN')
+  end
+
+  def test_mergeable_states_pass
     assert_empty run_filter([check_run('SUCCESS')], merge_state: 'CLEAN')
+    assert_empty run_filter([check_run('SUCCESS')], merge_state: 'BLOCKED')
   end
 
   def test_empty_or_missing_rollup_means_no_checks

@@ -56,8 +56,20 @@ done
 
 gh pr checks "$pr" --watch --interval 20 >/dev/null 2>&1 || true
 
-result=$(not_passed)
-stop_early "$result"
+# Main can move during the wait, and the first answer after that can be an
+# UNKNOWN merge state. Ask again before trusting it.
+tries=0
+while :; do
+  result=$(not_passed)
+  stop_early "$result"
+  [ "$result" = "MERGE STATE UNKNOWN" ] || break
+  tries=$((tries + 1))
+  if [ "$tries" -gt "$max_tries" ]; then
+    printf 'GitHub has not worked out whether PR %s is up to date with main. Run pr-checks again.\n' "$pr" >&2
+    exit 1
+  fi
+  sleep "$pause"
+done
 if [ -n "$result" ]; then
   printf 'Checks that did not pass on %s:\n%s\n' "$head" "$result" >&2
   exit 1

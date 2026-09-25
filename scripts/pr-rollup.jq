@@ -5,7 +5,8 @@
 #
 # The repository only merges a PR that is up to date with main, so BEHIND
 # (out of date) and DIRTY (conflicts) fail before any check is looked at.
-# GitHub computes the merge state lazily, so UNKNOWN is not a failure.
+# GitHub works out the merge state only when asked, so UNKNOWN means "ask
+# again". It is reported once no check has failed, and pr-checks retries it.
 #
 # Check runs report their result in `conclusion`, status contexts in `state`.
 # `status` only says whether a check has finished. An empty result means the
@@ -22,12 +23,17 @@ elif .mergeStateStatus == "DIRTY" then
 elif ((.statusCheckRollup // []) | length) == 0 then
   "NO CHECKS"
 else
-  .statusCheckRollup
-  | group_by([.workflowName // "", .name // .context])
-  | map(max_by((.startedAt // "") | if . == "" or startswith("0001-") then "9999" else . end))
-  | .[]
-  | ((.conclusion // "") + (.state // "")) as $s
-  | select($s != "SUCCESS" and $s != "SKIPPED" and $s != "NEUTRAL")
-  | [(if $s == "" then "PENDING" else $s end), (.name // .context)]
-  | @tsv
+  [ .statusCheckRollup
+    | group_by([.workflowName // "", .name // .context])
+    | map(max_by((.startedAt // "") | if . == "" or startswith("0001-") then "9999" else . end))
+    | .[]
+    | ((.conclusion // "") + (.state // "")) as $s
+    | select($s != "SUCCESS" and $s != "SKIPPED" and $s != "NEUTRAL")
+    | [(if $s == "" then "PENDING" else $s end), (.name // .context)]
+    | @tsv
+  ] as $not_passed
+  | if ($not_passed | length) > 0 then $not_passed[]
+    elif .mergeStateStatus == "UNKNOWN" then "MERGE STATE UNKNOWN"
+    else empty
+    end
 end
