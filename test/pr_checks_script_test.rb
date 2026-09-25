@@ -85,6 +85,26 @@ class PrChecksScriptTest < Minitest::Test
     refute_includes out, 'All checks passed'
   end
 
+  def test_asks_again_while_github_still_blocks_after_checks_pass
+    blocked = view([success], merge_state: 'BLOCKED')
+    out, _err, status = run_checks(blocked, blocked, view([success]))
+    assert_equal 0, status
+    assert_includes out, 'All checks passed'
+  end
+
+  def test_merge_that_stays_blocked_fails
+    out, err, status = run_checks(view([success], merge_state: 'BLOCKED'))
+    assert_equal 1, status
+    assert_includes err, 'GitHub blocks merging PR 7 although every check passed'
+    refute_includes out, 'All checks passed'
+  end
+
+  def test_waits_for_github_to_see_a_fresh_push
+    out, _err, status = run_checks(view([success], head_ref: 'old123'), view([success]))
+    assert_equal 0, status
+    assert_includes out, 'All checks passed'
+  end
+
   def test_gh_failure_fails_instead_of_reading_as_green
     out, err, status = run_checks
     refute_equal 0, status

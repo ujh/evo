@@ -6,7 +6,9 @@
 # The repository only merges a PR that is up to date with main, so BEHIND
 # (out of date) and DIRTY (conflicts) fail before any check is looked at.
 # GitHub works out the merge state only when asked, so UNKNOWN means "ask
-# again". It is reported once no check has failed, and pr-checks retries it.
+# again". BLOCKED also shows while required checks are still running, but
+# with every check passed it means a required check is missing. Both are
+# reported once no check has failed, and pr-checks asks again before failing.
 #
 # Check runs report their result in `conclusion`, status contexts in `state`.
 # `status` only says whether a check has finished. An empty result means the
@@ -34,6 +36,7 @@ else
   ] as $not_passed
   | if ($not_passed | length) > 0 then $not_passed[]
     elif .mergeStateStatus == "UNKNOWN" then "MERGE STATE UNKNOWN"
+    elif .mergeStateStatus == "BLOCKED" then "MERGE BLOCKED"
     else empty
     end
 end

@@ -7,6 +7,11 @@ cache_dir="$tools_root/cache"
 releases_dir="$tools_root/releases"
 release_id='gnugo-3.8_brown-1.0_amigogtp-1.8_gogui-1.6.0_r4'
 release_dir="$releases_dir/$release_id"
+# The archives are served from this project's own GitHub release, so setup
+# does not depend on the upstream hosts being up. scripts/external-tools.txt
+# lists them; `mise run mirror-external-tools` uploads them.
+mirror_url='https://github.com/ujh/evo/releases/download/external-tools-r1'
+manifest="$project_root/scripts/external-tools.txt"
 
 mkdir -p "$cache_dir" "$releases_dir"
 
@@ -26,8 +31,12 @@ checksum() {
 
 download() {
   name=$1
-  expected=$2
-  url=$3
+  expected=$(awk -v name="$name" '$1 == name { print $2 }' "$manifest")
+  if [ -z "$expected" ]; then
+    printf '%s is not listed in %s\n' "$name" "$manifest" >&2
+    exit 1
+  fi
+  url="$mirror_url/$name"
   archive="$cache_dir/$name"
   if [ -f "$archive" ] && [ "$(checksum "$archive")" = "$expected" ]; then
     return
@@ -41,18 +50,10 @@ download() {
   mv "$archive.part" "$archive"
 }
 
-download gnugo-3.8.tar.gz \
-  da68d7a65f44dcf6ce6e4e630b6f6dd9897249d34425920bfdd4e07ff1866a72 \
-  https://ftp.gnu.org/gnu/gnugo/gnugo-3.8.tar.gz
-download brown-1.0.tar.gz \
-  5ff2419cdc858d9cedc4fe9f5ca903a4ce5a4f0d2ca870fd337bc5a0a93fc934 \
-  https://www.lysator.liu.se/~gunnar/gtp/brown-1.0.tar.gz
-download amigogtp-1.8.tar.gz \
-  a82ea472d5662f4f2e09ded7bc19729e0c7853a9bdc76e07f99e9e182a67dacc \
-  https://downloads.sourceforge.net/project/amigogtp/1.8/amigogtp-1.8.tar.gz
-download gogui-v1.6.0-bin.zip \
-  a6216fdc13c54f2a62d27fd178df21005ad36fb1b7795b678f175d1a60801ba9 \
-  https://github.com/Remi-Coulom/gogui/releases/download/v1.6.0/gogui-v1.6.0-bin.zip
+download gnugo-3.8.tar.gz
+download brown-1.0.tar.gz
+download amigogtp-1.8.tar.gz
+download gogui-v1.6.0-bin.zip
 
 stage=$(mktemp -d "$releases_dir/.stage.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM

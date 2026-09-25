@@ -11,10 +11,10 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 | Task | Command |
 | --- | --- |
 | First setup (submodule, gems, build) | `mise run setup` |
-| Install external Go programs | `mise run setup-experiments` (downloads with pinned checksums and builds under `.local/evo-tools/`) |
+| Install external Go programs | `mise run setup-experiments` (downloads from the project's own GitHub release with pinned checksums, and builds under `.local/evo-tools/`) |
 | Build | `mise run build` (root `make`; builds `pcg-c` first) |
 | Tests (C and Ruby) | `mise run test` (or `test-c`, `test-ruby` alone) |
-| Full check, same as CI | `mise run verify` (tests, `doctor`, and refereed GoGui matches with every bot and Evo) |
+| Full check, same as CI | `mise run verify` (tests, `doctor`, and `smoke`: refereed GoGui matches with every bot and Evo) |
 | Run/resume experiment | `mise run run NAME [CONCURRENCY [one-generation]]` |
 
 - Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and fail if `make pcg` has not run.
@@ -81,6 +81,7 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 - `stats` (without `--csv`), `ranking`, and `multi` loop forever. Run them with a timeout or in the background.
 - The worker pool uses Ractors (`Ractor.yield`/`take`), which Ruby 4.0 removed. Stay on the pinned Ruby 3.3.0 until the planned thread-pool rewrite. The "Ractor is experimental" warning is expected.
 - GNU Go 3.8 needs `scripts/patches/gnugo-3.8-gg-sort-empty.patch`. Without it, clang builds abort in `final_score` and during level 10 move generation. GCC builds happen to work either way. When changing how external tools are built, bump `release_id` in `scripts/install-external-tools.sh` so existing installs rebuild, then run `mise run verify`.
+- The installer downloads only from the GitHub release named in `mirror_url` in `scripts/install-external-tools.sh`, never from upstream. `scripts/external-tools.txt` lists each archive's SHA-256 and upstream URL. To change an archive, edit the manifest, give `mirror_url` a new release tag (a published release's files should not change under the same tag), bump `release_id`, and run `mise run mirror-external-tools`. That task fetches from upstream and uploads to the release.
 
 ### Performance
 
@@ -96,4 +97,4 @@ Always go through mise. It pins Ruby 3.3.0, Java 21, and jq, and it puts `.local
 - Branches: `fix/…`, `chore/…`, `docs/…`.
 - PRs: this is a personal repo with no Jira, so titles and bodies carry no ticket key. The body is one short paragraph that starts with the why, plus a line on how the change was verified.
 - Open and update every PR by following `docs/pull-requests.md`: tests, the sweep for stale text, the review loop and its rules, and the CI check.
-- CI (`.github/workflows/ci.yml`) runs on Ubuntu: `mise run setup-experiments`, then `mise run verify`. Local setup is usually macOS with Apple clang, so code that builds GNU Go or other external tools has to work with both clang and GCC. A green local `verify` says nothing about Linux; wait for CI.
+- CI (`.github/workflows/ci.yml`) runs on Ubuntu, with one job per kind of check: `c-tests` (`test-c`), `ruby-tests` (`test-ruby`), and `smoke-matches` (`setup-experiments`, `doctor`, `smoke`). Branch protection on `main` requires these jobs by name, so renaming or adding a job also needs the protection rule updated. CI caches the gems (keyed on `Gemfile.lock` and `mise.toml`) and the built external tools in `.local/evo-tools` (keyed on the installer, the manifest, and `scripts/patches/`). Both keys also include the runner image, because the caches hold compiled code. A change to how the tools build has to change one of those files, or CI keeps using the old build. Bumping `release_id` does that. Local setup is usually macOS with Apple clang, so code that builds GNU Go or other external tools has to work with both clang and GCC. A green local `verify` says nothing about Linux; wait for CI.

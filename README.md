@@ -17,18 +17,22 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    downloads and builds pinned versions of [GNU Go](https://www.gnu.org/software/gnugo/),
    [Brown](https://www.lysator.liu.se/~gunnar/gtp/), and
    [AmiGoGtp](https://amigogtp.sourceforge.net/), and installs
-   [GoGui](https://github.com/Remi-Coulom/gogui) 1.6.0. Archives are checked
-   against SHA-256 hashes before extraction, and GNU Go is patched for an
+   [GoGui](https://github.com/Remi-Coulom/gogui) 1.6.0. The archives come from
+   this repository's `external-tools-r1` GitHub release, a copy of the
+   upstream files, so setup does not depend on the upstream hosts. They are
+   checked against SHA-256 hashes before extraction, and GNU Go is patched for an
    upstream sorting bug (`scripts/patches/`). The programs stay under
    `.local/evo-tools/` and mise places them on `PATH` for project tasks.
 3. Run `mise run verify` to run the C and Ruby tests and refereed 9×9 matches in which
    Brown, AmiGoGtp, GNU Go levels 0 and 10, and Evo each play. It fails if a
    program crashes or the GNU Go referee returns no score.
 
-CI runs the same setup and verification tasks. For development without the
+CI runs the same tasks as separate jobs (C tests, Ruby tests, and the
+refereed matches), so a failure shows which kind of check broke. For
+development without the
 external programs, use `mise run setup` and `mise run test` (or `test-c` and
 `test-ruby` on their own). Other useful tasks are `mise run build`,
-`mise run clean`, and `mise run doctor`.
+`mise run clean`, `mise run doctor`, and `mise run smoke`.
 
 ## Running the evolution of the neural net
 

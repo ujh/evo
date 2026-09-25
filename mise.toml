@@ -14,6 +14,10 @@ run = ["sh scripts/ensure-submodules.sh", "bundle install", { task = "build" }]
 description = "Install the pinned external Go programs and GoGui locally"
 run = [{ task = "setup" }, "sh scripts/install-external-tools.sh"]
 
+[tasks.mirror-external-tools]
+description = "Upload the external tool archives to the GitHub release the installer downloads from"
+run = "sh scripts/mirror-external-tools.sh"
+
 [tasks.build]
 description = "Build the C programs"
 run = "make"
@@ -32,7 +36,11 @@ run = "bundle exec ruby -e 'Dir[\"test/**/*_test.rb\"].sort.each { |f| require F
 
 [tasks.verify]
 description = "Run tests and check the programs needed for experiments"
-run = [{ task = "test" }, { task = "doctor" }, "sh scripts/smoke-external-tools.sh"]
+run = [{ task = "test" }, { task = "doctor" }, { task = "smoke" }]
+
+[tasks.smoke]
+description = "Play one refereed GoGui match with each external opponent and Evo"
+run = "sh scripts/smoke-external-tools.sh"
 
 [tasks.clean]
 description = "Remove generated C build and test files"

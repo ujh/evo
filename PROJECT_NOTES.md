@@ -152,7 +152,6 @@ The largest structural change suggested by the timing sample is a C program that
 3. Consolidate shared C code into `lib/`, then replace GENANN as described above, verified against the converter.
 4. Replace Ractors with a thread pool (moving to Ruby 4.0), make checkpoints atomic, type the settings, record seeds and revision, copy the binaries, and make `stats` read-only.
 5. Build the arena and move network-against-network games into it. Keep the GoGui path for benchmarks.
-6. Split CI into separate steps (C tests, Ruby tests, `doctor`, refereed smoke matches) so a failed run shows which part broke. Use the existing `test-c`, `test-ruby`, and `doctor` mise tasks.
 
 Steps 1–2 are prerequisites for trusting any new experiment. Steps 3–5 can be interleaved with milestone 1 below. Each step should keep a short reference run able to complete and produce the same results where behavior is meant to be unchanged.
 
