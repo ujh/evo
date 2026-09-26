@@ -125,10 +125,10 @@ int main(int argc, char **argv) {
   ann_genes genes[2];
   ann_features features[2];
   genann **anns = load_nns(ann1_name, ann2_name, genes, features);
-  check_nns(anns);
+  check_nns(anns, features);
 
   breeding result;
-  genann *child = breed(anns, genes, cross_over_rate, meta_rate, &bounds, &result);
+  genann *child = breed(anns, genes, features, cross_over_rate, meta_rate, &bounds, &result);
   printf("%s\n", result.operator_name);
 
   printf("Saving output to %s ...", output_name);
@@ -138,9 +138,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
   // A half-written child is removed, so the runner never finds one.
-  // The child's features are the picked parent's, unchanged, whatever the
-  // operator: nothing breeds them yet.
-  int written = ann_binary_write(child, &result.genes, &features[result.picked], fd);
+  int written = ann_binary_write(child, &result.genes, &result.features, fd);
   if (fclose(fd) != 0 || written != 0) {
     fprintf(stderr, "\nCould not write %s: %s\n", output_name, strerror(errno));
     remove(output_name);
@@ -151,6 +149,7 @@ int main(int argc, char **argv) {
   // Two machine-readable lines for the runner, the child's genes last.
   // parent is the picked parent in argument order. A child identical to a
   // parent differs from it in 0 weights, and one of another shape in -1.
+  // Only the network weights count, not the feature weights.
   printf(
     "summary operator=%s parent=%s structure=%s activation_changed=%d differs_from_first=%d differs_from_second=%d\n",
     result.operator_name,
@@ -160,5 +159,5 @@ int main(int argc, char **argv) {
     count_differences(child, anns[0]),
     count_differences(child, anns[1])
   );
-  ann_print_genes_line(stdout, child, &result.genes, &features[result.picked]);
+  ann_print_genes_line(stdout, child, &result.genes, &result.features);
 }

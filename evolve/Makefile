@@ -114,8 +114,58 @@ evolvetest: evolve
 	# against it is a number.
 	./evolve 1 0.2 2 6 5 parents/shaped/0001.ann deep.ann mixed.ann 3 > mixed.out
 	set -- $$($(SUMMARY) mixed.out) && test "$$1 $$2 $$3 $$5" = "mutation second none -1" && test "$$6" -ge 0
+	# Parents with every feature group (974 inputs on 9x9), whose feature
+	# weights and feature_step differ. The feature block is the 4-byte group
+	# mask at byte 74, feature_step, and 7 feature weights: bytes 74 to 142.
+	mkdir parents/features parents/features/other
+	cd parents/features && ../../../initial-population/initial-population 1 9 1 5 0.05 1 0.5 0.02 0.02 all 0.3 0.01 42 > first.out
+	cd parents/features/other && ../../../../initial-population/initial-population 2 9 1 5 0.05 2 0.25 0.04 0.03 all 0.3 0.02 43 > ../second.out
+	mv parents/features/other/0002.ann parents/features/0002.ann
+	grep '^genes ' parents/features/first.out > parents/features/first.genes
+	grep '^genes ' parents/features/second.out | sed -n 2p > parents/features/second.genes
+	! cmp -s -n 68 parents/features/0001.ann parents/features/0002.ann 74 74
+	# A crossover child (seed 1 picks the second) takes the picked parent's
+	# features unchanged, and its genes line says so.
+	./evolve 1 $(BOUNDS) parents/features/0001.ann parents/features/0002.ann feat-cross.ann 1 > feat-cross.out
+	set -- $$($(SUMMARY) feat-cross.out) && test "$$1 $$2 $$3" = "crossover second none"
+	cmp -n 142 feat-cross.ann parents/features/0002.ann
+	tail -n 1 feat-cross.out | cmp - parents/features/second.genes
+	# A copy (seed 4) is the parent byte for byte, features included.
+	./evolve 0 $(BOUNDS) parents/features/0001.ann parents/features/0002.ann feat-copy.ann 4 > feat-copy.out
+	set -- $$($(SUMMARY) feat-copy.out) && test "$$1 $$2" = "copy second"
+	cmp feat-copy.ann parents/features/0002.ann
+	# A mutation (seed 3) keeps the groups and moves feature_step and every
+	# feature weight, though here no network weight changed: the differs
+	# counts cover only the network's weights.
+	./evolve 0 $(BOUNDS) parents/features/0001.ann parents/features/0002.ann feat-mutated.ann 3 > feat-mutated.out
+	set -- $$($(SUMMARY) feat-mutated.out) && test "$$*" = "mutation second none 0 5367 0"
+	cmp -n 4 feat-mutated.ann parents/features/0002.ann 74 74
+	for offset in 78 86 94 102 110 118 126 134; do \
+	  ! cmp -s -n 8 feat-mutated.ann parents/features/0002.ann $$offset $$offset || exit 1; \
+	done
+	cmp feat-mutated.ann parents/features/0002.ann 142 142
+	tail -n 1 feat-mutated.out | grep -q ' features=shapes,tactics,last_move,liberties feature_step=[0-9.e-]* fw_hane=[0-9.e-]* fw_cut=[0-9.e-]* fw_edge=[0-9.e-]* fw_capture=[0-9.e-]* fw_self_atari=-[0-9.e-]* fw_saves_atari=[0-9.e-]* fw_near_last=[0-9.e-]*$$'
+	! tail -n 1 feat-mutated.out | cmp -s - parents/features/second.genes
+	printf 'boardsize 9\ngenmove b\nquit\n' | ../engine/evo feat-mutated.ann | grep -q '^= [A-Z]'
+	# Removing the only hidden layer (seed 28) folds the outputs onto every
+	# input, the feature inputs included, and the engine plays the child.
+	./evolve 0 $(BOUNDS) parents/features/0001.ann parents/features/0002.ann feat-flat.ann 28 > feat-flat.out
+	set -- $$($(SUMMARY) feat-flat.out) && test "$$1 $$2 $$3" = "mutation first remove_layer"
+	tail -n 1 feat-flat.out | grep -q '^genes layers=0 width=0 .* features=shapes,tactics,last_move,liberties '
+	printf 'boardsize 9\ngenmove b\nquit\n' | ../engine/evo feat-flat.ann | grep -q '^= [A-Z]'
+	# Parents with different feature groups cannot breed, even with as many
+	# inputs: shapes and liberties both add three planes (325 inputs on 9x9).
+	mkdir parents/shapes parents/liberties
+	cd parents/shapes && ../../../initial-population/initial-population 1 9 1 5 0.05 1 0.5 0.02 0.02 shapes 0.3 0.01 42 > /dev/null
+	cd parents/liberties && ../../../initial-population/initial-population 1 9 1 5 0.05 1 0.5 0.02 0.02 liberties 0.3 0.01 42 > /dev/null
+	test $$(wc -c < parents/shapes/0001.ann) -eq $$(($$(wc -c < parents/liberties/0001.ann) + 24))
+	! ./evolve 0.5 $(BOUNDS) parents/shapes/0001.ann parents/liberties/0001.ann feat-mixed.ann 1 > feat-mixed.out
+	grep -q '^nn1.features = shapes, nn2.features = liberties$$' feat-mixed.out
+	test ! -e feat-mixed.ann
 	rm -rf parents cross-a.ann cross-b.ann cross-c.ann cross-d.ann cross-e.ann cross-a.out cross-d.out cross-e.out \
-	  copy.ann copy.out mutated.ann mutated.out kept.ann kept.out deep.ann deep.out mixed.ann mixed.out
+	  copy.ann copy.out mutated.ann mutated.out kept.ann kept.out deep.ann deep.out mixed.ann mixed.out \
+	  feat-cross.ann feat-cross.out feat-copy.ann feat-copy.out feat-mutated.ann feat-mutated.out \
+	  feat-flat.ann feat-flat.out feat-mixed.out
 
 test: $(OBJS) test.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
