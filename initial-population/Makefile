@@ -58,7 +58,12 @@ test: initial-population
 	test $$(wc -c < all-a/0001.ann) -eq $$((86 + 7 * 8 + 5367 * 8))
 	test "$$(grep -c '^genes ' all-a/out)" -eq 3
 	test "$$(grep '^genes ' all-a/out | sort -u | wc -l)" -eq 3
+	# With seed 42 the 21 draws move weights both ways (u < 0 and u > 0).
 	grep '^genes ' all-a/out | awk -v noise=0.3 -f features.awk
+	# A network's weights are drawn before its feature weights' noise: the
+	# first network's first 83 weights (the first hidden neuron's bias and
+	# its first 82 inputs) are the same draws as without features.
+	test "$$(od -A n -t x1 -j 86 -N 664 seeded-a/0001.ann)" = "$$(od -A n -t x1 -j 142 -N 664 all-a/0001.ann)"
 	test "$$(grep '^genes ' all-c/out | sort -u)" = "genes layers=1 width=5 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=shapes,tactics,last_move,liberties feature_step=0.02 fw_hane=0.050000000000000003 fw_cut=0.050000000000000003 fw_edge=0.050000000000000003 fw_capture=1 fw_self_atari=-1 fw_saves_atari=0.80000000000000004 fw_near_last=0.050000000000000003"
 	# The noise comes after each network's weights, so it leaves them as
 	# they are; and it is drawn even when it is 0, so later networks' weights
