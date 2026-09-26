@@ -73,6 +73,27 @@ const char *ann_activation_name(genann_actfun function);
 // order. The width is 0 without hidden layers, as in the file.
 void ann_print_genes_line(FILE *out, genann const *ann, ann_genes const *genes);
 
+// The feature groups a network can see besides the stones and komi, as
+// bits of a mask. Each group adds inputs, in this layout on a board of N
+// points: [komi][N stones][F x N move features][3 x N liberties]
+// [N last_move][opponent_passed], only the groups present, where the F move
+// features are, in order, shapes' hane, cut, and edge, tactics' capture,
+// self_atari, and saves_atari, and last_move's near_last. liberties adds its
+// 3 planes and no move feature; last_move adds near_last, its plane, and
+// the one opponent_passed input. The engine's features.c computes them.
+#define ANN_GROUP_SHAPES 1u
+#define ANN_GROUP_TACTICS 2u
+#define ANN_GROUP_LAST_MOVE 4u
+#define ANN_GROUP_LIBERTIES 8u
+#define ANN_GROUPS_ALL 15u
+
+// The number of move features F of the groups, or -1 when the mask has a
+// bit that is no group.
+int ann_feature_count(unsigned groups);
+// The number of inputs of a network with the groups on a board of `points`
+// points, or -1 when the mask has a bit that is no group.
+int ann_layout_inputs(unsigned groups, int points);
+
 // Returns NULL, after printing why, when the file does not hold a network
 // with valid genes. Stores the genes in *genes unless genes is NULL.
 genann *ann_binary_read(FILE *in, ann_genes *genes);

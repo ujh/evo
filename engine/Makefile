@@ -36,8 +36,9 @@ test: brown.o features.o generate_move.o rules_test.o ../lib/libann.a score_test
 	./gtp_test
 	./features_test
 
-# The move features, over Brown's board alone.
-features_test: brown.o features.o features_test.o
+# The features, over Brown's board alone (libann.a only for the layout's
+# counts).
+features_test: brown.o features.o features_test.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # What evo's GTP commands leave in Brown's state (the last move), through

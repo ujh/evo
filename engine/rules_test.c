@@ -18,7 +18,7 @@
 static void setup(const char **rows) {
   board_size = strlen(rows[0]);
   clear_board();
-  play_move(-1, -1, BLACK); // clears the ko point
+  play_move(-1, -1, BLACK); // a pass: clears the ko point (and records a pass as the last move)
   for (int i = 0; i < board_size; i++)
     for (int j = 0; j < board_size; j++) {
       if (rows[i][j] == 'X') play_move(i, j, BLACK);
