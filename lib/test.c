@@ -543,6 +543,34 @@ void default_genes() {
     lok(g.weight_changes == 1 && ann_genes_invalid(&g, 1) == NULL);
 }
 
+void feature_layout() {
+    // The move features each group adds, in the tables' order: shapes 3
+    // (hane, cut, edge), tactics 3 (capture, self_atari, saves_atari),
+    // last_move 1 (near_last); liberties none.
+    lequal(ann_feature_count(0), 0);
+    lequal(ann_feature_count(ANN_GROUP_SHAPES), 3);
+    lequal(ann_feature_count(ANN_GROUP_TACTICS), 3);
+    lequal(ann_feature_count(ANN_GROUP_LAST_MOVE), 1);
+    lequal(ann_feature_count(ANN_GROUP_LIBERTIES), 0);
+    lequal(ann_feature_count(ANN_GROUPS_ALL), 7);
+    lequal(ann_feature_count(ANN_GROUP_SHAPES | ANN_GROUP_LAST_MOVE), 4);
+    lequal((int)ANN_GROUPS_ALL, (int)(ANN_GROUP_SHAPES | ANN_GROUP_TACTICS | ANN_GROUP_LAST_MOVE | ANN_GROUP_LIBERTIES));
+    // [komi][N stones][F x N move features][3 x N liberties][N last_move]
+    // [opponent_passed].
+    lequal(ann_layout_inputs(0, 81), 82);
+    lequal(ann_layout_inputs(ANN_GROUPS_ALL, 81), 974);
+    lequal(ann_layout_inputs(ANN_GROUPS_ALL, 361), 4334);
+    lequal(ann_layout_inputs(ANN_GROUP_SHAPES, 25), 1 + 25 + 3 * 25);
+    lequal(ann_layout_inputs(ANN_GROUP_TACTICS, 25), 1 + 25 + 3 * 25);
+    lequal(ann_layout_inputs(ANN_GROUP_LAST_MOVE, 25), 1 + 25 + 25 + 25 + 1);
+    lequal(ann_layout_inputs(ANN_GROUP_LIBERTIES, 25), 1 + 25 + 3 * 25);
+    lequal(ann_layout_inputs(ANN_GROUP_LIBERTIES | ANN_GROUP_LAST_MOVE, 4), 1 + 4 + 4 + 12 + 4 + 1);
+    // Unknown bits have no layout.
+    lequal(ann_feature_count(16), -1);
+    lequal(ann_layout_inputs(ANN_GROUPS_ALL | 16, 81), -1);
+    lequal(ann_layout_inputs(0x80000000u, 81), -1);
+}
+
 static double my_activation(const genann *ann, double a) { (void)ann; return a / 2; }
 
 void binary_read_rejects_bad_files() {
@@ -626,6 +654,7 @@ int main(int argc, char *argv[])
     lrun("binary_bad_genes", binary_read_rejects_bad_genes);
     lrun("binary_no_layers", binary_no_hidden_layers);
     lrun("default_genes", default_genes);
+    lrun("feature_layout", feature_layout);
     lrun("copy", copy);
     lrun("sigmoid", sigmoid);
 

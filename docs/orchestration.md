@@ -45,3 +45,5 @@ Follow `docs/pull-requests.md` for each PR: the whole-branch review loop, then p
 ## 5. Notify the owner
 
 Report once, when the PRs are open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, what the real runs showed (including results that argue against the design), and anything left open. Once the owner has approved the plan, do not stop for approval between steps, except where `docs/pull-requests.md` says to stop and ask (a third review round that is still not clean, or a finding only the owner can decide), and do not merge unless the owner says so.
+
+Once all of a plan's PRs have merged and the final report is given, delete the plan from `plans/`: it holds nothing the repository's history and docs do not.

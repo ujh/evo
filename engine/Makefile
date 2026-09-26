@@ -1,7 +1,7 @@
 CFLAGS = -Wall -Wshadow -O3 -g -march=native -I../lib -I../pcg-c/include
 LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
-OBJS = brown.o gtp.o generate_move.o interface.o
+OBJS = brown.o gtp.o features.o generate_move.o interface.o
 
 .PHONY: enginetest arenatest test clean
 
@@ -9,7 +9,7 @@ default: evo arena
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
-include $(OBJS:.o=.dep) score.dep arena.dep rules_test.dep score_test.dep
+include $(OBJS:.o=.dep) score.dep arena.dep rules_test.dep score_test.dep gtp_test.dep features_test.dep
 
 evo: $(OBJS) main.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
@@ -19,7 +19,7 @@ enginetest: evo
 
 # Plays network-against-network games in one process, scored by the
 # Tromp-Taylor count. Linked without the GTP code (gtp.o, interface.o).
-arena: brown.o generate_move.o score.o arena.o ../lib/libann.a
+arena: brown.o features.o generate_move.o score.o arena.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # Needs ../initial-population/initial-population for its random networks.
@@ -28,11 +28,23 @@ arenatest: evo arena
 
 # The Go rules: Brown's board code and the move filter. Linked without the
 # GTP code (gtp.o, interface.o), which also checks that a program other than
-# evo can play networks with brown.o and generate_move.o alone.
-test: brown.o generate_move.o rules_test.o ../lib/libann.a score_test
-	$(CC) $(CFLAGS) -o rules_test $(filter-out score_test,$^) $(LDLIBS)
+# evo can play networks with brown.o, features.o, and generate_move.o alone.
+test: brown.o features.o generate_move.o rules_test.o ../lib/libann.a score_test gtp_test features_test
+	$(CC) $(CFLAGS) -o rules_test $(filter-out score_test gtp_test features_test,$^) $(LDLIBS)
 	./rules_test
 	./score_test
+	./gtp_test
+	./features_test
+
+# The features, over Brown's board alone (libann.a only for the layout's
+# counts).
+features_test: brown.o features.o features_test.o ../lib/libann.a
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
+# What evo's GTP commands leave in Brown's state (the last move), through
+# evo's own command table.
+gtp_test: $(OBJS) gtp_test.o ../lib/libann.a
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # The Tromp-Taylor count, over Brown's board alone.
 score_test: brown.o score.o score_test.o
@@ -43,4 +55,4 @@ score_test: brown.o score.o score_test.o
 
 clean:
 	$(RM) *.o *.dep
-	$(RM) evo arena rules_test score_test
+	$(RM) evo arena rules_test score_test gtp_test features_test

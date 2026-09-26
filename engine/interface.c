@@ -129,13 +129,17 @@ int boot(int argc, char **argv) {
   }
   allocate_ann(argv[1]);
 
+  run_gtp(stdin);
+
+  return 0;
+}
+
+void run_gtp(FILE *in) {
   /* Initialize the board. */
   init_brown();
 
   /* Process GTP commands. */
-  gtp_main_loop(commands, stdin, NULL);
-
-  return 0;
+  gtp_main_loop(commands, in, NULL);
 }
 
 /* We are talking version 2 of the protocol. */
@@ -244,6 +248,8 @@ place_free_handicap(int handicap)
     generate_move(ann, &i, &j, BLACK);
     play_move(i, j, BLACK);
   }
+  /* Handicap stones are not moves. */
+  clear_last_move();
 }
 
 /* Common code for fixed_handicap and place_free_handicap. */
@@ -332,6 +338,10 @@ gtp_set_free_handicap(char *s)
       return gtp_failure("invalid handicap");
   }
 
+  /* Handicap stones are not moves. (The error paths above clear the
+   * board, which clears the last move too.)
+   */
+  clear_last_move();
   return gtp_success("");
 }
 

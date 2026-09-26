@@ -9,6 +9,7 @@
 #include "brown.h"
 #include "ann.h"
 #include "generate_move.h"
+#include "features.h"
 #include "minctest.h"
 
 // Sets up a position from rows of 'X' (black), 'O' (white) and '.', on a
@@ -17,7 +18,7 @@
 static void setup(const char **rows) {
   board_size = strlen(rows[0]);
   clear_board();
-  play_move(-1, -1, BLACK); // clears the ko point
+  play_move(-1, -1, BLACK); // a pass: clears the ko point (and records a pass as the last move)
   for (int i = 0; i < board_size; i++)
     for (int j = 0; j < board_size; j++) {
       if (rows[i][j] == 'X') play_move(i, j, BLACK);
@@ -183,6 +184,160 @@ void test_no_ko_when_the_capturing_stone_has_liberties_left() {
   lok(legal_move(1, 2, BLACK));
 }
 
+// Everything a snapshot must bring back, read through Brown's interface:
+// the board, each stone's string in link order, which moves are legal for
+// either color (so the ko point), and the last move.
+typedef struct {
+  int size;
+  int board[MAX_BOARD * MAX_BOARD];
+  int string[MAX_BOARD * MAX_BOARD][MAX_BOARD * MAX_BOARD];
+  int legal[2][MAX_BOARD * MAX_BOARD];
+  int last, last_i, last_j, last_color;
+} observed;
+
+static void observe(observed *o) {
+  memset(o, 0, sizeof(*o));
+  o->size = board_size;
+  for (int pos = 0; pos < board_size * board_size; pos++) {
+    int i = I(pos), j = J(pos);
+    o->board[pos] = get_board(i, j);
+    if (o->board[pos] != EMPTY) {
+      int si[MAX_BOARD * MAX_BOARD], sj[MAX_BOARD * MAX_BOARD];
+      int n = get_string(i, j, si, sj);
+      for (int k = 0; k < n; k++) o->string[pos][k] = POS(si[k], sj[k]) + 1;
+    }
+    o->legal[0][pos] = legal_move(i, j, BLACK);
+    o->legal[1][pos] = legal_move(i, j, WHITE);
+  }
+  o->last = last_move(&o->last_i, &o->last_j, &o->last_color);
+}
+
+static observed before_trial, after_trial;
+
+// A trial move that captures a string, restored: the captured stones come
+// back with their string links, and the ko point and last move are the
+// ones from before the trial.
+void test_restore_undoes_a_capture() {
+  // White's last move took a ko at (1,1), so black may not retake at (1,2).
+  const char *start[] = {".XO..", "X.XO.", ".XO..", "OO...", "XX..."};
+  setup(start);
+  play_move(1, 1, WHITE);
+  lok(!legal_move(1, 2, BLACK));
+  observe(&before_trial);
+  brown_state saved;
+  brown_save(&saved);
+
+  play_move(4, 2, WHITE); // captures the two black stones in the corner
+  lequal(get_board(4, 0), EMPTY);
+  lequal(get_board(4, 1), EMPTY);
+  play_move(4, 0, BLACK); // reuses the captured points' links
+  brown_restore(&saved);
+
+  observe(&after_trial);
+  lok(memcmp(&before_trial, &after_trial, sizeof(observed)) == 0);
+  lok(!legal_move(1, 2, BLACK));
+  int i, j, color;
+  lequal(last_move(&i, &j, &color), LAST_MOVE_POINT);
+  lok(i == 1 && j == 1 && color == WHITE);
+}
+
+// A trial ko capture sets a ko point and a last move of its own; restoring
+// removes both.
+void test_restore_undoes_a_ko_capture() {
+  const char *start[] = {".XO..", "X.XO.", ".XO..", ".....", "....."};
+  setup(start);
+  play_pass(BLACK);
+  observe(&before_trial);
+  brown_state saved;
+  brown_save(&saved);
+
+  play_move(1, 1, WHITE); // ko capture of (1,2)
+  lok(!legal_move(1, 2, BLACK));
+  brown_restore(&saved);
+
+  observe(&after_trial);
+  lok(memcmp(&before_trial, &after_trial, sizeof(observed)) == 0);
+  lok(legal_move(1, 1, WHITE));
+  int i, j, color;
+  lequal(last_move(&i, &j, &color), LAST_MOVE_PASS);
+  lok(i == -1 && j == -1 && color == BLACK);
+}
+
+// A snapshot can be restored more than once.
+void test_restore_twice() {
+  const char *start[] = {".....", "..X..", ".XO..", "..X..", "....."};
+  setup(start);
+  observe(&before_trial);
+  brown_state saved;
+  brown_save(&saved);
+  play_move(2, 3, BLACK);
+  brown_restore(&saved);
+  play_move(3, 2, WHITE);
+  brown_restore(&saved);
+  observe(&after_trial);
+  lok(memcmp(&before_trial, &after_trial, sizeof(observed)) == 0);
+}
+
+static int last_is(int kind, int want_i, int want_j, int want_color) {
+  int i = 99, j = 99, color = 99;
+  return last_move(&i, &j, &color) == kind && i == want_i && j == want_j && color == want_color;
+}
+
+// Brown records the last move: a point and its color, a pass and its
+// color, or none at the start of a game.
+void test_last_move() {
+  board_size = 5;
+  new_game();
+  lok(last_is(LAST_MOVE_NONE, -1, -1, EMPTY));
+  play_move(2, 3, BLACK);
+  lok(last_is(LAST_MOVE_POINT, 2, 3, BLACK));
+  play_pass(WHITE);
+  lok(last_is(LAST_MOVE_PASS, -1, -1, WHITE));
+  play_move(1, 1, BLACK);
+  play_move(-1, -1, WHITE); // play_move's pass is a pass too
+  lok(last_is(LAST_MOVE_PASS, -1, -1, WHITE));
+  play_move(1, 2, BLACK);
+  clear_last_move();
+  lok(last_is(LAST_MOVE_NONE, -1, -1, EMPTY));
+  // The arguments may be NULL.
+  play_move(3, 3, WHITE);
+  lequal(last_move(NULL, NULL, NULL), LAST_MOVE_POINT);
+
+  new_game();
+  lok(last_is(LAST_MOVE_NONE, -1, -1, EMPTY));
+  play_move(0, 0, BLACK);
+  clear_board();
+  lok(last_is(LAST_MOVE_NONE, -1, -1, EMPTY));
+}
+
+// A capture is the capturing stone's move.
+void test_last_move_after_a_capture() {
+  const char *start[] = {".....", "..X..", ".XO..", "..X..", "....."};
+  setup(start);
+  play_move(2, 3, BLACK);
+  lok(last_is(LAST_MOVE_POINT, 2, 3, BLACK));
+}
+
+// A suicide is still the last move, at a point that is empty again.
+void test_last_move_after_a_suicide() {
+  const char *start[] = {"O.X..", "XX...", ".....", ".....", "....."};
+  setup(start);
+  play_move(0, 1, WHITE);
+  lok(last_is(LAST_MOVE_POINT, 0, 1, WHITE));
+  lequal(get_board(0, 1), EMPTY);
+}
+
+// Fixed handicap stones are not moves.
+void test_fixed_handicap_leaves_no_last_move() {
+  board_size = 9;
+  new_game();
+  play_move(4, 4, WHITE);
+  clear_board();
+  place_fixed_handicap(4);
+  lequal(get_board(6, 2), BLACK);
+  lok(last_is(LAST_MOVE_NONE, -1, -1, EMPTY));
+}
+
 // A prediction that scores `best` highest, `second` next, and everything
 // else, pass included, lowest.
 static void predict(double *prediction, int points, int best, int second, int pass_high) {
@@ -259,6 +414,38 @@ void test_the_move_filter() {
   genann_free(ann);
 }
 
+// The move choice refuses exactly the points move_allowed refuses, so the
+// move features, which are 0 where move_allowed is false, never point at a
+// move the engine would not play.
+void test_the_move_choice_follows_move_allowed() {
+  genann *ann = genann_init(26, 0, 0, 26);
+  double prediction[26];
+  const char *positions[][5] = {
+    {".X...", "X....", ".....", ".....", "....."},
+    {"O.X..", "XX...", ".....", ".....", "....."},
+    {".XO..", "X.XO.", ".XO..", ".....", "....."},
+    {".X.O.", "X.XO.", "OX.OO", ".OXX.", "XX.O."},
+    {"XXXXX", "XXXXX", "XX.XX", "XXXXX", "XXXX."},
+  };
+  int refused = 0, allowed = 0;
+  for (int n = 0; n < 5; n++) {
+    setup(positions[n]);
+    if (n == 2) play_move(1, 1, WHITE); // a ko
+    for (int color = WHITE; color <= BLACK; color++)
+      for (int p = 0; p < 25; p++) {
+        int i, j;
+        predict(prediction, 25, p, -1, 0);
+        find_and_set_best_move(ann, &i, &j, color, prediction);
+        int played = i == I(p) && j == J(p);
+        lok(played == move_allowed(I(p), J(p), color));
+        if (played) allowed++; else refused++;
+      }
+  }
+  // Both kinds occur, and not only on occupied points.
+  lok(allowed > 0 && refused > 0);
+  genann_free(ann);
+}
+
 int main(void) {
   printf("Go rules test suite\n");
 
@@ -275,7 +462,15 @@ int main(void) {
   lrun("new_game", test_new_game_forgets_the_ko);
   lrun("no_ko_two", test_no_ko_after_capturing_two_stones);
   lrun("no_ko_libs", test_no_ko_when_the_capturing_stone_has_liberties_left);
+  lrun("restore_take", test_restore_undoes_a_capture);
+  lrun("restore_ko", test_restore_undoes_a_ko_capture);
+  lrun("restore_twice", test_restore_twice);
+  lrun("last_move", test_last_move);
+  lrun("last_capture", test_last_move_after_a_capture);
+  lrun("last_suicide", test_last_move_after_a_suicide);
+  lrun("last_handicap", test_fixed_handicap_leaves_no_last_move);
   lrun("move_filter", test_the_move_filter);
+  lrun("move_allowed", test_the_move_choice_follows_move_allowed);
 
   lresults();
   return lfails != 0;

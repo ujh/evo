@@ -45,6 +45,19 @@ ann_genes ann_default_genes(int total_weights) {
     return genes;
 }
 
+int ann_feature_count(unsigned groups) {
+    if (groups & ~ANN_GROUPS_ALL) return -1;
+    return (groups & ANN_GROUP_SHAPES ? 3 : 0) + (groups & ANN_GROUP_TACTICS ? 3 : 0) +
+           (groups & ANN_GROUP_LAST_MOVE ? 1 : 0);
+}
+
+int ann_layout_inputs(unsigned groups, int points) {
+    int features = ann_feature_count(groups);
+    if (features < 0) return -1;
+    return 1 + points + features * points + (groups & ANN_GROUP_LIBERTIES ? 3 * points : 0) +
+           (groups & ANN_GROUP_LAST_MOVE ? points + 1 : 0);
+}
+
 void ann_print_genes_line(FILE *out, const genann *ann, const ann_genes *genes) {
     fprintf(out,
             "genes layers=%d width=%d act_hidden=%s act_output=%s copy_chance=%.17g weight_changes=%.17g "
