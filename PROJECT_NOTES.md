@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** give the network hand-coded Go knowledge as extra inputs: good 3×3 shapes, perhaps a few tactical features, and the last move (see “3×3 shapes and tactical features as inputs” below), with the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** finish giving the network hand-coded Go knowledge (see “3×3 shapes and tactical features as inputs” below): good 3×3 shapes, tactical features, the last move, and chain liberties, as extra inputs and as per-feature move weights that evolve as genes; then compare a feature run with a stones-only run on the benchmark. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -33,6 +33,17 @@ Crossing raw weight arrays also assumes that hidden units occupy compatible role
 The genes start from the `initial_*` settings (defaults: `copy_chance` 1%, 0.0004 weight changes per weight, `weight_step` ±0.5) and adapt at the pace of `meta_rate`. None of those values was chosen from evidence. Question them in these experiments: compare starting values, and a `meta_rate` of 0 (fixed genes) against self-adaptation, at equal game budgets.
 
 **Open question: do the self-adaptive genes drift to their clamps?** Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies. A 20-generation seeded run with the default genes (9×9, 20 networks of 1×50, 5 rounds, 25 Sep 2026) hit no clamp, but the medians moved: `copy_chance` from 0.01 to about 0.005, `activation_rate` from 0.02 to about 0.01, `structure_rate` up to 0.04 and back to 0.016, `weight_changes` from 3.3 to 4.2, and `weight_step`'s median rose to about 0.74 around generations 14–17 and fell back to 0.48 (all births: 0.23–1.21). Only three structural changes and seven activation switches happened, and none spread: no generation had more than two networks with another activation or one with another shape than 1×50. Twenty generations cannot tell drift from selection. Watch the Genes table in longer runs; if genes reach a clamp, try a lower `meta_rate`, or fix `copy_chance` (and perhaps the other probabilities) while `weight_changes` and `weight_step` adapt. If shapes are to be explored, start with a higher `initial_structure_rate`.
+
+**Proposed experiment: cross the rest of the genome apart from the weights.** A crossover child takes all of the non-weight genome (the mutation genes, both activations, and, once they exist, the feature weights and `feature_step`) from the picked parent, the one whose weights come first. Instead, cross it separately: for example take each gene from either parent at random, or average the numeric ones. These genes do not depend on the network's shape, so they could mix even between parents of different shapes, which today always give a mutation. Compare against the present scheme at equal game budgets.
+
+**Settings that could become genes.** Candidates, each a proposed experiment:
+
+- `cross_over_rate` as a per-network `crossover_chance`: the picked parent's decides, and it mutates on the logit scale like `copy_chance`. Pairs with crossing the rest of the genome (above).
+- A pass bias added to the pass output's score, a move weight for passing, since saturated ties pass today.
+- Move temperature (see item 7).
+- Switching feature groups on or off per network. That changes the input count, so it blocks crossover between networks that differ; worth it only if a feature turns out to hurt.
+
+The other settings define the experiment or its measurement and stay settings: the board, komi, move and time limits, population, rounds, seeds, the benchmark, the shape bounds, `tournament_size`, and `meta_rate` (the τ that evolution strategies usually keep fixed).
 
 ### 4. The policy has to learn Go structure from very little guidance
 
@@ -87,7 +98,9 @@ Strong engines before AlphaZero gave their move choosers hand-coded Go knowledge
 
 For Evo: hand-code the features, pass them to the network as extra input planes (one input per point per feature, next to the stones and komi), and let evolution learn their weights. [michi's `pat3src`](https://github.com/pasky/michi/blob/master/michi.py) lists MoGo's shapes in a form that is easy to port; each counts in all 8 rotations and reflections and both colours. Candidate planes: the move matches a good shape (one plane, or one per shape family), the stones it captures, self-atari, saving a chain from atari, and liberties after the move. The last move is a candidate too, since the network sees no move history today: a plane marking the opponent's last move (or, as AlphaGo did, planes for how many turns ago each stone was played), and one input for whether the opponent just passed, which would also help decide when to pass. Brown records the last move (`last_move()`), from GTP `play` and `genmove` and in the arena; more history would need more. Each plane adds 81 weights per first-layer neuron on 9×9 (4,050 for a layer of 50). The feature set goes into the `.ann` file under a new format version.
 
-Measure a feature run against a stones-only run on the benchmark, so the features' effect is known; that is a comparison, not a condition for using them.
+Measure a feature run against a stones-only run on the benchmark, so the features' effect is known; that is a comparison, not a condition for using them. Left open for after that comparison: shapes only around the last move instead of at every point, and more move history than the last move.
+
+**Later: a `ladders` feature group.** Ladder capture and ladder escape per point, as AlphaGo's inputs had, mainly for bigger boards, where ladders matter more. It needs a ladder reader on Brown's board: play the ladder out with trial moves and undo them with `brown_save`/`brown_restore`.
 
 ### A network inside UCT-style search
 
@@ -118,9 +131,17 @@ Candidate remedies, to decide between:
 
 The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
 
+### More engines for the tournament
+
+The opponent ladder needs bots between AmiGo and GNU Go, and beyond GNU Go once networks get there. Candidates: michi, Pachi, Fuego, GNU Go at levels 0–10, and others. For each, find out whether it builds on macOS (clang) and Linux (GCC), speaks GTP well enough for `gogui-twogtp`, can be weakened by a playout limit or a level, and how strong each setting is on 9×9 (for example against GNU Go level 0 and each other, over enough games in both colours). Each one that qualifies goes into the external tools release (`scripts/external-tools.txt`) and the installer.
+
 ## Code cleanup
 
 The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
+
+### Backwards compatibility
+
+Old experiments need not keep working (owner, 26 Sep 2026). Find and remove the code that keeps them working, for example `scorer` defaulting rows from before migration 009 to `gnugo`, and `stats` handling gene columns missing before migration 010.
 
 ### Neural network library
 
@@ -173,7 +194,6 @@ There is precedent for training substantial neural policies with genetic algorit
 
 - Should the owner's parked elitism and champion-retention work on [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention) come back once selection is reworked and tested? Its commit message describes what it changes.
 - Which network sizes, populations, and approximate runtimes were used before? Do historical results or champions exist elsewhere?
-- For the feature inputs: shapes alone or also tactical features; one good-shape plane or one per shape family; the last move only, or a few moves of history; shapes at every point or only around the last move; and whether features are an experiment setting, so stones-only runs stay possible.
 - What hardware, compute budget, and unattended runtime are comfortable for a single experiment?
 - Which board size and first opponent would make a satisfying initial milestone?
 - For the opponent ladder: what promotes a network to the next bot (for example, a win rate over a number of games in both colors, sustained for some generations), whether beaten bots leave the panel, and which bots fill the gaps?
