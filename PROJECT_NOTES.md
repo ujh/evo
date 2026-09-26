@@ -137,6 +137,14 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 Old experiments need not keep working (owner, 26 Sep 2026). Find and remove the code that keeps them working, for example `scorer` defaulting rows from before migration 009 to `gnugo`, and `stats` handling gene columns missing before migration 010.
 
+### Remove the `ranking` script
+
+The owner finds `ranking` of little use (26 Sep 2026). Remove the script and every mention of it (`CLAUDE.md`, `README.md`, docs, tests).
+
+### Replace `stats` with a graphical viewer
+
+`stats`' text tables are not useful as they are (owner, 26 Sep 2026). Replace them with a proper app, for example a web app run locally, that reads the experiment database read-only and shows graphs: benchmark results per checkpoint, gene and feature-weight trends, shapes and activations over time, and where the bots rank, plus whatever else turns out to be interesting. Open questions: the technology (a small local Ruby web server with a charting library, or something else), what to show, and whether the CSV output stays.
+
 ### Neural network library
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). Extra feature inputs only widen the input layer, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes, both activations, its genes, and its feature set with its feature weights (format version 2). GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
