@@ -56,7 +56,7 @@ Take the PRs in the plan's order, and finish each one before the next begins: it
 
 **Learnings.** The plan's last step, in its own docs PR or at the end of the last PR, folds the plan's learnings log into this file and `docs/pull-requests.md`, and repository quirks into `CLAUDE.md`, which every agent reads: keep what generalizes as a rule with its reason, drop one-offs. Its PR goes through the same review and CI as the others, so it is in the report.
 
-**Whole-process review.** Every third run, the learnings step also has a fresh agent review the whole process as one system: this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions, restructuring where the parts no longer fit rather than patching lines, since learnings folded in one run at a time drift apart. Do it sooner when a run's learnings log holds more than a handful of process items. The learnings step updates the count below.
+**Whole-process review.** Every third run, the learnings step also has a fresh agent review the whole process as one system: this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions, restructuring where the parts no longer fit rather than patching lines, since learnings folded in one run at a time drift apart. Do it sooner when a run's learnings log holds more than a handful of process items. The learnings step adds 1 to the count below; when that makes it 3 (or sooner, as above), it does the review and sets the count to 0.
 
 Runs since the last whole-process review: 0
 

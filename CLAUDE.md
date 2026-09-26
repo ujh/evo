@@ -67,7 +67,7 @@ Always go through mise. It pins Ruby 4.0, Java 21, and jq, and it puts `.local/e
 - Brown's own `final_score` is unreliable on arbitrary positions: an empty 9×9 board scores `W+87.5`. Use the arena's `tromp_taylor_score` or the referee's result.
 - The build uses `-march=native`. Binaries are for the local machine only.
 - macOS ships GNU make 3.81, which compares timestamps to the second. A C file edited and rebuilt within the same second can leave the old object in place, so a quick edit-rebuild-test loop (such as checking that a test catches a mutant) may run a stale binary. Delete the `.o` files before rebuilding in that case.
-- macOS `cmp -n N A B SKIP1 SKIP2` misreports EOF when the two skips differ. To compare byte ranges at different offsets, dump them with `od` and compare the dumps.
+- macOS `cmp -n N A B SKIP1 SKIP2` misreports EOF when the bytes left after the two skips differ in length, even though `-n` limits the range. To compare byte ranges at different offsets, dump them with `od` and compare the dumps.
 
 ### Game results
 
