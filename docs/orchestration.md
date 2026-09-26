@@ -32,7 +32,7 @@ Each PR updates the docs it makes stale (`docs/pull-requests.md` step 3). Do not
 
 ### 3. Review the plan
 
-Have a fresh subagent review the plan before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here. Ask the reviewer to check the maths numerically and the external tools by running them, not by reading alone: measured numbers, not estimates, set a design's constants. Fold the findings into the plan. When a finding or the owner changes the design, have a fresh subagent review the changed parts before any code: they are the parts no reviewer has seen. The loop and its limit are those of `docs/pull-requests.md`.
+Have a fresh subagent review the plan before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here. Ask the reviewer to check the maths numerically and the external tools by running them, not by reading alone: measured numbers, not estimates, set a design's constants. Fold the findings into the plan. When a finding or the owner changes the design, have a fresh subagent review the whole plan again before any code, not only the changed parts: a change can leave other parts that no longer fit. The loop and its limit are those of `docs/pull-requests.md`.
 
 ### 4. Get the owner's approval
 
@@ -50,11 +50,15 @@ Take the PRs in the plan's order, and finish each one before the next begins: it
 - A fix is a new commit on top. Amending or rebasing a commit that another branch is built on moves that branch's base. A stacked branch that is not yet pushed may instead be rebased onto its fixed base ([Worktrees and stacked PRs](#worktrees-and-stacked-prs)).
 - A nit about lines a later step touches goes into that step's item in the plan, not into a commit now: that step rewrites those lines anyway.
 
-**Whole-branch review and the PR.** Once the PR's last step is ticked, follow `docs/pull-requests.md` for it: stale-text sweep, whole-branch review loop, push, and `mise run pr-checks`. In a planned run, the whole-branch reviewer gets the per-commit findings and what happened to each, and looks for what a review of one commit cannot see: how the commits fit together, text they left stale, and files the commits do not hold. `mise run pr-checks` compares against the local `HEAD`, so run it in the checkout that has the PR's branch.
+**Whole-branch review and the PR.** Once the PR's last step is ticked, follow `docs/pull-requests.md` for it: stale-text sweep, whole-branch review loop, push, and `mise run pr-checks`. In a planned run, the whole-branch reviewer gets the per-commit findings and what happened to each, and looks for what a review of one commit cannot see: how the commits fit together and text they left stale. `mise run pr-checks` compares against the local `HEAD`, so run it in the checkout that has the PR's branch.
 
 **Real runs.** Finish the last code PR with a step of checks on real runs, not only unit tests; they find what reviews do not, such as a design consequence no one predicted: a seeded run compared against `main` where behavior must not change, reproducibility (the same seed twice), and resume after an interrupt where the change touches the runner. Examples in the docs come from seeded runs, with the full command, so a reader can repeat them. Report a result that argues against the design; do not stop for it unless it means the goal cannot be met.
 
 **Learnings.** The plan's last step, in its own docs PR or at the end of the last PR, folds the plan's learnings log into this file and `docs/pull-requests.md`, and repository quirks into `CLAUDE.md`, which every agent reads: keep what generalizes as a rule with its reason, drop one-offs. Its PR goes through the same review and CI as the others, so it is in the report.
+
+**Whole-process review.** Every third run, the learnings step also has a fresh agent review the whole process as one system: this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions, restructuring where the parts no longer fit rather than patching lines, since learnings folded in one run at a time drift apart. Do it sooner when a run's learnings log holds more than a handful of process items. The learnings step updates the count below.
+
+Runs since the last whole-process review: 0
 
 ### 6. Report
 
@@ -92,11 +96,10 @@ Each check earns its cost only where it can find something the others do not.
 
 | Check | When | Why there |
 | --- | --- | --- |
-| Plan review | Once before code; again for parts a finding or the owner changed | Design gaps are cheapest before code. |
+| Plan review | Once before code; again, of the whole plan, after a finding or the owner changed it | Design gaps are cheapest before code. |
 | Per-commit review | Each code commit, unless the PR has only one step | Finds a defect before the PR's later steps build on it. |
 | Whole-branch review | Each PR, before its first push and after every later change, except a clean merge of commits already reviewed (`docs/pull-requests.md` step 7) | Sees how commits fit and what they left stale. |
 | Mutants | In each review of code, a few on the behavior the change adds or fixes | The only proof that a test catches a break. |
-| Clean checkout | In the whole-branch review of a PR that adds or renames files | Only there does a file the commits do not hold go missing. |
 | GCC in Docker (`make test` in `gcc:14`) | In the whole-branch review of a PR that changes C; in a step, only when later steps rely on its floating-point results before CI sees them | The local build is clang and CI's is GCC: floating-point results and warnings differ. CI runs GCC on every push, so once per PR is enough. |
 | Seeded smoke run | Each step whose tests stub a program it changes | Stubs hide a mismatch between the programs. |
 | Real runs | Once, at the end of the last code PR | They find design consequences no review predicts. |

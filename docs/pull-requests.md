@@ -39,7 +39,7 @@ Tests follow the risk. In experiment code (the engine, `evolve`, `initial-popula
 ### The loop
 
 1. Fix every blocker and important finding.
-2. Review again. Give the new round the list of earlier findings and what happened to each (fixed, or declined with the reason), so it does not raise them again.
+2. Review again, from scratch: a fresh reviewer reviews the whole change as the first round did, not only the fixes, so a fix that breaks something elsewhere or leaves the design lopsided is found. Give it the list of earlier findings and what happened to each (fixed, or declined with the reason), only so it does not raise them again.
 3. The loop ends when a round has no blocker and no important finding. Nits do not start another round. Fix a nit only if it is a small change to lines the change already touches and no later step rewrites; otherwise mention it when reporting (in a planned run, a nit about lines a later step touches goes into that step).
 4. If the third round still has a blocker or important finding, stop and report to the owner. The change is probably too large, or its approach needs a decision.
 
@@ -47,7 +47,7 @@ Don't stop for sign-off on findings within these rounds. Ask the owner only when
 
 ### Where the reviewer works
 
-The reviewer never modifies, checks out, or stashes in the tree under review: an agent may be working there, and a half-finished edit shows up as failures that are not real. To build, run tests, or try mutants, it makes its own worktree at the commit under review (`git worktree add DIR COMMIT` in a scratch directory; setup and removal in `docs/orchestration.md`). A whole-branch review of a branch that adds or renames files also builds and tests a clean checkout (`git archive HEAD` plus `pcg-c`), the only place a file the commits do not hold goes missing, such as one an ignore rule hid. Run `git init` and make one commit in it first: the `pr-checks` tests read `git rev-parse HEAD`.
+The reviewer never modifies, checks out, or stashes in the tree under review: an agent may be working there, and a half-finished edit shows up as failures that are not real. To build, run tests, or try mutants, it makes its own worktree at the commit under review (`git worktree add DIR COMMIT` in a scratch directory; setup and removal in `docs/orchestration.md`). No clean-checkout build is needed: CI tests a fresh clone on every push, so a file the commits do not hold fails there before merge.
 
 ### Reviewer prompt
 
