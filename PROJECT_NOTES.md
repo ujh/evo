@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** finish giving the network hand-coded Go knowledge (see “3×3 shapes and tactical features as inputs” below): good 3×3 shapes, tactical features, the last move, and chain liberties, as extra inputs and as per-feature move weights that evolve as genes; then compare a feature run with a stones-only run on the benchmark. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** the networks now have hand-coded Go knowledge (`docs/features.md`), and one seeded comparison showed a clear head start against Brown but no progress towards AmiGo in 20 generations. Repeat that comparison with several seeds and more benchmark games (see [Go features: what is still open](#go-features-what-is-still-open)) before building on it. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -32,9 +32,9 @@ Crossing raw weight arrays also assumes that hidden units occupy compatible role
 
 The genes start from the `initial_*` settings (defaults: `copy_chance` 1%, 0.0004 weight changes per weight, `weight_step` ±0.5) and adapt at the pace of `meta_rate`. None of those values was chosen from evidence. Question them in these experiments: compare starting values, and a `meta_rate` of 0 (fixed genes) against self-adaptation, at equal game budgets.
 
-**Open question: do the self-adaptive genes drift to their clamps?** Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies. A 20-generation seeded run with the default genes (9×9, 20 networks of 1×50, 5 rounds, 25 Sep 2026) hit no clamp, but the medians moved: `copy_chance` from 0.01 to about 0.005, `activation_rate` from 0.02 to about 0.01, `structure_rate` up to 0.04 and back to 0.016, `weight_changes` from 3.3 to 4.2, and `weight_step`'s median rose to about 0.74 around generations 14–17 and fell back to 0.48 (all births: 0.23–1.21). Only three structural changes and seven activation switches happened, and none spread: no generation had more than two networks with another activation or one with another shape than 1×50. Twenty generations cannot tell drift from selection. Watch the Genes table in longer runs; if genes reach a clamp, try a lower `meta_rate`, or fix `copy_chance` (and perhaps the other probabilities) while `weight_changes` and `weight_step` adapt. If shapes are to be explored, start with a higher `initial_structure_rate`.
+**Open question: do the self-adaptive genes drift to their clamps?** Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies. A 20-generation seeded run with the default genes (9×9, 20 networks of 1×50, 5 rounds, 25 Sep 2026) hit no clamp, but the medians moved: `copy_chance` from 0.01 to about 0.005, `activation_rate` from 0.02 to about 0.01, `structure_rate` up to 0.04 and back to 0.016, `weight_changes` from 3.3 to 4.2, and `weight_step`'s median rose to about 0.74 around generations 14–17 and fell back to 0.48 (all births: 0.23–1.21). Only three structural changes and seven activation switches happened, and none spread: no generation had more than two networks with another activation or one with another shape than 1×50. Twenty generations cannot tell drift from selection. The same settings with every feature group (26 Sep 2026; the stones-only run gave the numbers above again) also hit no clamp: `weight_changes` fell from 21.2 to 12.5, `weight_step` to about 0.34, and `structure_rate` to about 0.008, and `copy_chance` and `activation_rate` to about 0.008 and 0.016. Watch the Genes table in longer runs; if genes reach a clamp, try a lower `meta_rate`, or fix `copy_chance` (and perhaps the other probabilities) while `weight_changes` and `weight_step` adapt. If shapes are to be explored, start with a higher `initial_structure_rate`.
 
-**Proposed experiment: cross the rest of the genome apart from the weights.** A crossover child takes all of the non-weight genome (the mutation genes, both activations, and, once they exist, the feature weights and `feature_step`) from the picked parent, the one whose weights come first. Instead, cross it separately: for example take each gene from either parent at random, or average the numeric ones. These genes do not depend on the network's shape, so they could mix even between parents of different shapes, which today always give a mutation. Compare against the present scheme at equal game budgets.
+**Proposed experiment: cross the rest of the genome apart from the weights.** A crossover child takes all of the non-weight genome (the mutation genes, both activations, the feature weights, and `feature_step`) from the picked parent, the one whose weights come first. Instead, cross it separately: for example take each gene from either parent at random, or average the numeric ones. These genes do not depend on the network's shape, so they could mix even between parents of different shapes, which today always give a mutation. Compare against the present scheme at equal game budgets.
 
 **Settings that could become genes.** Candidates, each a proposed experiment:
 
@@ -53,7 +53,7 @@ That makes a compact policy an interesting learning experiment, with substantial
 
 None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. Generation 0's sizes and activations are experiment settings and defaults; from there, activations and sizes evolve as genes of each network. Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
 
-**Proposed representation change:** add hand-coded shape and tactical features as extra inputs (below). Search remains a choice to discuss.
+Search remains a choice to discuss.
 
 ### 5. Long runs need recoverable evidence
 
@@ -85,22 +85,16 @@ Before treating results as reliable, specify the board size, suicide policy, ko 
 
 ## Comparing the owner's two proposed directions
 
-### 3×3 shapes and tactical features as inputs
+### Go features: what is still open
 
-Strong engines before AlphaZero gave their move choosers hand-coded Go knowledge, and the owner wants Evo to have it too. What they did:
+The networks get 3×3 shapes, tactical features, the last move, and chain liberties as inputs and as feature weights that evolve (`docs/features.md`). One seeded 20-generation comparison with a stones-only run (26 Sep 2026, in `docs/features.md`) leaves these open:
 
-| Engine | Knowledge given | Where it came from |
-| --- | --- | --- |
-| MoGo (2006), later Pachi and michi | About 13 hand-written good 3×3 shapes (hane, cuts, edge moves), checked around the last move; a matching move is preferred in playouts. | Hand-written. |
-| CrazyStone ([Coulom 2007](https://www.remi-coulom.fr/Amsterdam2007/icgaj.pdf)) | A move's 3×3 shape plus capture, extension out of atari, self-atari, and distance to the last move. | Weights learned from game records. |
-| AlphaGo (2016), fast rollout policy | A linear model over about 69,000 3×3 shapes (colour and liberty count 1, 2, ≥3 of each neighbour), shapes answering the previous move, and saving from atari. | Weights learned from human games. |
-| AlphaGo (2016), policy network | 48 input planes: stone colour, liberties, capture size, self-atari size, liberties after the move, ladder capture and escape, "sensible" (legal and not filling an own eye), turns since a move. No shape patterns. | Hand-coded features; the network learned their use. |
-
-For Evo: hand-code the features, pass them to the network as extra input planes (one input per point per feature, next to the stones and komi), and let evolution learn their weights. [michi's `pat3src`](https://github.com/pasky/michi/blob/master/michi.py) lists MoGo's shapes in a form that is easy to port; each counts in all 8 rotations and reflections and both colours. Candidate planes: the move matches a good shape (one plane, or one per shape family), the stones it captures, self-atari, saving a chain from atari, and liberties after the move. The last move is a candidate too, since the network sees no move history today: a plane marking the opponent's last move (or, as AlphaGo did, planes for how many turns ago each stone was played), and one input for whether the opponent just passed, which would also help decide when to pass. Brown records the last move (`last_move()`), from GTP `play` and `genmove` and in the arena; more history would need more. Each plane adds 81 weights per first-layer neuron on 9×9 (4,050 for a layer of 50).
-
-Measure a feature run against a stones-only run on the benchmark, so the features' effect is known; that is a comparison, not a condition for using them. Left open for after that comparison: shapes only around the last move instead of at every point, and more move history than the last move.
-
-**Later: a `ladders` feature group.** Ladder capture and ladder escape per point, as AlphaGo's inputs had, mainly for bigger boards, where ladders matter more. It needs a ladder reader on Brown's board: play the ladder out with trial moves and undo them with `brown_save`/`brown_restore`.
+- **Does the head start last, and does it help beyond Brown?** The feature run beat Brown 6–9 times in 10 against 0–5 for the stones-only run, but neither beat AmiGo or GNU Go level 0 at any checkpoint, and the feature run's checkpoints beat the previous one only 5 times in 10. One seed and 10 games per opponent: repeat with several seeds, more benchmark games, and longer runs (see "Proposed sequence" item 2).
+- **The feature weights hardly evolve.** Their medians moved in the first five generations, faster than mutation can move them, so selection picked among generation 0's noise; afterwards they barely moved and `feature_step` fell from 0.01 to 0.005. Try a larger `initial_feature_step` or `initial_feature_noise`, and check whether selection, not the lineage that carries them, moves the weights (for example several seeds, or a run with the weights fixed at their starting values).
+- **Which groups help?** The `features` setting takes single groups; compare them one at a time against `all` and `none`.
+- Shapes only around the last move, instead of at every point, as MoGo used them.
+- More move history than the last move: planes for how many turns ago each stone was played, as AlphaGo's inputs had.
+- **Later: a `ladders` feature group.** Ladder capture and ladder escape per point, mainly for bigger boards, where ladders matter more. It needs a ladder reader on Brown's board: play the ladder out with trial moves and undo them with `brown_save`/`brown_restore`.
 
 ### A network inside UCT-style search
 
@@ -153,7 +147,7 @@ These are candidate milestones for discussion, rather than an implementation com
 
 0. **Clean up the code under test.** Carry out the remaining [cleanup](#code-cleanup) alongside milestone 1.
 1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9 and the komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring.
-2. **Add shape and tactical features as inputs.** Compare a feature run with a stones-only run and with random search using the same inputs and game budget, with the same breeding procedure. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
+2. **Measure the features' effect.** Compare a feature run with a stones-only run and with random search using the same inputs and game budget, with the same breeding procedure. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.
 
 Repeated deterministic games from the same starting position do not provide independent evidence. Evaluation needs controlled variation in openings or opponent seeds, with color-balanced comparisons. Compare methods by games and compute consumed, not merely generation count.

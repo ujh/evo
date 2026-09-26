@@ -29,8 +29,10 @@ A network's `.ann` file holds everything about it:
   `linear`, `tanh`, `relu`. Generation 0 uses `sigmoid_cached` for both.
 - **Shape.** The number of hidden layers and their width, written
   `LAYERSxWIDTH` (for example `1x10`). The inputs and outputs are fixed by
-  the board: on 9×9, 82 of each (komi plus 81 points in, 81 points plus pass
-  out).
+  the board and the experiment's features: on 9×9 there are 82 outputs (81
+  points plus pass), and 974 inputs with every feature group (komi, 81
+  points, and the features' 892) or 82 with `features none` (komi plus 81
+  points). [Go features](features.md) explains the features.
 - **Five mutation genes**, which decide how its children are mutated:
 
 | Gene | What it does | Starts at (setting, default) | Limits |
@@ -52,7 +54,8 @@ set back to it. The settings accept the same ranges.
   inputs, and each feature weight is added to a point's score where that
   feature is 1. The groups never change: one experiment has one feature
   set, and `evolve` refuses parents with different groups. The feature
-  weights and `feature_step` evolve (section 2):
+  weights and `feature_step` evolve (section 2; [Go features](features.md)
+  has the details):
 
   | Gene | What it does | Starts at | Limits |
   | --- | --- | --- | --- |
@@ -72,9 +75,12 @@ activations), then the five genes, then the features, then the weights:
 86 bytes plus 8 per feature weight plus 8 per weight. Files of the
 earlier format, without the features, are no longer read.
 
-Example: a 9×9 network of `1x50` has 8,332 weights, so its default
-`weight_changes` is 0.0004 × 8,332 ≈ 3.3. A `1x10` network has 1,732
-weights; 0.0004 × 1,732 is 0.69, so it starts at the lower limit of 1.
+Example: a 9×9 network of `1x50` with every feature group has 52,932
+weights, so its default `weight_changes` is 0.0004 × 52,932 ≈ 21.2. A
+`1x10` network has 10,652 weights, so 4.26. With `features none` the same
+shapes have 8,332 and 1,732 weights: 3.3, and 0.69, which starts at the
+lower limit of 1. (The Weights and Changes columns of `stats` show them;
+see section 5.)
 
 ## 2. How `evolve` makes a child
 
@@ -158,7 +164,7 @@ values like 0.02 is nearly the same ±22%. `meta_rate` 0 freezes the genes.
 The gene says "change about this many weights per child", not "change this
 share of the weights". That matters once shapes change:
 
-- With a rate, a network that grows from 8,332 to 20,000 weights would get
+- With a rate, a network that grows from 52,932 to 100,000 weights would get
   more than twice as many changes per child, without selection asking for
   it. With a count, it keeps the same number.
 - A count cannot sink below 1, so a mutated child always expects at least
@@ -174,9 +180,9 @@ their parent. The Copies column in `stats` counts those too.
 GENANN networks have one width for all hidden layers:
 
 ```
- inputs (82)       hidden 1         hidden 2          outputs (82)
+ inputs (974)      hidden 1         hidden 2          outputs (82)
  komi, A1 … J9 ──▶ ○ ○ ○ ○ ○ ○ ──▶ ○ ○ ○ ○ ○ ○ ──▶ A1 … J9, pass
-                   6 wide            6 wide
+ + features        6 wide            6 wide
                          shape: 2x6
 ```
 
@@ -281,24 +287,27 @@ are mutations.
 ## 5. Reading a run
 
 `mise run stats NAME` prints, between the Generations and Benchmark tables,
-the genome tables for the latest 10 generations (four, or three with
-`features none`). Each row describes the
+the genome tables for the latest 10 generations (four, or three without
+move features: `none`, or `liberties` alone). Each row describes the
 networks *of* that generation, from the `births` table.
 
 ### Genes
 
 ```
-| Gen |   Copy | Changes |  Step |   Act | Struct | Layers | Width | Weights |
-|   5 | 0.0106 |    1.14 | 0.533 | 0.206 |  0.303 |      1 |    11 |    1897 |
-| min |  0.008 |       1 |  0.37 | 0.126 |  0.234 |      1 |    10 |    1732 |
-| max | 0.0179 |    1.84 | 0.733 | 0.231 |  0.369 |      2 |    11 |    2029 |
+| Gen | Copy    | Changes | Step  | Act   | Struct | Layers | Width | Weights |
+|   5 |  0.0089 |    4.12 | 0.618 | 0.206 |  0.259 |      1 |    10 |   10652 |
+| min | 0.00666 |    2.56 | 0.472 |  0.13 |  0.191 |      0 |     0 |    9595 |
+| max |  0.0119 |    8.61 |  1.02 | 0.265 |  0.368 |      1 |    11 |   79950 |
 ```
 
 One row of **medians** per generation: Copy (`copy_chance`), Changes
 (`weight_changes`), Step (`weight_step`), Act (`activation_rate`), Struct
 (`structure_rate`), then Layers, Width, and Weights per network (feature
 inputs included). The `min`
-and `max` rows give the range in the latest generation.
+and `max` rows give the range in the latest generation (here from `0x0`
+to `1x11`). Each column has its own minimum and maximum, so a row need not
+be one network: the most weights, 79,950, belong to the `0x0` networks,
+whose 974 inputs all connect straight to the 82 outputs.
 
 Watch for a gene that walks to a limit and stays there, for example Copy at
 0.1 (a tenth of mutated children would be plain copies) or Step at 10. A
@@ -315,9 +324,10 @@ median that wanders and comes back is normal.
 
 The same rows as Genes for `feature_step` (Step, not `weight_step`) and
 for the weight each move feature adds to a point's score. Only the
-experiment's features have a column; with `features none` there is no
-table, since no network has a feature weight and `feature_step` never
-moves. (From a seeded smoke run, generation 1: `--features all --seed 3`,
+experiment's features have a column; without move features (`none`, or
+`liberties` alone) there is no table, since no network has a feature
+weight and `feature_step` never moves. [Go features](features.md#reading-them-in-stats)
+says what to look for. (From a seeded smoke run, generation 1: `--features all --seed 3`,
 4 networks of `1x10`.)
 
 A sign that flips (Capture or SavesAtari below 0, SelfAtari above 0) or a
@@ -328,15 +338,16 @@ shape weights that drift by a few hundredths over generations are
 ### Shapes and activations
 
 ```
-| Gen | Shapes                    | Hidden                | Output                   |
-|   4 | 1x10 10, 1x11 2           | sigc 10, sig 2        | sigc 9, lin 1, relu 1 +1 |
-|   5 | 1x11 6, 1x10 4, 2x10 1 +1 | sig 6, sigc 5, tanh 1 | lin 4, sigc 4, sig 2 +2  |
+| Gen | Shapes                   | Hidden                   | Output                  |
+|   3 | 1x10 8, 0x0 2, 1x11 1 +1 | sigc 9, lin 1, relu 1 +1 | thr 6, sigc 5, lin 1    |
+|   4 | 1x10 6, 0x0 5, 3x10 1    | sigc 8, relu 1, sig 1 +2 | thr 7, sigc 3, lin 1 +1 |
 ```
 
 The three most common shapes and activations with their counts; `+1` means
 one more kind exists. Short names: `sig`, `sigc` (sigmoid_cached), `thr`,
 `lin`, `tanh`, `relu`. A new shape or activation that grows from 1–2
-networks to many is selection preferring it (here `1x11` went from 2 to 6).
+networks to many is selection preferring it (here `0x0`, a network with no
+hidden layer, went from 2 to 5, and threshold outputs from 3 to 7).
 One that appears and vanishes the next generation was tried and lost.
 
 Networks with `threshold` or `relu` outputs often tie, and the engine
@@ -346,7 +357,7 @@ passes on a tie, so they pass a lot: selection's problem, not a bug.
 
 ```
 | Gen | Kids | Childless | Widen | Narrow | Add | Remove | Bots  | Brown  | AmiGo |
-|   2 |    7 |         5 |     0 |      0 |   1 |      0 | 1 (0) | 13 (2) | 1 (0) |
+|   3 |    5 |         5 |     1 |      0 |   0 |      2 | 1 (0) | 14 (4) | 1 (0) |
 ```
 
 - **Kids:** most children of one parent of the previous generation. A
@@ -408,10 +419,10 @@ sqlite3 -header -column experiments/NAME/experiment.sqlite3 "
 ```
 
 ```
-gen  child   first_parent  second_parent  parent  structure  shape  act_hidden      act_output ...
-1    1.ann   0005.ann      0005.ann       second  narrow     1x9    sigmoid_cached  sigmoid_cached
-2    0.ann   10.ann        11.ann         second  add_layer  2x10   sigmoid_cached  sigmoid_cached
-4    4.ann   0.ann         5.ann          first   widen      1x11   sigmoid         linear
+gen  child   first_parent  second_parent  parent  structure     shape  act_hidden      act_output     ...
+1    0.ann   0011.ann      0011.ann       first   add_layer     2x10   sigmoid_cached  sigmoid_cached
+1    3.ann   0010.ann      0011.ann       second  none          1x10   sigmoid_cached  threshold
+3    1.ann   1.ann         1.ann          first   remove_layer  0x0    sigmoid_cached  threshold
 ```
 
 ## 6. The settings, and a run to try
@@ -448,25 +459,33 @@ for i in 1 2 3 4 5 6; do mise run run demo 4 one-generation; done
 mise run stats demo
 ```
 
-That plays generations 0 to 5 in about a minute; the tables in section 5
-come from it. It showed widen, narrow, and add-layer changes (no removal),
-shapes from `1x9` to `2x11`, and `1x11` spreading to half the population by
-generation 5. `weight_changes` starts at its lower limit of 1 here, because
-a `1x10` network is small. The same seed gives the same run again on the
+That plays generations 0 to 5 in under a minute (26 Sep 2026); the Genes,
+Shapes and activations, Breeding, and births examples in section 5 come
+from it. It showed all four kinds of shape changes, shapes from `0x0` to
+`3x10`, and networks without a hidden layer spreading to 5 of 12 by
+generation 4. `weight_changes` starts at 4.26 here (0.0004 × 10,652
+weights of a `1x10` network with every feature group). The same seed gives the same run again on the
 same machine; another machine can differ, because the build is tuned to the
 local CPU. Delete `experiments/demo` afterwards.
 
 ### What a 20-generation default run showed
 
-A seeded run with the default genes and limits (25 Sep 2026: 9×9, 20
-networks of `1x50`, 5 rounds, seed 2026) hit no limit, but the medians
-moved: `copy_chance` fell from 0.01 to about 0.005 and `activation_rate`
-from 0.02 to about 0.01; `structure_rate` rose to 0.04 and fell back to
-0.016; `weight_changes` rose from 3.3 to 4.2; and `weight_step` rose to
-about 0.74 around generations 14–17 and fell back to 0.48 (all networks:
-0.23 to 1.21).
+Two seeded runs with the default genes and limits (26 Sep 2026: 9×9, 20
+networks of `1x50`, 5 rounds, seed 2026; the command is in
+[Go features](features.md#what-a-comparison-showed)), one with every
+feature group and one with `features none`, hit no limit, but the medians
+moved:
 
-Only three shape changes and seven activation switches happened, and none
-spread. Twenty generations cannot tell drift from selection, so this stays
-an open question in `PROJECT_NOTES.md`: watch the Genes table in longer
-runs, and start with a higher `initial_structure_rate` to explore shapes.
+| Gene | Start | `all` at generation 19 | `none` at generation 19 |
+| --- | --- | --- | --- |
+| `copy_chance` | 0.01 | 0.008 | 0.005 |
+| `weight_changes` | 21.2 (`all`), 3.3 (`none`) | 12.5 | 4.2 |
+| `weight_step` | 0.5 | 0.34 | 0.48 (about 0.74 around generations 14–17) |
+| `activation_rate` | 0.02 | 0.016 | 0.01 |
+| `structure_rate` | 0.02 | 0.008 | 0.016 (0.04 in between) |
+| `feature_step` | 0.01 | 0.005 | 0.01 (never moves) |
+
+Only two or three shape changes happened in each run, and none spread.
+Twenty generations cannot tell drift from selection, so this stays an open
+question in `PROJECT_NOTES.md`: watch the Genes table in longer runs, and
+start with a higher `initial_structure_rate` to explore shapes.

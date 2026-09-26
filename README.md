@@ -56,6 +56,16 @@ arguments lists every setting and its default.
 [The evolving genome](docs/genes.md) explains the genes, how a child is
 made, how shapes change, and how to read the genome tables in `stats`.
 
+Networks also get hand-coded Go knowledge: good 3×3 shapes, captures,
+self-atari, saving a chain from atari, the opponent's last move, and chain
+liberties, as extra inputs and as feature weights added to each point's
+score, which evolve as genes too. The `features` setting picks the groups:
+`all` (the default), `none` (stones and komi only), or a list such as
+`tactics,liberties`; `initial_feature_noise` and `initial_feature_step`
+set how generation 0's feature weights start. [Go features](docs/features.md)
+explains each feature, how the network uses it, and what a comparison with
+a stones-only run showed.
+
 You can pass the existing runner arguments after the name, for example
 `mise run run EXPERIMENT_NAME 2 one-generation`. `mise run` supplies the pinned
 Ruby and Java versions even without shell activation.
@@ -111,30 +121,32 @@ lowest, median, and highest network score. A generation is done once its
 rounds and, at a checkpoint, its benchmark are played. The last table shows
 progress: each checkpoint's benchmark, with the network's wins and losses as
 Black and as White against each opponent. For example, after two generations
-of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (trimmed to the first and last table; the times vary):
+of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (every feature group, the default; trimmed to the first and last table, and to the Brown and Gen0Champion rows; 26 Sep 2026, the times vary):
 
 ```text
 Generations
 +-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
 | Gen | Done | Games | Draws | Failed | Time | Copies | Parents | Genomes | Min | Med | Max |
 +-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
-|   0 |  yes |     9 |     0 |      0 | 2.2s |      - |       0 |       4 |   0 | 0.5 |   1 |
-|   1 |  yes |     9 |     0 |      0 | 1.7s |    50% |       2 |       3 |   0 |   0 |   1 |
+|   0 |  yes |     9 |     0 |      0 | 2.1s |      - |       0 |       4 |   0 | 0.5 |   1 |
+|   1 |  yes |     9 |     0 |      0 | 2.2s |    25% |       2 |       4 |   0 | 0.5 |   1 |
 +-----+------+-------+-------+--------+------+--------+---------+---------+-----+-----+-----+
 
 Benchmark
 +-----+----------+--------------+-------+-------+-------+-------+--------+
 | Gen | Network  | Opponent     | Games | Black | White | Draws | Failed |
 +-----+----------+--------------+-------+-------+-------+-------+--------+
-|   0 | 0002.ann | Brown        |   2/2 |   1-0 |   0-1 |     0 |      0 |
-|   1 | 3.ann    | Brown        |   2/2 |   1-0 |   0-1 |     0 |      0 |
-|   1 | 3.ann    | Gen0Champion |   2/2 |   0-1 |   1-0 |     0 |      0 |
+|   0 | 0001.ann | Brown        |   2/2 |   1-0 |   1-0 |     0 |      0 |
+|   1 | 3.ann    | Brown        |   2/2 |   1-0 |   1-0 |     0 |      0 |
+|   1 | 3.ann    | Gen0Champion |   2/2 |   1-0 |   1-0 |     0 |      0 |
 +-----+----------+--------------+-------+-------+-------+-------+--------+
 ```
 
-Between the two, for the latest 10 generations, three tables show how the
+Between the two, for the latest 10 generations, four tables show how the
 genomes evolve: Genes (the median of each gene, layers, width, and weights,
-with the range in the latest generation), Shapes and activations (the most
+with the range in the latest generation), Feature weights (the same for
+`feature_step` and each move feature's weight; not shown without move
+features), Shapes and activations (the most
 common of each), and Breeding and bots (the most children of one parent,
 parents without children, the structural changes, and where the best copy of
 each bot ranks among the networks).
