@@ -25,7 +25,7 @@ Write the plan to `plans/NAME.md` in the repository root. The directory is gitig
 - the owner's decisions, each request outside the plan's work with the PR whose docs carry it;
 - the declined findings, each with its reason; every reviewer gets this list, so it does not raise them again;
 - the design decisions you made;
-- the steps as a checklist, grouped by PR, in an order where the PRs can merge one after the other. Each step is small enough for one agent and one or two commits, and names the checks it needs beyond `mise run test` (a GCC build, a smoke run; see [Checks and their cost](#checks-and-their-cost)). A step of real runs and owner docs may be larger. The last code PR ends with the real runs (step 5); the last step of the run folds the learnings log into the docs (step 8);
+- the steps as a checklist, grouped by PR, in an order where the PRs can merge one after the other. Each step is small enough for one agent and one or two commits, and names the checks it needs beyond `mise run test` (a GCC build, a smoke run; see [Checks and their cost](#checks-and-their-cost)). A step of real runs and owner docs may be larger. The last code PR ends with a step of real runs, and the plan's last step folds the learnings log into the docs (both in step 5);
 - a learnings log: what worked, what went wrong, tool quirks, and what the owner asked to change about the process. Add to it as things happen, not from memory at the end.
 
 Each PR updates the docs it makes stale (`docs/pull-requests.md` step 3). Do not park those edits in a final docs step, or the PRs before it merge with stale text.
@@ -38,29 +38,31 @@ Have a fresh subagent review the plan before any code is written: missing cases,
 
 Show the plan to the owner and wait for their approval before any code is written. Show it in plain language: explain each mechanism with an example or a small diagram, not only as a list of steps, since the owner can only approve what they understand. Expect questions, and put the answers back into the plan. The owner may approve in advance (for example "start once the review is folded in"); then start as soon as the findings are in the plan, and record the approval as an owner decision.
 
-### 5. Run the steps
+### 5. Build the PRs, one at a time up the stack
 
-Give each step to a fresh step agent with the [step brief](#step-brief). When it reports, tick the step in the plan with its commit ids and what later steps need to know (a new interface, a name, a number), record the decisions it made, and add to the learnings log.
+Take the PRs in the plan's order, and finish each one before the next begins: its steps, its whole-branch review loop, then push, open, and `mise run pr-checks`. Only then branch the next PR from it and start that PR's first step. So a PR stacked on another is built on commits whose review is done, and a fix to the base never has to move a branch already built on it.
 
-After each code commit, a fresh reviewer reviews that commit under `docs/pull-requests.md`, with the owner's decisions and the declined findings. Commits that change only docs get no review of their own, and a PR of a single step skips the per-commit review: the PR's whole-branch review covers both. Fix blockers and important findings before the next step that depends on them:
+**Steps.** Give each step to a fresh step agent with the [step brief](#step-brief). When it reports, tick the step in the plan with its commit ids and what later steps need to know (a new interface, a name, a number), record the decisions it made, and add to the learnings log.
+
+**Per-commit review.** After each code commit, a fresh reviewer reviews that commit under `docs/pull-requests.md`, with the owner's decisions and the declined findings, so a defect is fixed before the PR's later steps build on it. Commits that change only docs get no review of their own, and neither does the commit of a PR with a single step: no later step builds on it before the PR's whole-branch review, which covers both. Fix blockers and important findings before the next step that depends on them:
 
 - Send the fix back to the agent that wrote the step, since it keeps its context, once no other agent is writing to that tree. If that agent is gone, brief a fresh one with the finding.
 - A fix is a new commit on top. Amending or rebasing a commit that another branch is built on moves that branch's base. A stacked branch that is not yet pushed may instead be rebased onto its fixed base ([Worktrees and stacked PRs](#worktrees-and-stacked-prs)).
-- A nit about lines a later step touches goes into that step's item in the plan, not into a commit now, which would force a rebase of a stacked branch in use.
+- A nit about lines a later step touches goes into that step's item in the plan, not into a commit now: that step rewrites those lines anyway.
 
-Finish the last code PR with checks on real runs, not only unit tests; they find what reviews do not, such as a design consequence no one predicted: a seeded run compared against `main` where behavior must not change, reproducibility (the same seed twice), and resume after an interrupt where the change touches the runner. Examples in the docs come from seeded runs, with the full command, so a reader can repeat them. Report a result that argues against the design; do not stop for it unless it means the goal cannot be met.
+**Whole-branch review and the PR.** Once the PR's last step is ticked, follow `docs/pull-requests.md` for it: stale-text sweep, whole-branch review loop, push, and `mise run pr-checks`. In a planned run, the whole-branch reviewer gets the per-commit findings and what happened to each, and looks for what a review of one commit cannot see: how the commits fit together, text they left stale, and files the commits do not hold. `mise run pr-checks` compares against the local `HEAD`, so run it in the checkout that has the PR's branch.
 
-### 6. Open the PRs
+**Real runs.** Finish the last code PR with a step of checks on real runs, not only unit tests; they find what reviews do not, such as a design consequence no one predicted: a seeded run compared against `main` where behavior must not change, reproducibility (the same seed twice), and resume after an interrupt where the change touches the runner. Examples in the docs come from seeded runs, with the full command, so a reader can repeat them. Report a result that argues against the design; do not stop for it unless it means the goal cannot be met.
 
-Follow `docs/pull-requests.md` for each PR, bottom of the stack first: stale-text sweep, whole-branch review, push, and `mise run pr-checks`. In a planned run, the whole-branch reviewer gets the per-commit findings and what happened to each, and looks for what a review of one commit cannot see: how the commits fit together, text they left stale, and files the commits do not hold. `mise run pr-checks` compares against the local `HEAD`, so run it in the checkout that has the PR's branch.
+**Learnings.** The plan's last step, in its own docs PR or at the end of the last PR, folds the plan's learnings log into this file and `docs/pull-requests.md`, and repository quirks into `CLAUDE.md`, which every agent reads: keep what generalizes as a rule with its reason, drop one-offs. Its PR goes through the same review and CI as the others, so it is in the report.
 
-### 7. Report
+### 6. Report
 
-Report once, when the PRs are open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, what the real runs showed (including results that argue against the design), what the owner must know (for example that old experiments no longer load), and anything left open. Do not merge unless the owner says so; how to merge a stack is under [Worktrees and stacked PRs](#worktrees-and-stacked-prs).
+Report once, when every PR, the learnings PR included, is open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, what the real runs showed (including results that argue against the design), what the owner must know (for example that old experiments no longer load), and anything left open. Do not merge unless the owner says so; how to merge a stack is under [Worktrees and stacked PRs](#worktrees-and-stacked-prs).
 
-### 8. Fold the learnings and clean up
+### 7. Clean up
 
-The run's last step folds the plan's learnings log into this file and `docs/pull-requests.md`, and repository quirks into `CLAUDE.md`, which every agent reads: keep what generalizes as a rule with its reason, drop one-offs. Once all of the plan's PRs have merged and the report is given, delete the plan from `plans/`: it then holds nothing the repository's history and docs do not.
+Once all of the plan's PRs have merged, delete the plan from `plans/`: it then holds nothing the repository's history and docs do not.
 
 ## When to ask the owner
 
@@ -91,7 +93,7 @@ Each check earns its cost only where it can find something the others do not.
 | Check | When | Why there |
 | --- | --- | --- |
 | Plan review | Once before code; again for parts a finding or the owner changed | Design gaps are cheapest before code. |
-| Per-commit review | Each code commit, unless the PR has only one step | Finds a defect before later steps build on it. |
+| Per-commit review | Each code commit, unless the PR has only one step | Finds a defect before the PR's later steps build on it. |
 | Whole-branch review | Each PR, before its first push and after every later change, except a clean merge of commits already reviewed (`docs/pull-requests.md` step 7) | Sees how commits fit and what they left stale. |
 | Mutants | In each review of code, a few on the behavior the change adds or fixes | The only proof that a test catches a break. |
 | Clean checkout | In the whole-branch review of a PR that adds or renames files | Only there does a file the commits do not hold go missing. |
@@ -101,8 +103,8 @@ Each check earns its cost only where it can find something the others do not.
 
 ## Worktrees and stacked PRs
 
-- **Stacking.** A PR may be stacked on another PR's branch: CI runs on every pull request, whatever its base. Branch a stacked PR from its base once the base's commits are final. If the base is rebased afterwards, move the stacked branch with `git rebase --onto NEW_BASE OLD_BASE`, where OLD_BASE is the base's commit id from before its rebase.
+- **Stacking.** A PR may be stacked on another PR's branch: CI runs on every pull request, whatever its base. Branch a stacked PR from its base once the base PR is open, its review loop done (step 5). If the base is rebased afterwards, move the stacked branch with `git rebase --onto NEW_BASE OLD_BASE`, where OLD_BASE is the base's commit id from before its rebase.
 - **When the base merges.** The repository deletes a merged PR's branch, so GitHub retargets the stacked PR to `main` (check with `gh pr view PR --json baseRefName`). Merge `origin/main` into it, then follow `docs/pull-requests.md` step 7.
 - **Merging a stack,** once the owner says so: merge the bottom PR, confirm the next one now targets `main`, bring it up to date as above, wait for `mise run pr-checks`, merge it, and repeat. The repository merges with merge commits, so merging `origin/main` in is clean.
 - **Worktrees.** Every agent that builds or runs tests outside the tree it writes to (a reviewer, or a second PR in parallel) uses its own `git worktree`. Never let two agents write to the same working tree at once. To set one up, link the main checkout's installed tools into it (`ln -s /path/to/checkout/.local .local`; `/.local` is gitignored), then run `mise trust` and `mise run setup` there (submodule, gems, build). Remove it with `git worktree remove --force`: without the flag git refuses, because the worktree holds the `pcg-c` submodule. For the same reason `gh pr merge --delete-branch` on a branch checked out in a worktree merges but skips the local cleanup; remove the worktree, then delete the local branch.
-- **Parallel work,** when the owner agreed to it: a review of step N in its own worktree while step N+1 is built, or a second PR in its own worktree.
+- **Parallel work,** when the owner agreed to it: a review of step N in its own worktree while step N+1 is built, or a PR that is not stacked on an unfinished one in its own worktree.
