@@ -15,6 +15,7 @@ Each network carries its own genome, and all of it evolves:
 | Hidden and output activation | genes, can switch |
 | Shape (hidden layers × width) | genes, can grow and shrink |
 | Mutation settings | five genes per network |
+| Feature weights and `feature_step` | genes, nudged by every mutation of a network with move features |
 
 The experiment's settings give generation 0, the limits, and the rates that drive breeding.
 
@@ -45,12 +46,21 @@ set back to it. The settings accept the same ranges.
 
 - **Features.** Which feature groups the network sees besides the stones
   and komi (shapes, tactics, the last move, chain liberties), a gene
-  `feature_step`, and one weight per move feature of its groups. For now
-  every network has no groups, so it has no feature weights and its
-  `feature_step` stays at 0.01. The engine plays with them (a network with
-  groups gets their inputs, and each feature weight is added to a point's
-  score where that feature is 1), but nothing breeds them yet: a child
-  takes its picked parent's features unchanged, whatever the operator.
+  `feature_step`, and one weight per move feature of its groups (hane, cut,
+  edge, capture, self_atari, saves_atari, near_last; `liberties` has
+  none). The engine plays with them: a network with groups gets their
+  inputs, and each feature weight is added to a point's score where that
+  feature is 1. The groups never change: one experiment has one feature
+  set, and `evolve` refuses parents with different groups. The feature
+  weights and `feature_step` evolve (section 2):
+
+  | Gene | What it does | Starts at | Limits |
+  | --- | --- | --- | --- |
+  | feature weights | Added to a point's score where the feature is 1 | hand-set (capture +1.0, saves_atari +0.8, self_atari −1.0, the others +0.05), times 1 ± a little noise per network | −10 to 10 |
+  | `feature_step` | Largest change of one feature weight (uniform in ±step) | 0.01 | 0.0001 to 1 |
+
+  For now the runner creates every network without groups, so it has no
+  feature weights and its `feature_step` stays at 0.01.
   `initial-population` and `evolve` print them at the end of each
   network's genes line (`features=none feature_step=0.01`, and with groups
   also a weight per move feature, such as `fw_capture=1`), and the runner
@@ -86,7 +96,7 @@ The runner picks two parents by tournament selection (draw
 
 A **crossover** child takes the first part of one parent's weights and the
 rest from the other, and nothing else changes (section 4). A **copy** is the
-parent byte for byte: weights, shape, activations, and genes. A
+parent byte for byte: weights, shape, activations, genes, and features. A
 **mutation** is everything below.
 
 ### A mutated child, step by step
@@ -98,19 +108,26 @@ From then on the child's own, freshly nudged genes drive the rest:
    evolve stops here.
 2. **Nudge the genes.** Each of the five genes moves a little at random
    (see "meta_rate" below), then is clamped to its limits.
-3. **Switch activations.** With the child's `activation_rate`, the hidden
+3. **Nudge the feature weights** (only for a network with move features;
+   otherwise nothing is drawn). `feature_step` moves like `weight_step`,
+   then **every** feature weight moves by a random amount between
+   −`feature_step` and +`feature_step` of the new step, and is clamped to
+   −10 to 10. There are only a few feature weights (7 with every group),
+   so each mutated child changes all of them a little, unlike the
+   network's thousands of weights, of which it changes a few.
+4. **Switch activations.** With the child's `activation_rate`, the hidden
    activation switches to one of the other five, chosen uniformly. The
    output activation gets its own independent chance.
-4. **Maybe change shape.** With the child's `structure_rate`, one shape
+5. **Maybe change shape.** With the child's `structure_rate`, one shape
    change happens (section 3).
-5. **Change weights.** Each weight changes with probability
+6. **Change weights.** Each weight changes with probability
    `weight_changes / total_weights`, by a random amount between
    −`weight_step` and +`weight_step`.
 
 ### Why good gene values spread
 
-Step 2 comes before steps 3–5, so a child is made *with the genes it
-carries*. If the new genes happened to produce a good child (say a smaller
+Steps 2 and 3 come before steps 4–6, so a child is made *with the genes
+it carries*. If the new genes happened to produce a good child (say a smaller
 `weight_step` that did not wreck a good network), that child wins games,
 gets picked as a parent, and passes those genes on. Genes that produced a
 bad child die out with it. Nobody sets the mutation settings: they ride
@@ -128,6 +145,9 @@ e^(0.2 × a standard normal number), so a typical nudge is about ±22%
 
 > A parent that changes 7 weights per child might have a child that changes
 > 8 or 6, and rarely 5 or 10.
+
+`feature_step` moves the same way: a parent with 0.01 has children with
+about 0.008 to 0.012.
 
 The three chances move the same way on the log-odds scale, which for small
 values like 0.02 is nearly the same ±22%. `meta_rate` 0 freezes the genes.
@@ -248,9 +268,9 @@ Crossover cuts both parents' weight lists at one random point:
 This only makes sense when each position means the same connection in both
 parents, which needs the same shape (same layers and width). So:
 
-- **Same shape:** crossover as above. The child takes the activations and
-  genes of the parent whose weights come first (A here, chosen at random),
-  and is not mutated. The parents' activations may differ.
+- **Same shape:** crossover as above. The child takes the activations,
+  genes, feature weights, and `feature_step` of the parent whose weights
+  come first (A here, chosen at random), and is not mutated. The parents' activations may differ.
 - **Different shapes:** if crossover was drawn, the child becomes a
   mutation of the picked parent instead.
 
@@ -338,9 +358,11 @@ network twice), `operator` (`initial`, `crossover`, `mutation`, `copy`),
 come first in a crossover), `structure`, `activation_changed`, and the
 genome: `layers`, `width`, `act_hidden`, `act_output`, and the five genes
 (the features are not stored there yet).
-`differs_from_first` and `differs_from_second` count weights that differ
-from each parent (0 for an identical copy, empty for a parent of another
-shape).
+`differs_from_first` and `differs_from_second` count the network weights
+that differ from each parent (0 for an identical copy, empty for a parent
+of another shape). They leave the feature weights out, so a mutated child
+of a network with features can show 0 and still differ from its parent:
+its feature weights all moved.
 
 Every child whose shape or activations changed:
 

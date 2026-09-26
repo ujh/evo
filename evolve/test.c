@@ -24,6 +24,7 @@ SOFTWARE.
 
 */
 
+#include <limits.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -102,7 +103,7 @@ static mutation_counts mutate_many(genann *parent, ann_genes genes, double meta_
   counts.children = children;
   for (int c = 0; c < children; c++) {
     ann_genes child_genes;
-    genann *child = mutate(parent, &genes, meta_rate, NULL, &child_genes, NULL);
+    genann *child = mutate(parent, &genes, NULL, meta_rate, NULL, &child_genes, NULL, NULL);
     long changed = 0;
     for (int i = 0; i < parent->total_weights; i++) {
       double change = child->weight[i] - parent->weight[i];
@@ -132,7 +133,7 @@ void test_mutate_copies_the_parent() {
   ann_genes genes = middle_genes();
   genes.copy_chance = ANN_COPY_CHANCE_MIN;
   ann_genes child_genes;
-  genann *child = mutate(parent, &genes, META_RATE, NULL, &child_genes, NULL);
+  genann *child = mutate(parent, &genes, NULL, META_RATE, NULL, &child_genes, NULL, NULL);
 
   lok(child != parent);
   lok(child->weight != parent->weight);
@@ -159,12 +160,14 @@ void test_mutate_copies_the_parent() {
   genann_free(parent);
 }
 
-// Writes the child and its genes to a temporary file and returns its bytes.
-static size_t child_bytes(genann const *child, ann_genes const *genes, unsigned char *buffer, size_t size) {
+// Writes the child, its genes, and its features (none when NULL) to a
+// temporary file and returns its bytes.
+static size_t child_bytes(genann const *child, ann_genes const *genes, ann_features const *features,
+                          unsigned char *buffer, size_t size) {
   FILE *file = tmpfile();
   lok(file != NULL);
-  ann_features features = ann_default_features(0);
-  lequal(ann_binary_write(child, genes, &features, file), 0);
+  ann_features none = ann_default_features(0);
+  lequal(ann_binary_write(child, genes, features ? features : &none, file), 0);
   rewind(file);
   size_t length = fread(buffer, 1, size, file);
   fclose(file);
@@ -175,22 +178,26 @@ void test_mutate_is_deterministic_for_a_seed() {
   pcg32_srandom(2, 54u);
   genann *parent = genann_init(82, 1, 100, 82);
   ann_genes genes = middle_genes();
+  ann_features features = ann_default_features(ANN_GROUPS_ALL);
   ann_genes first_genes, second_genes, other_genes;
+  ann_features first_features, second_features, other_features;
 
   pcg32_srandom(3, 54u);
-  genann *first = mutate(parent, &genes, META_RATE, NULL, &first_genes, NULL);
+  genann *first = mutate(parent, &genes, &features, META_RATE, NULL, &first_genes, &first_features, NULL);
   pcg32_srandom(3, 54u);
-  genann *second = mutate(parent, &genes, META_RATE, NULL, &second_genes, NULL);
+  genann *second = mutate(parent, &genes, &features, META_RATE, NULL, &second_genes, &second_features, NULL);
   pcg32_srandom(4, 54u);
-  genann *other = mutate(parent, &genes, META_RATE, NULL, &other_genes, NULL);
+  genann *other = mutate(parent, &genes, &features, META_RATE, NULL, &other_genes, &other_features, NULL);
 
   static unsigned char a[200000], b[200000], c[200000];
-  size_t a_length = child_bytes(first, &first_genes, a, sizeof a);
-  size_t b_length = child_bytes(second, &second_genes, b, sizeof b);
-  size_t c_length = child_bytes(other, &other_genes, c, sizeof c);
+  size_t a_length = child_bytes(first, &first_genes, &first_features, a, sizeof a);
+  size_t b_length = child_bytes(second, &second_genes, &second_features, b, sizeof b);
+  size_t c_length = child_bytes(other, &other_genes, &other_features, c, sizeof c);
   lok(a_length > 0 && a_length < sizeof a);
   lok(a_length == b_length && memcmp(a, b, a_length) == 0);
   lok(a_length == c_length && memcmp(a, c, a_length) != 0);
+  // The feature block (after the 74 bytes of header and genes) differs too.
+  lok(memcmp(a + 74, c + 74, 12 + 8 * ANN_MAX_FEATURES) != 0);
 
   genann_free(other);
   genann_free(second);
@@ -271,50 +278,67 @@ void test_mutate_uses_the_mutated_genes() {
   genann_free(parent);
 }
 
-// Self-adaptation: log(g'/g) for weight_changes and weight_step and
-// logit(p') - logit(p) for the probabilities are N(0, meta_rate), each gene
-// with its own draw.
+// Self-adaptation: log(g'/g) for weight_changes, weight_step, and
+// feature_step and logit(p') - logit(p) for the probabilities are
+// N(0, meta_rate), each gene with its own draw. The children come from
+// mutate() itself, copies left out, so feature_step is drawn where mutate()
+// draws it.
+#define GENE_STEPS 6
 void test_mutate_genes_distributions() {
   pcg32_srandom(9, 54u);
-  const int n = 20000;
+  const int children = 20000;
   const double tau = META_RATE;
+  genann *parent = genann_init(10, 1, 100, 10);
   ann_genes genes = middle_genes();
-  double sum[5] = {0}, sum_of_squares[5] = {0};
-  long within_tau[5] = {0};
-  double sum_of_products[5][5] = {{0}};
-  for (int k = 0; k < n; k++) {
-    ann_genes child = mutate_genes(genes, tau, 1000);
-    double step[5] = {
+  ann_features features = ann_default_features(ANN_GROUPS_ALL);
+  features.feature_step = 0.05;
+  double sum[GENE_STEPS] = {0}, sum_of_squares[GENE_STEPS] = {0};
+  long within_tau[GENE_STEPS] = {0};
+  double sum_of_products[GENE_STEPS][GENE_STEPS] = {{0}};
+  int n = 0;
+  for (int k = 0; k < children; k++) {
+    ann_genes child;
+    ann_features child_features;
+    mutation_outcome outcome;
+    genann *net = mutate(parent, &genes, &features, tau, NULL, &child, &child_features, &outcome);
+    genann_free(net);
+    if (outcome.copy) continue;
+    n++;
+    double step[GENE_STEPS] = {
       logit(child.copy_chance) - logit(genes.copy_chance),
       log(child.weight_changes / genes.weight_changes),
       log(child.weight_step / genes.weight_step),
       logit(child.activation_rate) - logit(genes.activation_rate),
       logit(child.structure_rate) - logit(genes.structure_rate),
+      log(child_features.feature_step / features.feature_step),
     };
-    for (int g = 0; g < 5; g++) {
+    for (int g = 0; g < GENE_STEPS; g++) {
       sum[g] += step[g];
       sum_of_squares[g] += step[g] * step[g];
       if (fabs(step[g]) < tau) within_tau[g]++;
     }
-    for (int g = 0; g < 5; g++) {
-      for (int h = g + 1; h < 5; h++) sum_of_products[g][h] += step[g] * step[h];
+    for (int g = 0; g < GENE_STEPS; g++) {
+      for (int h = g + 1; h < GENE_STEPS; h++) sum_of_products[g][h] += step[g] * step[h];
     }
   }
-  for (int g = 0; g < 5; g++) {
+  // About 19,000 mutated children.
+  lok(n > 18500);
+  for (int g = 0; g < GENE_STEPS; g++) {
     double mean = sum[g] / n;
     double sd = sqrt(sum_of_squares[g] / n - mean * mean);
-    // SE of the mean tau/sqrt(n) = 0.0014; of the sd tau/sqrt(2n) = 0.001;
-    // of the share within one sd sqrt(0.683 * 0.317 / n) = 0.0033.
-    check_close("mean of the gene step", mean, 0.0, 0.0057);
-    check_close("sd of the gene step", sd, tau, 0.004);
-    check_close("share of gene steps within one sd", (double)within_tau[g] / n, 0.6827, 0.013);
+    // SE of the mean tau/sqrt(n) = 0.0015; of the sd tau/sqrt(2n) = 0.001;
+    // of the share within one sd sqrt(0.683 * 0.317 / n) = 0.0034.
+    check_close("mean of the gene step", mean, 0.0, 0.006);
+    check_close("sd of the gene step", sd, tau, 0.0042);
+    check_close("share of gene steps within one sd", (double)within_tau[g] / n, 0.6827, 0.0135);
   }
-  // Independent draws: the correlation of every pair has SE 1/sqrt(n) = 0.007.
-  for (int g = 0; g < 5; g++) {
-    for (int h = g + 1; h < 5; h++) {
-      check_close("correlation of two gene steps", sum_of_products[g][h] / n / (tau * tau), 0.0, 0.028);
+  // Independent draws: the correlation of every pair has SE 1/sqrt(n) = 0.0073.
+  for (int g = 0; g < GENE_STEPS; g++) {
+    for (int h = g + 1; h < GENE_STEPS; h++) {
+      check_close("correlation of two gene steps", sum_of_products[g][h] / n / (tau * tau), 0.0, 0.029);
     }
   }
+  genann_free(parent);
 }
 
 // However far the genes step, they stay in their ranges, and weight_changes
@@ -352,12 +376,12 @@ void test_parents_must_match() {
   genann *a = genann_init(3, 1, 4, 2);
   genann *b = genann_init(3, 1, 4, 2);
   genann *nns[2] = {a, b};
-  lok(nns_compatible(nns));
+  lok(nns_compatible(nns, NULL));
   lok(same_shape(a, b));
 
   b->activation_output = genann_act_linear;
   b->activation_hidden = genann_act_tanh;
-  lok(nns_compatible(nns));
+  lok(nns_compatible(nns, NULL));
   lok(same_shape(a, b));
 
   genann *wider = genann_init(3, 1, 5, 2);
@@ -365,7 +389,7 @@ void test_parents_must_match() {
   genann *others[] = {wider, deeper};
   for (int i = 0; i < 2; i++) {
     nns[1] = others[i];
-    lok(nns_compatible(nns));
+    lok(nns_compatible(nns, NULL));
     lok(!same_shape(a, others[i]));
     genann_free(others[i]);
   }
@@ -374,7 +398,7 @@ void test_parents_must_match() {
   genann *incompatible[] = {more_inputs, more_outputs};
   for (int i = 0; i < 2; i++) {
     nns[1] = incompatible[i];
-    lok(!nns_compatible(nns));
+    lok(!nns_compatible(nns, NULL));
     lok(!same_shape(a, incompatible[i]));
     genann_free(incompatible[i]);
   }
@@ -462,7 +486,7 @@ void test_mutate_switches_activations_by_the_gene() {
   for (int c = 0; c < children; c++) {
     ann_genes child_genes;
     mutation_outcome outcome;
-    genann *child = mutate(parent, &genes, 0, NULL, &child_genes, &outcome);
+    genann *child = mutate(parent, &genes, NULL, 0, NULL, &child_genes, NULL, &outcome);
     bool hidden_switched = child->activation_hidden != parent->activation_hidden;
     bool output_switched = child->activation_output != parent->activation_output;
     if (outcome.activation_changed != (hidden_switched || output_switched)) mismatched++;
@@ -894,7 +918,7 @@ void test_mutate_changes_the_structure_by_the_gene() {
     for (int c = 0; c < children; c++) {
       ann_genes child_genes;
       mutation_outcome outcome;
-      genann *child = mutate(parent, &genes, 0, &bounds, &child_genes, &outcome);
+      genann *child = mutate(parent, &genes, NULL, 0, &bounds, &child_genes, NULL, &outcome);
       counts[outcome.structure]++;
       int layers = parent->hidden_layers, width = parent->hidden;
       switch (outcome.structure) {
@@ -943,7 +967,7 @@ void test_mutate_keeps_the_structure_in_bounds() {
       for (int c = 0; c < 500; c++) {
         ann_genes child_genes;
         mutation_outcome outcome;
-        genann *child = mutate(parent, &genes, 0.5, &bounds, &child_genes, &outcome);
+        genann *child = mutate(parent, &genes, NULL, 0.5, &bounds, &child_genes, NULL, &outcome);
         if (child->hidden_layers < 0 || child->hidden_layers > bounds.max_hidden_layers) out_of_bounds++;
         if (child->hidden_layers > 0 && (child->hidden < 1 || child->hidden > bounds.max_layer_size)) out_of_bounds++;
         if (ann_genes_invalid(&child_genes, child->total_weights)) invalid++;
@@ -974,9 +998,9 @@ void test_mutate_draws_no_structure_when_none_is_allowed() {
     ann_genes a_genes, b_genes;
     mutation_outcome outcome;
     pcg32_srandom(seed, 54u);
-    genann *a = mutate(parent, &genes, META_RATE, &bounds, &a_genes, &outcome);
+    genann *a = mutate(parent, &genes, NULL, META_RATE, &bounds, &a_genes, NULL, &outcome);
     pcg32_srandom(seed, 54u);
-    genann *b = mutate(parent, &genes, META_RATE, NULL, &b_genes, NULL);
+    genann *b = mutate(parent, &genes, NULL, META_RATE, NULL, &b_genes, NULL, NULL);
     if (outcome.structure != STRUCTURE_NONE || !same_genes(&a_genes, &b_genes)
         || memcmp(a->weight, b->weight, sizeof(double) * a->total_weights) != 0) different++;
     genann_free(b);
@@ -999,12 +1023,12 @@ void test_mutate_structure_is_deterministic_for_a_seed() {
     ann_genes a_genes, b_genes;
     mutation_outcome outcome;
     pcg32_srandom(seed, 54u);
-    genann *first = mutate(parent, &genes, META_RATE, &bounds, &a_genes, &outcome);
+    genann *first = mutate(parent, &genes, NULL, META_RATE, &bounds, &a_genes, NULL, &outcome);
     pcg32_srandom(seed, 54u);
-    genann *second = mutate(parent, &genes, META_RATE, &bounds, &b_genes, NULL);
+    genann *second = mutate(parent, &genes, NULL, META_RATE, &bounds, &b_genes, NULL, NULL);
     seen |= 1 << outcome.structure;
-    size_t a_length = child_bytes(first, &a_genes, a, sizeof a);
-    size_t b_length = child_bytes(second, &b_genes, b, sizeof b);
+    size_t a_length = child_bytes(first, &a_genes, NULL, a, sizeof a);
+    size_t b_length = child_bytes(second, &b_genes, NULL, b, sizeof b);
     if (a_length == 0 || a_length != b_length || memcmp(a, b, a_length) != 0) different++;
     genann_free(second);
     genann_free(first);
@@ -1033,17 +1057,17 @@ void test_breed_crosses_over_only_the_same_shape() {
   for (int k = 0; k < 400; k++) {
     breeding result;
     genann *pair[2] = {a, same};
-    genann *child = breed(pair, genes, 1, META_RATE, &bounds, &result);
+    genann *child = breed(pair, genes, NULL, 1, META_RATE, &bounds, &result);
     if (strcmp(result.operator_name, "crossover") != 0) wrong++;
     genann_free(child);
     genann *flats[2] = {flat, flat_too};
-    child = breed(flats, genes, 1, META_RATE, &bounds, &result);
+    child = breed(flats, genes, NULL, 1, META_RATE, &bounds, &result);
     if (strcmp(result.operator_name, "crossover") != 0) wrong++;
     genann_free(child);
     genann *others[] = {wider, deeper};
     for (int i = 0; i < 2; i++) {
       genann *mixed[2] = {a, others[i]};
-      child = breed(mixed, genes, 1, META_RATE, &bounds, &result);
+      child = breed(mixed, genes, NULL, 1, META_RATE, &bounds, &result);
       if (strcmp(result.operator_name, "crossover") == 0) wrong++;
       if (result.picked == 0) picked_first++;
       // Unless its structure changed, it has its picked parent's shape.
@@ -1058,6 +1082,268 @@ void test_breed_crosses_over_only_the_same_shape() {
   genann_free(deeper);
   genann_free(wider);
   genann_free(same);
+  genann_free(a);
+}
+
+// The feature weights. A mutated child of a network with move features moves
+// every feature weight by a uniform amount within its new feature_step
+// (meta_rate 0 keeps the step as it is); a copy keeps them exactly.
+void test_mutate_moves_every_feature_weight() {
+  pcg32_srandom(40, 54u);
+  genann *parent = genann_init(3, 1, 4, 2);
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MAX;
+  ann_features features = ann_default_features(ANN_GROUPS_ALL);
+  features.feature_step = 0.2;
+  const int children = 20000;
+  int copies = 0, wrong = 0;
+  long changes = 0, small = 0;
+  double largest = 0, sum = 0;
+  for (int c = 0; c < children; c++) {
+    ann_genes child_genes;
+    ann_features child;
+    mutation_outcome outcome;
+    genann *net = mutate(parent, &genes, &features, 0, NULL, &child_genes, &child, &outcome);
+    genann_free(net);
+    if (child.groups != features.groups) wrong++;
+    if (outcome.copy) {
+      copies++;
+      if (memcmp(&child, &features, sizeof child) != 0) wrong++;
+      continue;
+    }
+    if (child.feature_step != features.feature_step) wrong++;
+    for (int i = 0; i < ANN_MAX_FEATURES; i++) {
+      double change = child.weights[i] - features.weights[i];
+      if (change == 0) wrong++;
+      changes++;
+      sum += change;
+      if (fabs(change) > largest) largest = fabs(change);
+      if (fabs(change) < features.feature_step / 2) small++;
+    }
+  }
+  lequal(wrong, 0);
+  // SE = sqrt(0.1 * 0.9 / 20000) = 0.0021.
+  check_close("share of copies", (double)copies / children, 0.1, 0.0085);
+  // Uniform in [-0.2, 0.2]: sd 0.115, so over ~126,000 changes the mean has
+  // SE 0.00033, and the share below 0.1 in size SE 0.0014.
+  lok(largest <= features.feature_step);
+  lok(largest > 0.99 * features.feature_step);
+  check_close("mean feature weight change", sum / changes, 0.0, 0.0013);
+  check_close("share of feature changes smaller than half the step", (double)small / changes, 0.5, 0.0056);
+  genann_free(parent);
+}
+
+// The feature genes are drawn right after the other genes and before the
+// activations: replaying the copy check, mutate_genes, and mutate_features
+// gives the child's genes and features.
+void test_mutate_draws_the_features_after_the_genes() {
+  genann *parent = genann_init(3, 1, 4, 2);
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MIN;
+  ann_features features = ann_default_features(ANN_GROUP_TACTICS | ANN_GROUP_LAST_MOVE);
+  int wrong = 0, mutated = 0;
+  for (uint64_t seed = 0; seed < 50; seed++) {
+    ann_genes child_genes;
+    ann_features child;
+    mutation_outcome outcome;
+    pcg32_srandom(seed, 54u);
+    genann *net = mutate(parent, &genes, &features, META_RATE, NULL, &child_genes, &child, &outcome);
+    genann_free(net);
+    if (outcome.copy) continue;
+    mutated++;
+    pcg32_srandom(seed, 54u);
+    GENANN_RANDOM();
+    ann_genes replayed_genes = mutate_genes(genes, META_RATE, INT_MAX);
+    ann_features replayed = mutate_features(features, META_RATE);
+    if (replayed_genes.weight_step != child_genes.weight_step) wrong++;
+    if (memcmp(&replayed, &child, sizeof child) != 0) wrong++;
+  }
+  lequal(wrong, 0);
+  lok(mutated > 45);
+}
+
+// The feature draws by hand, from the raw generator: the copy check, one
+// normal per gene in ann_genes' order, the normal for feature_step, then one
+// uniform per feature weight, which moves by the child's new step.
+void test_mutate_feature_draws_by_hand() {
+  genann *parent = genann_init(3, 1, 4, 2);
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MIN;
+  ann_features features = ann_default_features(ANN_GROUPS_ALL);
+  features.feature_step = 0.2;
+  const double tau = 0.5;
+  int wrong = 0, mutated = 0;
+  for (uint64_t seed = 0; seed < 200; seed++) {
+    ann_genes child_genes;
+    ann_features child;
+    mutation_outcome outcome;
+    pcg32_srandom(seed, 54u);
+    genann *net = mutate(parent, &genes, &features, tau, NULL, &child_genes, &child, &outcome);
+    genann_free(net);
+    if (outcome.copy) continue;
+    mutated++;
+    pcg32_srandom(seed, 54u);
+    GENANN_RANDOM();
+    for (int g = 0; g < 5; g++) standard_normal();
+    double step = fmin(fmax(features.feature_step * exp(tau * standard_normal()), ANN_FEATURE_STEP_MIN),
+                       ANN_FEATURE_STEP_MAX);
+    if (child.feature_step != step) wrong++;
+    for (int i = 0; i < ANN_MAX_FEATURES; i++) {
+      double moved = features.weights[i] + (2.0 * GENANN_RANDOM() - 1.0) * step;
+      moved = fmin(fmax(moved, ANN_FEATURE_WEIGHT_MIN), ANN_FEATURE_WEIGHT_MAX);
+      if (child.weights[i] != moved) wrong++;
+    }
+  }
+  lequal(wrong, 0);
+  lok(mutated > 190);
+  genann_free(parent);
+}
+
+// However far they step, feature_step stays in [1e-4, 1] and every feature
+// weight in [-10, 10].
+void test_mutate_features_clamps() {
+  pcg32_srandom(41, 54u);
+  ann_features low = ann_default_features(ANN_GROUPS_ALL);
+  ann_features high = low;
+  low.feature_step = ANN_FEATURE_STEP_MIN;
+  high.feature_step = ANN_FEATURE_STEP_MAX;
+  for (int i = 0; i < ANN_MAX_FEATURES; i++) {
+    low.weights[i] = ANN_FEATURE_WEIGHT_MIN;
+    high.weights[i] = ANN_FEATURE_WEIGHT_MAX;
+  }
+  int invalid = 0, step_low = 0, step_high = 0, weight_low = 0, weight_high = 0;
+  for (int k = 0; k < 1000; k++) {
+    ann_features a = mutate_features(low, 5);
+    ann_features b = mutate_features(high, 5);
+    if (ann_features_invalid(&a) || ann_features_invalid(&b)) invalid++;
+    if (a.feature_step == ANN_FEATURE_STEP_MIN) step_low++;
+    if (b.feature_step == ANN_FEATURE_STEP_MAX) step_high++;
+    // Half of the weights' moves point out of the range and stop at it.
+    if (a.weights[0] == ANN_FEATURE_WEIGHT_MIN) weight_low++;
+    if (b.weights[0] == ANN_FEATURE_WEIGHT_MAX) weight_high++;
+  }
+  lequal(invalid, 0);
+  // Half of the steps go past their bound and stop at it.
+  lok(step_low > 400 && step_low < 600);
+  lok(step_high > 400 && step_high < 600);
+  lok(weight_low > 400 && weight_low < 600);
+  lok(weight_high > 400 && weight_high < 600);
+  // With meta_rate 0 the step at the bound stays valid despite rounding.
+  ann_features same = mutate_features(high, 0);
+  lok(ann_features_invalid(&same) == NULL);
+}
+
+// Without move features (no groups, or only liberties) nothing is drawn: the
+// child and its genes are those of a mutation given no features at all, the
+// generator ends where it does, and the features stay as they were.
+void test_mutate_draws_no_features_without_move_features() {
+  genann *parent = genann_init(3, 1, 4, 2);
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MIN;
+  unsigned groups[] = {0, ANN_GROUP_LIBERTIES};
+  int different = 0, drawn = 0;
+  for (int g = 0; g < 2; g++) {
+    ann_features features = ann_default_features(groups[g]);
+    features.feature_step = 0.3;
+    for (uint64_t seed = 0; seed < 50; seed++) {
+      ann_genes a_genes, b_genes;
+      ann_features child;
+      pcg32_srandom(seed, 54u);
+      genann *a = mutate(parent, &genes, &features, META_RATE, NULL, &a_genes, &child, NULL);
+      uint32_t a_next = pcg32_random();
+      pcg32_srandom(seed, 54u);
+      genann *b = mutate(parent, &genes, NULL, META_RATE, NULL, &b_genes, NULL, NULL);
+      uint32_t b_next = pcg32_random();
+      if (a_next != b_next || !same_genes(&a_genes, &b_genes)
+          || memcmp(a->weight, b->weight, sizeof(double) * a->total_weights) != 0
+          || a->activation_hidden != b->activation_hidden || a->activation_output != b->activation_output
+          || memcmp(&child, &features, sizeof child) != 0) different++;
+      genann_free(b);
+      genann_free(a);
+    }
+  }
+  // With move features the same seeds draw more.
+  ann_features some = ann_default_features(ANN_GROUP_LAST_MOVE);
+  for (uint64_t seed = 0; seed < 50; seed++) {
+    ann_genes a_genes, b_genes;
+    ann_features child;
+    pcg32_srandom(seed, 54u);
+    genann *a = mutate(parent, &genes, &some, META_RATE, NULL, &a_genes, &child, NULL);
+    uint32_t a_next = pcg32_random();
+    pcg32_srandom(seed, 54u);
+    genann *b = mutate(parent, &genes, NULL, META_RATE, NULL, &b_genes, NULL, NULL);
+    if (a_next != pcg32_random()) drawn++;
+    genann_free(b);
+    genann_free(a);
+  }
+  lequal(different, 0);
+  lok(drawn > 45);
+  genann_free(parent);
+}
+
+// Parents need the same feature groups, compared as masks: shapes and
+// liberties both add three planes, so their input counts are equal.
+void test_parents_must_have_the_same_groups() {
+  int points = 81;
+  int inputs = ann_layout_inputs(ANN_GROUP_SHAPES, points);
+  lequal(inputs, ann_layout_inputs(ANN_GROUP_LIBERTIES, points));
+  genann *a = genann_init(inputs, 1, 4, points + 1);
+  genann *b = genann_init(inputs, 1, 4, points + 1);
+  genann *nns[2] = {a, b};
+  ann_features features[2] = {ann_default_features(ANN_GROUP_SHAPES), ann_default_features(ANN_GROUP_SHAPES)};
+  // The same groups with other weights and steps can breed.
+  features[1].weights[0] = 0.7;
+  features[1].feature_step = 0.2;
+  lok(nns_compatible(nns, features));
+  features[1] = ann_default_features(ANN_GROUP_LIBERTIES);
+  lok(!nns_compatible(nns, features));
+  features[1] = ann_default_features(0);
+  lok(!nns_compatible(nns, features));
+  genann_free(b);
+  genann_free(a);
+}
+
+// A crossover child takes the genes and the features of the parent whose
+// weights come first, unmutated; a mutation or copy those of its own
+// mutation of the picked parent.
+void test_breed_takes_the_picked_parents_features() {
+  pcg32_srandom(42, 54u);
+  shape_bounds bounds = {.max_hidden_layers = 3, .max_layer_size = 5, .add_layer_size = 2};
+  genann *a = random_network(1, 3, genann_act_tanh, genann_act_linear);
+  genann *b = random_network(1, 3, genann_act_relu, genann_act_linear);
+  genann *nns[2] = {a, b};
+  ann_genes genes[2] = {middle_genes(), middle_genes()};
+  genes[1].weight_step = 0.4;
+  ann_features features[2] = {ann_default_features(ANN_GROUPS_ALL), ann_default_features(ANN_GROUPS_ALL)};
+  features[1].feature_step = 0.3;
+  for (int i = 0; i < ANN_MAX_FEATURES; i++) features[1].weights[i] = -0.5 + 0.1 * i;
+  int wrong = 0, picked_first = 0, crossovers = 0, mutations = 0;
+  for (int k = 0; k < 1000; k++) {
+    breeding result;
+    genann *child = breed(nns, genes, features, 1, META_RATE, &bounds, &result);
+    crossovers++;
+    if (strcmp(result.operator_name, "crossover") != 0) wrong++;
+    if (result.picked == 0) picked_first++;
+    if (memcmp(&result.features, &features[result.picked], sizeof result.features) != 0) wrong++;
+    if (!same_genes(&result.genes, &genes[result.picked])) wrong++;
+    genann_free(child);
+    child = breed(nns, genes, features, 0, META_RATE, &bounds, &result);
+    if (strcmp(result.operator_name, "mutation") == 0) {
+      mutations++;
+      // A mutated child's step came from its picked parent's.
+      double ratio = result.features.feature_step / features[result.picked].feature_step;
+      if (!(ratio > exp(-6 * META_RATE) && ratio < exp(6 * META_RATE))) wrong++;
+      if (result.features.feature_step == features[result.picked].feature_step) wrong++;
+    } else if (memcmp(&result.features, &features[result.picked], sizeof result.features) != 0) {
+      wrong++;
+    }
+    genann_free(child);
+  }
+  lequal(wrong, 0);
+  lok(picked_first > 430 && picked_first < 570);
+  lok(mutations > 900);
+  lequal(crossovers, 1000);
+  genann_free(b);
   genann_free(a);
 }
 
@@ -1090,6 +1376,13 @@ int main(int argc, char **argv) {
   lrun("mutate_no_structure_draw", test_mutate_draws_no_structure_when_none_is_allowed);
   lrun("mutate_structure_seed", test_mutate_structure_is_deterministic_for_a_seed);
   lrun("breed_shapes", test_breed_crosses_over_only_the_same_shape);
+  lrun("mutate_feature_weights", test_mutate_moves_every_feature_weight);
+  lrun("mutate_feature_order", test_mutate_draws_the_features_after_the_genes);
+  lrun("mutate_feature_draws", test_mutate_feature_draws_by_hand);
+  lrun("mutate_feature_clamps", test_mutate_features_clamps);
+  lrun("mutate_no_feature_draws", test_mutate_draws_no_features_without_move_features);
+  lrun("parents_groups", test_parents_must_have_the_same_groups);
+  lrun("breed_features", test_breed_takes_the_picked_parents_features);
 
   lresults();
 

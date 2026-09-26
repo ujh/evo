@@ -35,10 +35,13 @@ void seed();
 // Reads both parents, their genes, and their features; exits 1 if either
 // cannot be read.
 genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2], ann_features features[2]);
-// Whether the parents can breed at all: the same inputs and outputs. Their
-// shapes, activations, and genes may differ.
-bool nns_compatible(genann **nns);
-void check_nns(genann **nns);
+// Whether the parents can breed at all: the same inputs and outputs, and,
+// unless features is NULL, the same feature groups (compared as masks, since
+// two sets of groups can have as many inputs). Their shapes, activations,
+// genes, and feature weights may differ.
+bool nns_compatible(genann **nns, ann_features const features[2]);
+// Exits 1 when the parents cannot breed.
+void check_nns(genann **nns, ann_features const features[2]);
 // Whether two networks have the same shape: the same inputs, outputs, hidden
 // layers, and width (the width does not count without hidden layers).
 bool same_shape(genann const *a, genann const *b);
@@ -110,10 +113,12 @@ typedef struct {
 // crossover child has that parent's activations. Crossover needs parents of
 // the same shape.
 genann *child_from_cross_over(genann **nns, int *picked);
-// Stores the child's genes in *child_genes and, unless outcome is NULL,
-// what happened in *outcome.
-genann *child_from_mutation(genann **nns, ann_genes const genes[2], double meta_rate,
-                            shape_bounds const *bounds, int *picked, ann_genes *child_genes,
+// Stores the child's genes in *child_genes, its features in *child_features,
+// and what happened in *outcome, each unless NULL. features NULL means
+// parents without feature groups.
+genann *child_from_mutation(genann **nns, ann_genes const genes[2], ann_features const features[2],
+                            double meta_rate, shape_bounds const *bounds, int *picked,
+                            ann_genes *child_genes, ann_features *child_features,
                             mutation_outcome *outcome);
 genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_point);
 
@@ -123,13 +128,17 @@ typedef struct {
   int picked;                // the parent it is built from, 0 or 1
   mutation_outcome outcome;  // all false and none for a crossover
   ann_genes genes;           // the child's
+  ann_features features;     // the child's
 } breeding;
 
 // A child of two compatible parents: with probability cross_over_rate a
 // crossover, if the parents have the same shape; otherwise, or when their
-// shapes differ, a mutation of the picked parent. Stores how in *result.
-genann *breed(genann **nns, ann_genes const genes[2], double cross_over_rate, double meta_rate,
-              shape_bounds const *bounds, breeding *result);
+// shapes differ, a mutation of the picked parent. A crossover child takes
+// the genes and features of the parent whose weights come first. Stores how
+// in *result. features NULL means parents without feature groups.
+genann *breed(genann **nns, ann_genes const genes[2], ann_features const features[2],
+              double cross_over_rate, double meta_rate, shape_bounds const *bounds,
+              breeding *result);
 
 // A standard normal draw from the PCG generator, by Box-Muller.
 double standard_normal(void);
@@ -138,19 +147,28 @@ double standard_normal(void);
 // logit⁻¹(logit(p) + τ·N(0,1)), in the struct's order, then clamped to their
 // ranges (weight_changes to at most total_weights).
 ann_genes mutate_genes(ann_genes genes, double meta_rate, int total_weights);
+// The features mutated by meta rate τ, when the groups have move features:
+// feature_step log-normally, then every feature weight by a uniform amount
+// in [-feature_step, +feature_step] of the new step, in ANN_FEATURES' order,
+// each clamped to its range. Without move features (no groups, or only
+// liberties) they are returned as they are, and nothing is drawn.
+ann_features mutate_features(ann_features features, double meta_rate);
 // With probability activation_rate each, the hidden and then the output
 // activation is replaced by one of the other activations in ANN_ACTIVATIONS,
 // chosen uniformly. Returns whether either switched.
 bool mutate_activations(genann *child, double activation_rate);
 // A mutated copy of the parent. With the parent's copy_chance the child is an
-// exact copy, genes included. Otherwise its genes mutate first, then its
-// activations switch with the new activation_rate, then with the new
+// exact copy, genes and features included. Otherwise its genes mutate first,
+// then its features (mutate_features), then its activations switch with the
+// new activation_rate, then with the new
 // structure_rate it undergoes one structural change, chosen uniformly among
 // those the bounds allow (no draw when none is allowed, and none at all when
 // bounds is NULL), and then each weight changes with probability
 // weight_changes / total_weights by a uniform amount in [-weight_step,
 // +weight_step] of the new genes, weight_changes clamped against the child's
-// final total_weights. Unless outcome is NULL, stores in *outcome what
-// happened.
-genann *mutate(genann const *parent, ann_genes const *parent_genes, double meta_rate,
-               shape_bounds const *bounds, ann_genes *child_genes, mutation_outcome *outcome);
+// final total_weights. parent_features NULL means a parent without feature
+// groups. Stores the child's features in *child_features and what happened
+// in *outcome, each unless NULL.
+genann *mutate(genann const *parent, ann_genes const *parent_genes, ann_features const *parent_features,
+               double meta_rate, shape_bounds const *bounds, ann_genes *child_genes,
+               ann_features *child_features, mutation_outcome *outcome);

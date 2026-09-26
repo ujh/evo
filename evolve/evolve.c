@@ -61,6 +61,17 @@ static genann *load_nn(char *name, ann_genes *genes, ann_features *features) {
   return ann;
 }
 
+// Prints the groups' names, comma-separated, or none.
+static void print_groups(unsigned groups) {
+  bool any = false;
+  for (int i = 0; i < ANN_GROUP_COUNT; i++) {
+    if (!(ANN_GROUP_NAMES[i].group & groups)) continue;
+    printf("%s%s", any ? "," : "", ANN_GROUP_NAMES[i].name);
+    any = true;
+  }
+  if (!any) printf(groups ? "%u" : "none", groups);
+}
+
 genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2], ann_features features[2]) {
   genann **anns = malloc(2 * sizeof(genann *));
   anns[0] = load_nn(ann1_name, &genes[0], &features[0]);
@@ -69,9 +80,10 @@ genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2], ann_feat
 }
 
 // Prints each difference between the parents that makes them impossible to
-// breed, and returns whether there was none. Shapes, activations, and genes
-// do not count: parents of different shapes only cannot cross over.
-bool nns_compatible(genann **nns) {
+// breed, and returns whether there was none. Shapes, activations, genes, and
+// feature weights do not count: parents of different shapes only cannot
+// cross over.
+bool nns_compatible(genann **nns, ann_features const features[2]) {
   genann *nn1 = nns[0];
   genann *nn2 = nns[1];
   bool failed = false;
@@ -84,6 +96,16 @@ bool nns_compatible(genann **nns) {
     printf("nn1.outputs = %d, nn2.outputs = %d\n", nn1->outputs, nn2->outputs);
     failed = true;
   }
+  // The masks, not the input counts: shapes and liberties both add three
+  // planes. One experiment has one feature set, so this is a broken setup.
+  if (features && features[0].groups != features[1].groups) {
+    printf("nn1.features = ");
+    print_groups(features[0].groups);
+    printf(", nn2.features = ");
+    print_groups(features[1].groups);
+    printf("\n");
+    failed = true;
+  }
   return !failed;
 }
 
@@ -94,8 +116,8 @@ bool same_shape(genann const *a, genann const *b) {
     && (a->hidden_layers == 0 || a->hidden == b->hidden);
 }
 
-void check_nns(genann **nns) {
-  if (!nns_compatible(nns)) {
+void check_nns(genann **nns, ann_features const features[2]) {
+  if (!nns_compatible(nns, features)) {
     printf("Sanity check failed!\n");
     exit(1);
   }
@@ -122,17 +144,20 @@ genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_p
   return child;
 }
 
-genann *child_from_mutation(genann **nns, ann_genes const genes[2], double meta_rate,
-                            shape_bounds const *bounds, int *picked, ann_genes *child_genes,
+genann *child_from_mutation(genann **nns, ann_genes const genes[2], ann_features const features[2],
+                            double meta_rate, shape_bounds const *bounds, int *picked,
+                            ann_genes *child_genes, ann_features *child_features,
                             mutation_outcome *outcome) {
   // Pick a NN to use
   *picked = pcg32_boundedrand(2);
   // Do the mutations
-  return mutate(nns[*picked], &genes[*picked], meta_rate, bounds, child_genes, outcome);
+  return mutate(nns[*picked], &genes[*picked], features ? &features[*picked] : NULL, meta_rate, bounds,
+                child_genes, child_features, outcome);
 }
 
-genann *breed(genann **nns, ann_genes const genes[2], double cross_over_rate, double meta_rate,
-              shape_bounds const *bounds, breeding *result) {
+genann *breed(genann **nns, ann_genes const genes[2], ann_features const features[2],
+              double cross_over_rate, double meta_rate, shape_bounds const *bounds,
+              breeding *result) {
   // The operator is drawn whatever the shapes, so the draws that follow do
   // not depend on them.
   bool cross = GENANN_RANDOM() < cross_over_rate;
@@ -140,13 +165,14 @@ genann *breed(genann **nns, ann_genes const genes[2], double cross_over_rate, do
   if (cross && same_shape(nns[0], nns[1])) {
     genann *child = child_from_cross_over(nns, &result->picked);
     result->operator_name = "crossover";
-    // A crossover child is not mutated: it keeps the activations and genes
-    // of the parent whose weights come first.
+    // A crossover child is not mutated: it keeps the activations, genes, and
+    // features of the parent whose weights come first.
     result->genes = genes[result->picked];
+    result->features = features ? features[result->picked] : ann_default_features(0);
     return child;
   }
-  genann *child = child_from_mutation(nns, genes, meta_rate, bounds, &result->picked, &result->genes,
-                                      &result->outcome);
+  genann *child = child_from_mutation(nns, genes, features, meta_rate, bounds, &result->picked,
+                                      &result->genes, &result->features, &result->outcome);
   result->operator_name = result->outcome.copy ? "copy" : "mutation";
   return child;
 }
@@ -185,6 +211,18 @@ ann_genes mutate_genes(ann_genes genes, double meta_rate, int total_weights) {
   child.structure_rate = clamp(logit_normal_step(genes.structure_rate, meta_rate),
                                ANN_STRUCTURE_RATE_MIN, ANN_STRUCTURE_RATE_MAX);
   return child;
+}
+
+ann_features mutate_features(ann_features features, double meta_rate) {
+  int count = ann_feature_count(features.groups);
+  if (count <= 0) return features;
+  features.feature_step = clamp(log_normal_step(features.feature_step, meta_rate),
+                                ANN_FEATURE_STEP_MIN, ANN_FEATURE_STEP_MAX);
+  for (int i = 0; i < count; i++) {
+    double moved = features.weights[i] + (2.0 * GENANN_RANDOM() - 1.0) * features.feature_step;
+    features.weights[i] = clamp(moved, ANN_FEATURE_WEIGHT_MIN, ANN_FEATURE_WEIGHT_MAX);
+  }
+  return features;
 }
 
 // With probability rate, a different activation than the current one, each
@@ -419,12 +457,16 @@ static structure_change mutate_structure(genann **child, shape_bounds const *bou
 }
 
 // The draws come in a fixed order, so a seed gives one child: the copy
-// check, the genes, the activations, the structure, then the weights.
-genann *mutate(genann const *parent, ann_genes const *parent_genes, double meta_rate,
-               shape_bounds const *bounds, ann_genes *child_genes, mutation_outcome *outcome) {
+// check, the genes, the features (none without move features), the
+// activations, the structure, then the weights.
+genann *mutate(genann const *parent, ann_genes const *parent_genes, ann_features const *parent_features,
+               double meta_rate, shape_bounds const *bounds, ann_genes *child_genes,
+               ann_features *child_features, mutation_outcome *outcome) {
   mutation_outcome result = {.copy = false, .activation_changed = false, .structure = STRUCTURE_NONE};
+  ann_features features = parent_features ? *parent_features : ann_default_features(0);
   genann *child = genann_copy(parent);
   *child_genes = *parent_genes;
+  if (child_features) *child_features = features;
   if (GENANN_RANDOM() < parent_genes->copy_chance) {
     result.copy = true;
     if (outcome) *outcome = result;
@@ -434,6 +476,8 @@ genann *mutate(genann const *parent, ann_genes const *parent_genes, double meta_
   // weight_changes is clamped against the child's final total_weights, known
   // only after the structural change.
   *child_genes = mutate_genes(*parent_genes, meta_rate, INT_MAX);
+  features = mutate_features(features, meta_rate);
+  if (child_features) *child_features = features;
 
   result.activation_changed = mutate_activations(child, child_genes->activation_rate);
 
