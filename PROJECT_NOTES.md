@@ -6,6 +6,8 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Current recommendation:** the networks now have hand-coded Go knowledge (`docs/features.md`), and one seeded comparison showed a clear head start against Brown but no progress towards AmiGo in 20 generations. Repeat that comparison with several seeds and more benchmark games (see [Go features: what is still open](#go-features-what-is-still-open)) before building on it. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
+**Next task: arena performance with big populations.** With populations large in both network size and count (such as the `even-bigger` experiment), much of the time between tournament rounds seems to go into loading the networks: every round starts new arena processes (one per chunk), and each loads its networks again. Not yet investigated (owner, 26 Sep 2026). Measure first where the time goes; one candidate remedy is to keep the arena running for all of a generation's tournament rounds, so each network is loaded once.
+
 ## What most affects the experiment
 
 ### 1. Fitness needs a clearer meaning
