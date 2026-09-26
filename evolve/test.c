@@ -102,7 +102,7 @@ static mutation_counts mutate_many(genann *parent, ann_genes genes, double meta_
   counts.children = children;
   for (int c = 0; c < children; c++) {
     ann_genes child_genes;
-    genann *child = mutate(parent, &genes, meta_rate, &child_genes, NULL);
+    genann *child = mutate(parent, &genes, meta_rate, NULL, &child_genes, NULL);
     long changed = 0;
     for (int i = 0; i < parent->total_weights; i++) {
       double change = child->weight[i] - parent->weight[i];
@@ -132,7 +132,7 @@ void test_mutate_copies_the_parent() {
   ann_genes genes = middle_genes();
   genes.copy_chance = ANN_COPY_CHANCE_MIN;
   ann_genes child_genes;
-  genann *child = mutate(parent, &genes, META_RATE, &child_genes, NULL);
+  genann *child = mutate(parent, &genes, META_RATE, NULL, &child_genes, NULL);
 
   lok(child != parent);
   lok(child->weight != parent->weight);
@@ -177,11 +177,11 @@ void test_mutate_is_deterministic_for_a_seed() {
   ann_genes first_genes, second_genes, other_genes;
 
   pcg32_srandom(3, 54u);
-  genann *first = mutate(parent, &genes, META_RATE, &first_genes, NULL);
+  genann *first = mutate(parent, &genes, META_RATE, NULL, &first_genes, NULL);
   pcg32_srandom(3, 54u);
-  genann *second = mutate(parent, &genes, META_RATE, &second_genes, NULL);
+  genann *second = mutate(parent, &genes, META_RATE, NULL, &second_genes, NULL);
   pcg32_srandom(4, 54u);
-  genann *other = mutate(parent, &genes, META_RATE, &other_genes, NULL);
+  genann *other = mutate(parent, &genes, META_RATE, NULL, &other_genes, NULL);
 
   static unsigned char a[200000], b[200000], c[200000];
   size_t a_length = child_bytes(first, &first_genes, a, sizeof a);
@@ -345,28 +345,44 @@ void test_mutate_genes_clamps() {
   lok(ann_genes_invalid(&same, 26) == NULL);
 }
 
-// Crossing over mixes weights, so both parents must have the same sizes.
-// Their activations may differ: the child takes the picked parent's.
+// Parents can breed when they have the same inputs and outputs; their
+// shapes and activations may differ. Only the same shape can cross over.
 void test_parents_must_match() {
   genann *a = genann_init(3, 1, 4, 2);
   genann *b = genann_init(3, 1, 4, 2);
   genann *nns[2] = {a, b};
   lok(nns_compatible(nns));
+  lok(same_shape(a, b));
 
   b->activation_output = genann_act_linear;
   b->activation_hidden = genann_act_tanh;
   lok(nns_compatible(nns));
+  lok(same_shape(a, b));
 
   genann *wider = genann_init(3, 1, 5, 2);
   genann *deeper = genann_init(3, 2, 4, 2);
-  genann *more_inputs = genann_init(4, 1, 4, 2);
-  genann *more_outputs = genann_init(3, 1, 4, 3);
-  genann *others[] = {wider, deeper, more_inputs, more_outputs};
-  for (int i = 0; i < 4; i++) {
+  genann *others[] = {wider, deeper};
+  for (int i = 0; i < 2; i++) {
     nns[1] = others[i];
-    lok(!nns_compatible(nns));
+    lok(nns_compatible(nns));
+    lok(!same_shape(a, others[i]));
     genann_free(others[i]);
   }
+  genann *more_inputs = genann_init(4, 1, 4, 2);
+  genann *more_outputs = genann_init(3, 1, 4, 3);
+  genann *incompatible[] = {more_inputs, more_outputs};
+  for (int i = 0; i < 2; i++) {
+    nns[1] = incompatible[i];
+    lok(!nns_compatible(nns));
+    lok(!same_shape(a, incompatible[i]));
+    genann_free(incompatible[i]);
+  }
+  // Without hidden layers the width does not count.
+  genann *flat = genann_init(3, 0, 0, 2);
+  genann *flat_wide = genann_init(3, 0, 7, 2);
+  lok(same_shape(flat, flat_wide));
+  genann_free(flat_wide);
+  genann_free(flat);
 
   genann_free(b);
   genann_free(a);
@@ -445,7 +461,7 @@ void test_mutate_switches_activations_by_the_gene() {
   for (int c = 0; c < children; c++) {
     ann_genes child_genes;
     mutation_outcome outcome;
-    genann *child = mutate(parent, &genes, 0, &child_genes, &outcome);
+    genann *child = mutate(parent, &genes, 0, NULL, &child_genes, &outcome);
     bool hidden_switched = child->activation_hidden != parent->activation_hidden;
     bool output_switched = child->activation_output != parent->activation_output;
     if (outcome.activation_changed != (hidden_switched || output_switched)) mismatched++;
@@ -494,6 +510,556 @@ void test_cross_over_keeps_the_picked_parents_activations() {
   genann_free(a);
 }
 
+// The structural operators. The networks are small, and their weights and
+// inputs are drawn from a seeded generator.
+
+#define INPUTS 6
+#define OUTPUTS 5
+#define SAMPLES 30
+
+// A random network of the given shape and activations.
+static genann *random_network(int layers, int width, genann_actfun hidden, genann_actfun output) {
+  genann *ann = genann_init(INPUTS, layers, layers ? width : 0, OUTPUTS);
+  ann->activation_hidden = hidden;
+  ann->activation_output = output;
+  return ann;
+}
+
+// SAMPLES random inputs in [-1, 1).
+static void random_inputs(double inputs[SAMPLES][INPUTS]) {
+  for (int s = 0; s < SAMPLES; s++) {
+    for (int i = 0; i < INPUTS; i++) inputs[s][i] = 2.0 * GENANN_RANDOM() - 1.0;
+  }
+}
+
+// The outputs of a network for each sample.
+static void run_all(genann const *ann, double inputs[SAMPLES][INPUTS], double outputs[SAMPLES][OUTPUTS]) {
+  for (int s = 0; s < SAMPLES; s++) {
+    memcpy(outputs[s], genann_run(ann, inputs[s]), sizeof(double) * OUTPUTS);
+  }
+}
+
+// The largest difference between two networks' outputs, and whether all are
+// == equal.
+static double largest_difference(genann const *a, genann const *b, bool *equal) {
+  double inputs[SAMPLES][INPUTS], a_out[SAMPLES][OUTPUTS], b_out[SAMPLES][OUTPUTS];
+  random_inputs(inputs);
+  run_all(a, inputs, a_out);
+  run_all(b, inputs, b_out);
+  double largest = 0;
+  *equal = true;
+  for (int s = 0; s < SAMPLES; s++) {
+    for (int o = 0; o < OUTPUTS; o++) {
+      if (a_out[s][o] != b_out[s][o]) *equal = false;
+      double difference = fabs(a_out[s][o] - b_out[s][o]);
+      if (!(difference <= largest)) largest = difference;
+    }
+  }
+  return largest;
+}
+
+static bool same_outputs(genann const *a, genann const *b) {
+  bool equal;
+  largest_difference(a, b, &equal);
+  return equal;
+}
+
+// The total_weights of a GENANN network of that shape.
+static int weights_of(int layers, int width) {
+  genann *ann = genann_init(INPUTS, layers, layers ? width : 0, OUTPUTS);
+  int total = ann->total_weights;
+  genann_free(ann);
+  return total;
+}
+
+// Whether the network has the shape and the activations, with every weight
+// finite.
+static bool valid_network(genann const *ann, int layers, int width, genann const *parent) {
+  bool valid = ann->inputs == INPUTS && ann->outputs == OUTPUTS && ann->hidden_layers == layers
+    && (layers == 0 || ann->hidden == width) && ann->total_weights == weights_of(layers, width)
+    && ann->activation_hidden == parent->activation_hidden
+    && ann->activation_output == parent->activation_output;
+  for (int i = 0; valid && i < ann->total_weights; i++) valid = isfinite(ann->weight[i]);
+  return valid;
+}
+
+// Whether two networks' outputs agree to a relative tolerance (against each
+// sample's largest output) and pick the same move.
+static bool close_outputs(genann const *a, genann const *b, double tolerance) {
+  double inputs[SAMPLES][INPUTS], a_out[SAMPLES][OUTPUTS], b_out[SAMPLES][OUTPUTS];
+  random_inputs(inputs);
+  run_all(a, inputs, a_out);
+  run_all(b, inputs, b_out);
+  bool close = true;
+  for (int s = 0; s < SAMPLES; s++) {
+    double scale = 0;
+    int a_best = 0, b_best = 0;
+    for (int o = 0; o < OUTPUTS; o++) {
+      scale = fmax(scale, fabs(a_out[s][o]));
+      if (a_out[s][o] > a_out[s][a_best]) a_best = o;
+      if (b_out[s][o] > b_out[s][b_best]) b_best = o;
+    }
+    for (int o = 0; o < OUTPUTS; o++) {
+      if (!(fabs(a_out[s][o] - b_out[s][o]) <= tolerance * scale)) close = false;
+    }
+    if (a_best != b_best) close = false;
+  }
+  return close;
+}
+
+// Widening changes no output, whatever the activations and the depth, and
+// the new neurons get random incoming weights. The new weights add exact
+// zeros, but a compiler may sum a longer row in another order (GCC
+// vectorizes GENANN's loops), so the outputs agree up to rounding.
+void test_widen_keeps_the_outputs() {
+  pcg32_srandom(20, 54u);
+  int different = 0, invalid = 0, nonzero_new = 0, out_of_range = 0;
+  for (int layers = 1; layers <= 3; layers++) {
+    for (int h = 0; h < ANN_ACTIVATION_COUNT; h++) {
+      for (int o = 0; o < ANN_ACTIVATION_COUNT; o++) {
+        genann *parent = random_network(layers, 3, ANN_ACTIVATIONS[h].function, ANN_ACTIVATIONS[o].function);
+        genann *child = widen(parent);
+        if (!valid_network(child, layers, 4, parent)) invalid++;
+        if (!close_outputs(parent, child, 1e-12)) different++;
+        // The first layer's new row: bias and one weight per input.
+        double const *row = child->weight + 3 * (INPUTS + 1);
+        for (int k = 0; k <= INPUTS; k++) {
+          if (row[k] != 0) nonzero_new++;
+          if (row[k] < -0.5 || row[k] >= 0.5) out_of_range++;
+        }
+        genann_free(child);
+        genann_free(parent);
+      }
+    }
+  }
+  lequal(invalid, 0);
+  lequal(different, 0);
+  lequal(out_of_range, 0);
+  lequal(nonzero_new, 3 * 36 * (INPUTS + 1));
+}
+
+// Narrowing removes one neuron per layer, a different one in each layer
+// independently, each equally likely, with its row and its column in the
+// next layer. Each neuron's bias here names it: 100·layer + index.
+void test_narrow_removes_a_neuron_per_layer() {
+  pcg32_srandom(21, 54u);
+  const int width = 3, trials = 9000;
+  long joint[3][3] = {{0}};
+  int invalid = 0, wrong_weights = 0;
+  genann *parent = random_network(2, width, genann_act_tanh, genann_act_linear);
+  int row_length[3] = {INPUTS + 1, width + 1, width + 1};
+  for (int h = 0; h < 2; h++) {
+    for (int j = 0; j < width; j++) parent->weight[h * width * (INPUTS + 1) + j * row_length[h]] = 100 * h + j;
+  }
+  for (int t = 0; t < trials; t++) {
+    genann *child = narrow(parent);
+    if (!valid_network(child, 2, width - 1, parent)) invalid++;
+    // Find the removed neuron of each layer from the biases left.
+    int removed[2];
+    int child_row[3] = {INPUTS + 1, width, width};
+    for (int h = 0; h < 2; h++) {
+      double const *first = child->weight + h * (width - 1) * (INPUTS + 1);
+      int index0 = (int)first[0] - 100 * h, index1 = (int)first[child_row[h]] - 100 * h;
+      removed[h] = index0 != 0 ? 0 : index1 != 1 ? 1 : 2;
+    }
+    joint[removed[0]][removed[1]]++;
+    // Every row left equals its parent row without the removed column.
+    double const *to = child->weight;
+    for (int h = 0; h < 3; h++) {
+      int neurons = h == 2 ? OUTPUTS : width;
+      double const *from = parent->weight + (h == 0 ? 0 : width * (INPUTS + 1) + (h - 1) * width * (width + 1));
+      for (int j = 0; j < neurons; j++, from += row_length[h]) {
+        if (h < 2 && j == removed[h]) continue;
+        for (int k = 0; k < row_length[h]; k++) {
+          if (h > 0 && k == 1 + removed[h - 1]) continue;
+          if (*to++ != from[k]) wrong_weights++;
+        }
+      }
+    }
+    if (to != child->weight + child->total_weights) wrong_weights++;
+    genann_free(child);
+  }
+  lequal(invalid, 0);
+  lequal(wrong_weights, 0);
+  // Each of the 9 pairs about 1,000 times: SE sqrt(1/9 · 8/9 / 9000) = 0.0033.
+  for (int a = 0; a < 3; a++) {
+    for (int b = 0; b < 3; b++) check_close("share of one pair of removed neurons", joint[a][b] / (double)trials, 1.0 / 9, 0.014);
+  }
+  genann_free(parent);
+}
+
+// An added layer passes the last hidden layer through unchanged for the
+// activations that leave their own outputs as they are: linear, relu, and
+// threshold, with any output activation.
+void test_add_layer_passes_through() {
+  pcg32_srandom(22, 54u);
+  genann_actfun exact[] = {genann_act_linear, genann_act_relu, genann_act_threshold};
+  int different = 0, invalid = 0;
+  for (int layers = 1; layers <= 3; layers++) {
+    for (int h = 0; h < 3; h++) {
+      for (int o = 0; o < ANN_ACTIVATION_COUNT; o++) {
+        genann *parent = random_network(layers, 4, exact[h], ANN_ACTIVATIONS[o].function);
+        genann *child = add_layer(parent, 9);
+        if (!valid_network(child, layers + 1, 4, parent)) invalid++;
+        if (!same_outputs(parent, child)) different++;
+        genann_free(child);
+        genann_free(parent);
+      }
+    }
+  }
+  lequal(invalid, 0);
+  lequal(different, 0);
+}
+
+// Without hidden layers, the added layer has add_layer_size neurons and it
+// and the outputs get random weights.
+void test_add_layer_to_no_hidden_layers() {
+  pcg32_srandom(23, 54u);
+  genann *parent = random_network(0, 0, genann_act_relu, genann_act_tanh);
+  genann *child = add_layer(parent, 7);
+  lok(valid_network(child, 1, 7, parent));
+  int out_of_range = 0, zeros = 0;
+  for (int i = 0; i < child->total_weights; i++) {
+    if (child->weight[i] < -0.5 || child->weight[i] >= 0.5) out_of_range++;
+    if (child->weight[i] == 0) zeros++;
+  }
+  lequal(out_of_range, 0);
+  lequal(zeros, 0);
+  genann_free(child);
+  genann_free(parent);
+}
+
+// A linear layer folds into the output layer up to rounding: the outputs
+// agree to a relative 1e-9 and pick the same move. From one hidden layer the
+// output rows fold onto every input.
+void test_remove_layer_folds_a_linear_layer() {
+  pcg32_srandom(24, 54u);
+  int invalid = 0, too_far = 0, other_move = 0;
+  for (int layers = 1; layers <= 3; layers++) {
+    for (int n = 0; n < 20; n++) {
+      genann *parent = random_network(layers, 5, genann_act_linear, genann_act_linear);
+      genann *child = remove_layer(parent);
+      if (!valid_network(child, layers - 1, 5, parent)) invalid++;
+      double inputs[SAMPLES][INPUTS], a[SAMPLES][OUTPUTS], b[SAMPLES][OUTPUTS];
+      random_inputs(inputs);
+      run_all(parent, inputs, a);
+      run_all(child, inputs, b);
+      for (int s = 0; s < SAMPLES; s++) {
+        double scale = 0;
+        int a_best = 0, b_best = 0;
+        for (int o = 0; o < OUTPUTS; o++) {
+          scale = fmax(scale, fabs(a[s][o]));
+          if (a[s][o] > a[s][a_best]) a_best = o;
+          if (b[s][o] > b[s][b_best]) b_best = o;
+        }
+        for (int o = 0; o < OUTPUTS; o++) {
+          if (!(fabs(a[s][o] - b[s][o]) <= 1e-9 * scale)) too_far++;
+        }
+        if (a_best != b_best) other_move++;
+      }
+      genann_free(child);
+      genann_free(parent);
+    }
+  }
+  lequal(invalid, 0);
+  lequal(too_far, 0);
+  lequal(other_move, 0);
+}
+
+// Adding a layer and removing it again gives the parent back: byte for byte
+// and with == outputs for linear, relu, and tanh, and to 1e-9 for the
+// sigmoids, whose compensation the fold undoes. Threshold's does not undo, so
+// it only has to keep the shape.
+void test_add_then_remove_round_trips() {
+  pcg32_srandom(25, 54u);
+  int invalid = 0, other_bytes = 0, different = 0, too_far = 0;
+  for (int layers = 1; layers <= 3; layers++) {
+    for (int h = 0; h < ANN_ACTIVATION_COUNT; h++) {
+      for (int o = 0; o < ANN_ACTIVATION_COUNT; o++) {
+        genann_actfun f = ANN_ACTIVATIONS[h].function;
+        genann *parent = random_network(layers, 4, f, ANN_ACTIVATIONS[o].function);
+        genann *added = add_layer(parent, 9);
+        genann *child = remove_layer(added);
+        if (!valid_network(child, layers, 4, parent)) invalid++;
+        bool equal;
+        double difference = largest_difference(parent, child, &equal);
+        if (f == genann_act_linear || f == genann_act_relu || f == genann_act_tanh) {
+          if (memcmp(parent->weight, child->weight, sizeof(double) * parent->total_weights) != 0) other_bytes++;
+          if (!equal) different++;
+        } else if (f == genann_act_sigmoid || f == genann_act_sigmoid_cached) {
+          for (int i = 0; i < parent->total_weights; i++) {
+            if (!(fabs(parent->weight[i] - child->weight[i]) <= 1e-9)) too_far++;
+          }
+          if (!(difference <= 1e-9)) too_far++;
+        }
+        genann_free(child);
+        genann_free(added);
+        genann_free(parent);
+      }
+    }
+  }
+  lequal(invalid, 0);
+  lequal(other_bytes, 0);
+  lequal(different, 0);
+  lequal(too_far, 0);
+  // From no hidden layers and back, the shape is the parent's.
+  genann *flat = random_network(0, 0, genann_act_sigmoid_cached, genann_act_sigmoid_cached);
+  genann *added = add_layer(flat, 3);
+  genann *back = remove_layer(added);
+  lok(valid_network(back, 0, 0, flat));
+  genann_free(back);
+  genann_free(added);
+  genann_free(flat);
+}
+
+// The operators draw only their own numbers: building the reshaped network
+// draws nothing. After each, the generator is where replaying just those
+// draws leaves it.
+void test_structure_operators_draw_only_their_own_numbers() {
+  pcg32_srandom(30, 54u);
+  int wrong = 0;
+  for (int layers = 1; layers <= 3; layers++) {
+    genann *parent = random_network(layers, 3, genann_act_tanh, genann_act_linear);
+    for (int op = 0; op < 4; op++) {
+      pcg32_srandom(31 + op, 54u);
+      genann *child = NULL;
+      switch (op) {
+        case 0: child = remove_layer(parent); break;
+        case 1: child = add_layer(parent, 5); break;
+        case 2: child = widen(parent); break;
+        default: child = narrow(parent); break;
+      }
+      uint32_t after = pcg32_random();
+      pcg32_srandom(31 + op, 54u);
+      if (op == 2) {
+        // The new first-layer row, then a row of width + 2 per later layer.
+        int draws = (INPUTS + 1) + (layers - 1) * (3 + 2);
+        for (int d = 0; d < draws; d++) pcg32_random();
+      } else if (op == 3) {
+        for (int h = 0; h < layers; h++) pcg32_boundedrand(3);
+      }
+      if (pcg32_random() != after) wrong++;
+      genann_free(child);
+    }
+    genann_free(parent);
+  }
+  lequal(wrong, 0);
+}
+
+// The bounds allow widen below max_layer_size, narrow above width 1 (both
+// only with hidden layers), add_layer below max_hidden_layers, and
+// remove_layer with hidden layers.
+void test_allowed_structure_changes() {
+  shape_bounds bounds = {.max_hidden_layers = 2, .max_layer_size = 4, .add_layer_size = 3};
+  struct { int layers, width, count; structure_change changes[4]; } cases[] = {
+    {0, 0, 1, {STRUCTURE_ADD_LAYER}},
+    {1, 1, 3, {STRUCTURE_WIDEN, STRUCTURE_ADD_LAYER, STRUCTURE_REMOVE_LAYER}},
+    {1, 2, 4, {STRUCTURE_WIDEN, STRUCTURE_NARROW, STRUCTURE_ADD_LAYER, STRUCTURE_REMOVE_LAYER}},
+    {2, 4, 2, {STRUCTURE_NARROW, STRUCTURE_REMOVE_LAYER}},
+    {2, 1, 2, {STRUCTURE_WIDEN, STRUCTURE_REMOVE_LAYER}},
+  };
+  for (unsigned c = 0; c < sizeof cases / sizeof cases[0]; c++) {
+    genann *ann = random_network(cases[c].layers, cases[c].width, genann_act_linear, genann_act_linear);
+    structure_change changes[4];
+    int count = allowed_structure_changes(ann, &bounds, changes);
+    lequal(count, cases[c].count);
+    for (int i = 0; i < count && i < cases[c].count; i++) lok(changes[i] == cases[c].changes[i]);
+    genann_free(ann);
+  }
+  shape_bounds flat = {.max_hidden_layers = 0, .max_layer_size = 4, .add_layer_size = 3};
+  genann *ann = random_network(0, 0, genann_act_linear, genann_act_linear);
+  structure_change changes[4];
+  lequal(allowed_structure_changes(ann, &flat, changes), 0);
+  genann_free(ann);
+}
+
+// A mutated child changes its structure with its structure_rate gene, by one
+// of the allowed changes chosen uniformly, and its shape shows the change.
+void test_mutate_changes_the_structure_by_the_gene() {
+  pcg32_srandom(26, 54u);
+  shape_bounds bounds = {.max_hidden_layers = 3, .max_layer_size = 4, .add_layer_size = 2};
+  genann *four = random_network(2, 3, genann_act_relu, genann_act_linear);
+  genann *two = random_network(3, 4, genann_act_relu, genann_act_linear);
+  genann *parents[] = {four, two};
+  int allowed[] = {4, 2};
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MIN;
+  genes.structure_rate = 0.4;
+  const int children = 12000;
+  for (int p = 0; p < 2; p++) {
+    genann *parent = parents[p];
+    long counts[5] = {0};
+    int wrong_shape = 0;
+    for (int c = 0; c < children; c++) {
+      ann_genes child_genes;
+      mutation_outcome outcome;
+      genann *child = mutate(parent, &genes, 0, &bounds, &child_genes, &outcome);
+      counts[outcome.structure]++;
+      int layers = parent->hidden_layers, width = parent->hidden;
+      switch (outcome.structure) {
+        case STRUCTURE_WIDEN: width++; break;
+        case STRUCTURE_NARROW: width--; break;
+        case STRUCTURE_ADD_LAYER: layers++; break;
+        case STRUCTURE_REMOVE_LAYER: layers--; break;
+        default: break;
+      }
+      if (child->hidden_layers != layers || (layers > 0 && child->hidden != width)) wrong_shape++;
+      genann_free(child);
+    }
+    lequal(wrong_shape, 0);
+    long changed = children - counts[STRUCTURE_NONE];
+    // SE = sqrt(0.4 · 0.6 / 12000) = 0.0045.
+    check_close("share of structural changes", (double)changed / children, 0.4, 0.018);
+    if (p == 1) {
+      lequal((int)counts[STRUCTURE_WIDEN], 0);
+      lequal((int)counts[STRUCTURE_ADD_LAYER], 0);
+    }
+    for (int s = 1; s < 5; s++) {
+      if (p == 1 && (s == STRUCTURE_WIDEN || s == STRUCTURE_ADD_LAYER)) continue;
+      // Among about 4,800 changes: SE at most sqrt(0.25 · 0.75 / 4800) = 0.0063.
+      check_close("share of one structural change", (double)counts[s] / changed, 1.0 / allowed[p], 0.028);
+    }
+  }
+  genann_free(two);
+  genann_free(four);
+}
+
+// However often the structure changes, the child stays within the bounds
+// (for a parent within them), is a valid network, and its weight_changes
+// gene is clamped against its own total_weights, not the parent's: after a
+// widening it may exceed the parent's.
+void test_mutate_keeps_the_structure_in_bounds() {
+  pcg32_srandom(27, 54u);
+  shape_bounds bounds = {.max_hidden_layers = 2, .max_layer_size = 3, .add_layer_size = 2};
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MIN;
+  genes.structure_rate = ANN_STRUCTURE_RATE_MAX;
+  int out_of_bounds = 0, invalid = 0, above_parent = 0;
+  for (int layers = 0; layers <= 2; layers++) {
+    for (int width = 1; width <= 3; width++) {
+      genann *parent = random_network(layers, width, genann_act_tanh, genann_act_sigmoid_cached);
+      genes.weight_changes = parent->total_weights;
+      for (int c = 0; c < 500; c++) {
+        ann_genes child_genes;
+        mutation_outcome outcome;
+        genann *child = mutate(parent, &genes, 0.5, &bounds, &child_genes, &outcome);
+        if (child->hidden_layers < 0 || child->hidden_layers > bounds.max_hidden_layers) out_of_bounds++;
+        if (child->hidden_layers > 0 && (child->hidden < 1 || child->hidden > bounds.max_layer_size)) out_of_bounds++;
+        if (ann_genes_invalid(&child_genes, child->total_weights)) invalid++;
+        if (child_genes.weight_changes > parent->total_weights) above_parent++;
+        for (int i = 0; i < child->total_weights; i++) {
+          if (!isfinite(child->weight[i])) invalid++;
+        }
+        genann_free(child);
+      }
+      genann_free(parent);
+    }
+  }
+  lequal(out_of_bounds, 0);
+  lequal(invalid, 0);
+  lok(above_parent > 0);
+}
+
+// When the bounds allow no change, the structure is not even drawn: the
+// child is the one mutate() gives without bounds.
+void test_mutate_draws_no_structure_when_none_is_allowed() {
+  genann *parent = random_network(0, 0, genann_act_linear, genann_act_linear);
+  shape_bounds bounds = {.max_hidden_layers = 0, .max_layer_size = 4, .add_layer_size = 2};
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MIN;
+  genes.structure_rate = ANN_STRUCTURE_RATE_MAX;
+  int different = 0;
+  for (uint64_t seed = 0; seed < 50; seed++) {
+    ann_genes a_genes, b_genes;
+    mutation_outcome outcome;
+    pcg32_srandom(seed, 54u);
+    genann *a = mutate(parent, &genes, META_RATE, &bounds, &a_genes, &outcome);
+    pcg32_srandom(seed, 54u);
+    genann *b = mutate(parent, &genes, META_RATE, NULL, &b_genes, NULL);
+    if (outcome.structure != STRUCTURE_NONE || !same_genes(&a_genes, &b_genes)
+        || memcmp(a->weight, b->weight, sizeof(double) * a->total_weights) != 0) different++;
+    genann_free(b);
+    genann_free(a);
+  }
+  lequal(different, 0);
+  genann_free(parent);
+}
+
+// A seed gives one child, structure included.
+void test_mutate_structure_is_deterministic_for_a_seed() {
+  pcg32_srandom(28, 54u);
+  genann *parent = random_network(2, 3, genann_act_sigmoid_cached, genann_act_sigmoid_cached);
+  shape_bounds bounds = {.max_hidden_layers = 3, .max_layer_size = 4, .add_layer_size = 2};
+  ann_genes genes = middle_genes();
+  genes.structure_rate = ANN_STRUCTURE_RATE_MAX;
+  int different = 0, seen = 0;
+  for (uint64_t seed = 0; seed < 60; seed++) {
+    static unsigned char a[8192], b[8192];
+    ann_genes a_genes, b_genes;
+    mutation_outcome outcome;
+    pcg32_srandom(seed, 54u);
+    genann *first = mutate(parent, &genes, META_RATE, &bounds, &a_genes, &outcome);
+    pcg32_srandom(seed, 54u);
+    genann *second = mutate(parent, &genes, META_RATE, &bounds, &b_genes, NULL);
+    seen |= 1 << outcome.structure;
+    size_t a_length = child_bytes(first, &a_genes, a, sizeof a);
+    size_t b_length = child_bytes(second, &b_genes, b, sizeof b);
+    if (a_length == 0 || a_length != b_length || memcmp(a, b, a_length) != 0) different++;
+    genann_free(second);
+    genann_free(first);
+  }
+  lequal(different, 0);
+  // Every change came up.
+  lequal(seen, 31);
+  genann_free(parent);
+}
+
+// With crossover rate 1 parents of the same shape always cross over, and
+// parents of different shapes never: their child is a mutation of the picked
+// parent.
+void test_breed_crosses_over_only_the_same_shape() {
+  pcg32_srandom(29, 54u);
+  shape_bounds bounds = {.max_hidden_layers = 3, .max_layer_size = 5, .add_layer_size = 2};
+  ann_genes genes[2] = {middle_genes(), middle_genes()};
+  genann *a = random_network(1, 3, genann_act_tanh, genann_act_linear);
+  genann *same = random_network(1, 3, genann_act_relu, genann_act_linear);
+  genann *wider = random_network(1, 4, genann_act_tanh, genann_act_linear);
+  genann *deeper = random_network(2, 3, genann_act_tanh, genann_act_linear);
+  genann *flat = random_network(0, 0, genann_act_tanh, genann_act_linear);
+  genann *flat_too = random_network(0, 0, genann_act_relu, genann_act_linear);
+  flat_too->hidden = 5;
+  int wrong = 0, picked_first = 0;
+  for (int k = 0; k < 400; k++) {
+    breeding result;
+    genann *pair[2] = {a, same};
+    genann *child = breed(pair, genes, 1, META_RATE, &bounds, &result);
+    if (strcmp(result.operator_name, "crossover") != 0) wrong++;
+    genann_free(child);
+    genann *flats[2] = {flat, flat_too};
+    child = breed(flats, genes, 1, META_RATE, &bounds, &result);
+    if (strcmp(result.operator_name, "crossover") != 0) wrong++;
+    genann_free(child);
+    genann *others[] = {wider, deeper};
+    for (int i = 0; i < 2; i++) {
+      genann *mixed[2] = {a, others[i]};
+      child = breed(mixed, genes, 1, META_RATE, &bounds, &result);
+      if (strcmp(result.operator_name, "crossover") == 0) wrong++;
+      if (result.picked == 0) picked_first++;
+      // Unless its structure changed, it has its picked parent's shape.
+      if (result.outcome.structure == STRUCTURE_NONE && !same_shape(child, mixed[result.picked])) wrong++;
+      genann_free(child);
+    }
+  }
+  lequal(wrong, 0);
+  lok(picked_first > 320 && picked_first < 480);
+  genann_free(flat_too);
+  genann_free(flat);
+  genann_free(deeper);
+  genann_free(wider);
+  genann_free(same);
+  genann_free(a);
+}
+
 int main(int argc, char **argv) {
   printf("Evolve test suite\n");
 
@@ -510,6 +1076,19 @@ int main(int argc, char **argv) {
   lrun("mutate_activations", test_mutate_activations_switches_uniformly);
   lrun("mutate_activation_gene", test_mutate_switches_activations_by_the_gene);
   lrun("cross_over_activations", test_cross_over_keeps_the_picked_parents_activations);
+  lrun("widen", test_widen_keeps_the_outputs);
+  lrun("narrow", test_narrow_removes_a_neuron_per_layer);
+  lrun("add_layer", test_add_layer_passes_through);
+  lrun("add_first_layer", test_add_layer_to_no_hidden_layers);
+  lrun("remove_layer_linear", test_remove_layer_folds_a_linear_layer);
+  lrun("add_remove_round_trip", test_add_then_remove_round_trips);
+  lrun("structure_draws", test_structure_operators_draw_only_their_own_numbers);
+  lrun("allowed_structure", test_allowed_structure_changes);
+  lrun("mutate_structure_gene", test_mutate_changes_the_structure_by_the_gene);
+  lrun("mutate_structure_bounds", test_mutate_keeps_the_structure_in_bounds);
+  lrun("mutate_no_structure_draw", test_mutate_draws_no_structure_when_none_is_allowed);
+  lrun("mutate_structure_seed", test_mutate_structure_is_deterministic_for_a_seed);
+  lrun("breed_shapes", test_breed_crosses_over_only_the_same_shape);
 
   lresults();
 

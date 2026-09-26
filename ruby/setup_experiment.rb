@@ -67,6 +67,10 @@ class SetupExperiment
     'population_size' => ['Population size', nil, integer(1)],
     'hidden_layers' => ['Hidden layers of generation 0', nil, integer(0)],
     'layer_size' => ['Neurons per hidden layer of generation 0', nil, integer(1)],
+    # The bounds on the shape structural mutation may give a network; the
+    # generation-0 shape must be within them.
+    'max_hidden_layers' => ['Most hidden layers a network may evolve', '4', integer(0)],
+    'max_layer_size' => ['Most neurons per hidden layer a network may evolve', '200', integer(1)],
     'cross_over_rate' => ['Cross over rate', nil, number(0, 1)],
     'game_length' => ['Time per player per game, in minutes', nil, integer(1)],
     'max_moves' => ['Max moves', nil, integer(1)],
@@ -206,10 +210,26 @@ class SetupExperiment
   # Parses one setting, checked against the settings before it.
   def self.parse_setting(key, text, settings)
     value = SETTINGS.fetch(key)[2].parse(key, text)
-    return value unless key == 'initial_weight_changes'
+    case key
+    when 'max_hidden_layers' then check_bound(key, value, 'hidden_layers', settings)
+    # Without hidden layers the width is not used until a layer is added,
+    # and that layer is clamped to max_layer_size.
+    when 'max_layer_size' then check_bound(key, value, 'layer_size', settings) if settings['hidden_layers'].positive?
+    when 'initial_weight_changes' then check_weight_changes(value, text, settings)
+    end
+    value
+  end
 
+  # A bound must admit the generation-0 shape.
+  def self.check_bound(key, value, initial, settings)
+    return if value >= settings.fetch(initial)
+
+    raise ArgumentError, "#{key} must be at least #{initial} (#{settings.fetch(initial)}), got #{value}"
+  end
+
+  def self.check_weight_changes(value, text, settings)
     total = generation_0_weights(settings)
-    return value if value <= total
+    return if value <= total
 
     raise ArgumentError, "initial_weight_changes must be at most #{total}, the weights of a generation-0 network, got #{text}"
   end

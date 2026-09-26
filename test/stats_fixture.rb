@@ -33,15 +33,16 @@ module StatsFixture
 
     %w[a.ann b.ann c.ann].each_with_index do |child, i|
       db.record_birth(generation: 0, child:, first_parent: nil, second_parent: nil, operator: 'initial',
-                      differs_from_first: nil, differs_from_second: nil, seed: i, genome: "g#{i}")
+                      differs_from_first: nil, differs_from_second: nil, seed: i, genome: "g#{i}", layers: 1, width: 10)
     end
-    # Generation 1: a crossover, a mutation, and a crossover that copied its
-    # second parent, so it has the same genome as that parent.
-    [['a.ann', 'c.ann', 'a.ann', 'crossover', 5, 7, 'h0'],
-     ['b.ann', 'c.ann', 'c.ann', 'mutation', 3, 3, 'h1'],
-     ['c.ann', 'b.ann', 'c.ann', 'crossover', 4, 0, 'g2']].each do |child, first, second, operator, one, two, genome|
+    # Generation 1: a crossover, a mutation that widened its parent, so it
+    # has no differs counts, and a crossover that copied its second parent,
+    # so it has the same genome as that parent.
+    [['a.ann', 'c.ann', 'a.ann', 'crossover', 5, 7, 'h0', 'none', 10],
+     ['b.ann', 'c.ann', 'c.ann', 'mutation', nil, nil, 'h1', 'widen', 11],
+     ['c.ann', 'b.ann', 'c.ann', 'crossover', 4, 0, 'g2', 'none', 10]].each do |child, first, second, operator, one, two, genome, structure, width|
       db.record_birth(generation: 1, child:, first_parent: first, second_parent: second, operator:, parent: 'first',
-                      differs_from_first: one, differs_from_second: two, seed: 9, genome:)
+                      differs_from_first: one, differs_from_second: two, seed: 9, genome:, structure:, layers: 1, width:)
     end
 
     game = lambda do |generation, round, black, white, **rest|

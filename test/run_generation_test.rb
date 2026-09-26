@@ -246,9 +246,10 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     [true, SUMMARY]
   end
 
-  # The crossover rate, the meta rate, and the bounds on the child's shape
-  # (the generation-0 shape for now), then the parents.
-  PARENTS = %r{\A\.\./evolve 0\.5 0\.2 1 10 10 parents/000[12]\.ann parents/000[12]\.ann}
+  # The crossover rate, the meta rate, the bounds on the child's shape
+  # (max_hidden_layers, max_layer_size), and the width of a layer added to
+  # a network without one, then the parents.
+  PARENTS = %r{\A\.\./evolve 0\.5 0\.2 4 200 10 parents/000[12]\.ann parents/000[12]\.ann}
 
   def test_breeds_children_from_selected_parents_and_deletes_the_parents
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
@@ -335,7 +336,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
 
   def test_the_meta_rate_comes_from_the_settings
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'meta_rate' => 0.35 }) { |cmd| write_child(cmd) }
-    state[:commands].each { |cmd| assert_match(/\A\.\.\/evolve 0\.5 0\.35 1 10 10 /, cmd) }
+    state[:commands].each { |cmd| assert_match(/\A\.\.\/evolve 0\.5 0\.35 4 200 10 /, cmd) }
   end
 
   # Writes the child and prints the given summary line.
@@ -344,6 +345,39 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
       File.write(cmd.split[-2], cmd)
       [true, "Loading ...\n#{summary}\n#{GENES_LINE}"]
     end
+  end
+
+  def test_the_bounds_on_the_shape_come_from_the_settings
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 },
+                  settings: { 'max_hidden_layers' => 3, 'max_layer_size' => 20 }) { |cmd| write_child(cmd) }
+    state[:commands].each { |cmd| assert_match(%r{\A\.\./evolve 0\.5 0\.2 3 20 10 parents/}, cmd) }
+  end
+
+  # A network without hidden layers that gains one gets the generation-0
+  # width, but never more than max_layer_size.
+  def test_an_added_first_layer_is_at_most_max_layer_size_wide
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 },
+                  settings: { 'hidden_layers' => 0, 'layer_size' => 500, 'max_layer_size' => 200 }) do |cmd|
+      write_child(cmd)
+    end
+    state[:commands].each { |cmd| assert_match(%r{\A\.\./evolve 0\.5 0\.2 4 200 200 parents/}, cmd) }
+  end
+
+  # Each structural change is stored with the child's new shape; a parent
+  # of another shape has no differs count.
+  def test_records_each_structural_change_with_the_childs_shape
+    changes = [['widen', 1, 11], ['narrow', 1, 9], ['add_layer', 2, 10], ['remove_layer', 0, 0]]
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 4 }) do |cmd|
+      child = cmd.split[-2]
+      File.write(child, cmd)
+      structure, layers, width = changes.fetch(Integer(File.basename(child, '.ann')))
+      [true, "Loading ...\nsummary operator=mutation parent=first structure=#{structure} activation_changed=0 " \
+             "differs_from_first=-1 differs_from_second=-1\n" \
+             "#{GENES_LINE.sub('layers=1 width=10', "layers=#{layers} width=#{width}")}"]
+    end
+    assert_nil state[:error]
+    assert_equal(changes.map { |change| change + [nil, nil] },
+                 state[:births].map { |birth| birth.values_at(:structure, :layers, :width, :differs_from_first, :differs_from_second) })
   end
 
   def test_records_copies_and_counts_for_other_shapes_as_unknown

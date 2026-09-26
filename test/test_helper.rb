@@ -16,6 +16,8 @@ module RunGenerationHelpers
     'population_size' => 2,
     'hidden_layers' => 1,
     'layer_size' => 10,
+    'max_hidden_layers' => 4,
+    'max_layer_size' => 200,
     'cross_over_rate' => 0.5,
     'game_length' => 10,
     'max_moves' => 200,
