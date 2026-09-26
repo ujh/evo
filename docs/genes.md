@@ -20,7 +20,7 @@ Now each network carries its own genome, and all of it evolves:
 | Shape (hidden layers × width) | fixed by the experiment | genes, can grow and shrink |
 | Mutation settings | hard-coded, the same for all | five genes per network |
 
-The experiment's settings now give only generation 0 and the limits.
+The experiment's settings now give generation 0, the limits, and the rates that drive breeding.
 
 ## 1. What a network's genome is
 
