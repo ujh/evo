@@ -160,5 +160,5 @@ int main(int argc, char **argv) {
     count_differences(child, anns[0]),
     count_differences(child, anns[1])
   );
-  ann_print_genes_line(stdout, child, &result.genes);
+  ann_print_genes_line(stdout, child, &result.genes, &features[result.picked]);
 }

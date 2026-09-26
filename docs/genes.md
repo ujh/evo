@@ -49,6 +49,10 @@ set back to it. The settings accept the same ranges.
   every network has no groups, so it has no feature weights and its
   `feature_step` stays at 0.01; nothing reads or breeds them yet. A child
   takes its picked parent's features unchanged, whatever the operator.
+  `initial-population` and `evolve` print them at the end of each
+  network's genes line (`features=none feature_step=0.01`, and with groups
+  also a weight per move feature, such as `fw_capture=1`), and the runner
+  stops when a network's groups are not the experiment's (none, for now).
 
 The file starts with a header (the format version, the sizes, and the two
 activations), then the five genes, then the features, then the weights:
@@ -330,7 +334,8 @@ Each network has a row in `births` in `experiments/NAME/experiment.sqlite3`:
 network twice), `operator` (`initial`, `crossover`, `mutation`, `copy`),
 `parent` (`first` or `second`: the one mutated or copied, or whose weights
 come first in a crossover), `structure`, `activation_changed`, and the
-genome: `layers`, `width`, `act_hidden`, `act_output`, and the five genes.
+genome: `layers`, `width`, `act_hidden`, `act_output`, and the five genes
+(the features are not stored there yet).
 `differs_from_first` and `differs_from_second` count weights that differ
 from each parent (0 for an identical copy, empty for a parent of another
 shape).

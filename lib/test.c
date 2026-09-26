@@ -914,6 +914,60 @@ void binary_read_rejects_bad_files() {
 }
 
 
+// Strings that must be equal; a mismatch shows both.
+#define lsequal(got, want) do {\
+    if (strcmp(got, want) != 0) fprintf(stderr, "\n got:  %s want: %s", got, want);\
+    lok(strcmp(got, want) == 0);\
+} while (0)
+
+// The genes line of a network printed to a file, without its newline.
+static void genes_line_of(const genann *ann, const ann_genes *genes, const ann_features *features, char *line, size_t size) {
+    FILE *out = tmpfile();
+    ann_print_genes_line(out, ann, genes, features);
+    rewind(out);
+    if (!fgets(line, (int)size, out)) line[0] = '\0';
+    fclose(out);
+}
+
+// The genes line ends with the feature groups in fixed order (or none),
+// feature_step, and each move feature's weight, all at full precision.
+void genes_line() {
+    // The names cover every group once, in the order of their bits.
+    unsigned seen = 0;
+    for (int i = 0; i < ANN_GROUP_COUNT; ++i) {
+        lok(ANN_GROUP_NAMES[i].group > seen && (ANN_GROUP_NAMES[i].group & (ANN_GROUP_NAMES[i].group - 1)) == 0);
+        seen |= ANN_GROUP_NAMES[i].group;
+    }
+    lequal((int)seen, (int)ANN_GROUPS_ALL);
+    char line[1024];
+    genann *ann = genann_init(82, 1, 10, 82);
+    genes_line_of(ann, &GENES, &NO_FEATURES, line, sizeof(line));
+    lsequal(line, "genes layers=1 width=10 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.029999999999999999 "
+                  "weight_changes=1.5 weight_step=0.75 activation_rate=0.0625 structure_rate=0.1875 "
+                  "features=none feature_step=0.125\n");
+    genes_line_of(ann, &GENES, &ALL_FEATURES, line, sizeof(line));
+    lsequal(line, "genes layers=1 width=10 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.029999999999999999 "
+                  "weight_changes=1.5 weight_step=0.75 activation_rate=0.0625 structure_rate=0.1875 "
+                  "features=shapes,tactics,last_move,liberties feature_step=0.0625 fw_hane=0.5 fw_cut=-0.25 "
+                  "fw_edge=1.5 fw_capture=9.75 fw_self_atari=-10 fw_saves_atari=10 fw_near_last=-0.03125\n");
+    genann_free(ann);
+    // Only the groups' features, in the table's order; liberties adds none.
+    ann = genann_init(82, 0, 0, 82);
+    ann_features some = {.groups = ANN_GROUP_LIBERTIES | ANN_GROUP_LAST_MOVE | ANN_GROUP_TACTICS,
+                         .feature_step = 0.1, .weights = {1, -1, 0.8, 0.05}};
+    genes_line_of(ann, &GENES, &some, line, sizeof(line));
+    lsequal(line, "genes layers=0 width=0 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.029999999999999999 "
+                  "weight_changes=1.5 weight_step=0.75 activation_rate=0.0625 structure_rate=0.1875 "
+                  "features=tactics,last_move,liberties feature_step=0.10000000000000001 fw_capture=1 "
+                  "fw_self_atari=-1 fw_saves_atari=0.80000000000000004 fw_near_last=0.050000000000000003\n");
+    ann_features liberties = {.groups = ANN_GROUP_LIBERTIES, .feature_step = 0.5};
+    genes_line_of(ann, &GENES, &liberties, line, sizeof(line));
+    lsequal(line, "genes layers=0 width=0 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.029999999999999999 "
+                  "weight_changes=1.5 weight_step=0.75 activation_rate=0.0625 structure_rate=0.1875 "
+                  "features=liberties feature_step=0.5\n");
+    genann_free(ann);
+}
+
 int main(int argc, char *argv[])
 {
     printf("GENANN TEST SUITE\n");
@@ -934,6 +988,7 @@ int main(int argc, char *argv[])
     lrun("binary_bad_genes", binary_read_rejects_bad_genes);
     lrun("binary_bad_features", binary_read_rejects_bad_features);
     lrun("binary_no_layers", binary_no_hidden_layers);
+    lrun("genes_line", genes_line);
     lrun("default_genes", default_genes);
     lrun("default_features", default_features);
     lrun("feature_layout", feature_layout);

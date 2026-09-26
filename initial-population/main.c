@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
       exit(1);
     }
     // One machine-readable line per network, in file order.
-    ann_print_genes_line(stdout, ann, &genes);
+    ann_print_genes_line(stdout, ann, &genes, &features);
     genann_free(ann);
   }
 }

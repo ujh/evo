@@ -17,7 +17,7 @@ initial-population: $(OBJS) ../lib/libann.a
 GENES = 0.01 1 0.5 0.02 0.02
 GENES_BYTES = 7b14ae47e17a843f000000000000f03f000000000000e03f7b14ae47e17a943f7b14ae47e17a943f
 # 9x9 with one hidden layer of 5: 5 * 83 + 82 * 6 = 907 weights.
-GENES_LINE = genes layers=1 width=5 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02
+GENES_LINE = genes layers=1 width=5 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=none feature_step=0.01
 
 # The same seed must give the same networks, another seed different ones.
 # Every network gets the genes it is given, and one genes line on stdout.
@@ -37,7 +37,7 @@ test: initial-population
 	test "$$(od -A n -t x1 -j 74 -N 12 seeded-a/0002.ann | tr -d ' \n')" = 000000007b14ae47e17a843f
 	test "$$(grep -c '^genes ' seeded-a/out)" -eq 3
 	test "$$(grep '^genes ' seeded-a/out | sort -u)" = "$(GENES_LINE)"
-	cd seeded-c && ../initial-population 1 9 0 5 0.1 1.25 10 0.0001 0.5 1 | grep -qx 'genes layers=0 width=0 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.10000000000000001 weight_changes=1.25 weight_step=10 activation_rate=0.0001 structure_rate=0.5'
+	cd seeded-c && ../initial-population 1 9 0 5 0.1 1.25 10 0.0001 0.5 1 | grep -qx 'genes layers=0 width=0 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.10000000000000001 weight_changes=1.25 weight_step=10 activation_rate=0.0001 structure_rate=0.5 features=none feature_step=0.01'
 	! ./initial-population 3 9 1 5 $(GENES) not-a-seed
 	# Board sizes the .ann reader refuses.
 	cd seeded-c && ! ../initial-population 1 1 1 5 $(GENES) 1 && ! ../initial-population 1 24 1 5 $(GENES) 1

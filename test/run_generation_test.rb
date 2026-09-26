@@ -238,7 +238,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   end
 
   GENES_LINE = 'genes layers=1 width=10 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 ' \
-               "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02\n".freeze
+               "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=none feature_step=0.01\n".freeze
   SUMMARY = "Loading ...\nsummary operator=mutation parent=first structure=none activation_changed=0 " \
             "differs_from_first=0 differs_from_second=907\n#{GENES_LINE}".freeze
 
@@ -337,7 +337,8 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     summary = 'summary operator=mutation parent=second structure=none activation_changed=1 ' \
               'differs_from_first=12 differs_from_second=3'
     genes = 'genes layers=1 width=10 act_hidden=relu act_output=linear copy_chance=0.012345678901234567 ' \
-            'weight_changes=2.5 weight_step=1.0000000000000001e-04 activation_rate=0.25 structure_rate=0.03'
+            'weight_changes=2.5 weight_step=1.0000000000000001e-04 activation_rate=0.25 structure_rate=0.03 ' \
+            'features=none feature_step=0.01'
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) do |cmd|
       File.write(cmd.split[-2], cmd)
       [true, "Loading ...\n#{summary}\n#{genes}\n"]
@@ -354,6 +355,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     summary = SUMMARY.lines[1]
     ['', GENES_LINE.sub('weight_step=0.5', 'weight_step=inf'), GENES_LINE.sub('layers=1', 'layers=one'),
      GENES_LINE.sub(' activation_rate=0.02', ''), GENES_LINE.sub('act_output=sigmoid_cached', 'act_output=gauss'),
+     GENES_LINE.sub(' feature_step=0.01', ''), GENES_LINE.sub('features=none', 'features=all'),
      GENES_LINE + GENES_LINE].each do |genes|
       state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) do |cmd|
         File.write(cmd.split[-2], cmd)
@@ -363,6 +365,21 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
       assert_includes state[:previous_networks], '0001.ann'
       assert_empty state[:networks]
     end
+  end
+
+  # A child's genes line must have the experiment's feature set, none for now.
+  def test_a_child_of_another_feature_set_stops_breeding
+    summary = SUMMARY.lines[1]
+    genes = GENES_LINE.sub('features=none feature_step=0.01', 'features=tactics feature_step=0.01 fw_capture=1 ' \
+                                                               'fw_self_atari=-1 fw_saves_atari=0.8')
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) do |cmd|
+      File.write(cmd.split[-2], cmd)
+      [true, "Loading ...\n#{summary}#{genes}"]
+    end
+    assert_match(/evolve printed genes of the feature set tactics for 0\.ann, but the experiment's is none/,
+                 state[:error]&.message)
+    assert_includes state[:previous_networks], '0001.ann'
+    assert_empty state[:networks]
   end
 
   def test_the_meta_rate_comes_from_the_settings
@@ -458,6 +475,73 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
       gen = build_generation
       gen.define_singleton_method(:run_evolve) { |*| flunk 'evolve should not run' }
       gen.send(:evolve_from_previous_population)
+    end
+  end
+end
+
+# initial-population's and evolve's genes line (ann_print_genes_line in
+# lib/ann.c), parsed strictly.
+class GenesLineTest < Minitest::Test
+  PREFIX = 'genes layers=1 width=10 act_hidden=sigmoid_cached act_output=relu copy_chance=0.01 weight_changes=1 ' \
+           'weight_step=0.5 activation_rate=0.02 structure_rate=0.02'.freeze
+  GENES = { layers: 1, width: 10, act_hidden: 'sigmoid_cached', act_output: 'relu', copy_chance: 0.01,
+            weight_changes: 1.0, weight_step: 0.5, activation_rate: 0.02, structure_rate: 0.02 }.freeze
+  ALL = "#{PREFIX} features=shapes,tactics,last_move,liberties feature_step=0.0625 fw_hane=0.5 fw_cut=-0.25 " \
+        'fw_edge=1.5 fw_capture=9.75 fw_self_atari=-10 fw_saves_atari=10 fw_near_last=-0.03125'.freeze
+
+  def parse(line)
+    RunGeneration.allocate.send(:parse_genes, "#{line}\n", 'cmd')
+  end
+
+  def test_a_network_without_features_has_only_its_feature_step
+    assert_equal GENES.merge(features: 'none', feature_step: 0.01), parse("#{PREFIX} features=none feature_step=0.01")
+  end
+
+  def test_every_move_feature_of_every_group_has_its_weight
+    assert_equal GENES.merge(features: 'shapes,tactics,last_move,liberties', feature_step: 0.0625, fw_hane: 0.5,
+                             fw_cut: -0.25, fw_edge: 1.5, fw_capture: 9.75, fw_self_atari: -10.0, fw_saves_atari: 10.0,
+                             fw_near_last: -0.03125),
+                 parse(ALL)
+  end
+
+  # Only the groups' move features, in the table's order; liberties has none.
+  def test_some_groups_have_only_their_features
+    assert_equal GENES.merge(features: 'tactics,liberties', feature_step: 0.1, fw_capture: 1.0, fw_self_atari: -1.0,
+                             fw_saves_atari: 0.8),
+                 parse("#{PREFIX} features=tactics,liberties feature_step=0.10000000000000001 fw_capture=1 " \
+                       'fw_self_atari=-1 fw_saves_atari=0.80000000000000004')
+    assert_equal GENES.merge(features: 'liberties', feature_step: 0.5), parse("#{PREFIX} features=liberties feature_step=0.5")
+  end
+
+  def test_anything_else_is_malformed
+    none = "#{PREFIX} features=none feature_step=0.01"
+    [
+      PREFIX,
+      "#{PREFIX} feature_step=0.01",
+      "#{PREFIX} features=none",
+      "#{none} ",
+      "#{none} fw_hane=0.05",
+      none.sub('0.01', 'nan'),
+      none.sub('0.01', ''),
+      none.sub('none', 'all'),
+      none.sub('none', ''),
+      none.sub('none', 'ladders'),
+      none.sub('none', 'liberties,'),
+      none.sub('none', 'liberties,liberties'),
+      none.sub('none', 'liberties,shapes'),
+      none.sub('none', 'none,liberties'),
+      ALL.sub(' fw_near_last=-0.03125', ''),
+      ALL.sub(' fw_hane=0.5', ''),
+      ALL.sub('fw_hane=0.5 fw_cut=-0.25', 'fw_cut=-0.25 fw_hane=0.5'),
+      "#{ALL} fw_near_last=1",
+      "#{ALL} fw_ladder=1",
+      ALL.sub('fw_capture=9.75', 'fw_capture=inf'),
+      ALL.sub('fw_capture=9.75', 'fw_capture=9.75x'),
+      ALL.sub('fw_capture=9.75', 'fw_capture='),
+      ALL.sub('liberties feature_step', 'liberties  feature_step')
+    ].each do |line|
+      error = assert_raises(RuntimeError, line) { parse(line) }
+      assert_match(/malformed genes line/, error.message)
     end
   end
 end
@@ -1004,7 +1088,7 @@ class ReproducibleRoundsTest < Minitest::Test
   # initial-population's genes line for a network of the given shape.
   def initial_genes_line(layers: 1, width: 10)
     "genes layers=#{layers} width=#{width} act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 " \
-      "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02\n"
+      "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=none feature_step=0.01\n"
   end
 
   # Runs setup_initial_population with initial-population replaced: it
@@ -1070,7 +1154,10 @@ class ReproducibleRoundsTest < Minitest::Test
      initial_genes_line + initial_genes_line.sub('act_hidden=sigmoid_cached', 'act_hidden=softmax'),
      initial_genes_line + initial_genes_line.sub(' structure_rate=0.02', ''),
      initial_genes_line + initial_genes_line(width: 11),
-     initial_genes_line + initial_genes_line(layers: 2)].each do |output|
+     initial_genes_line + initial_genes_line(layers: 2),
+     initial_genes_line + initial_genes_line.sub('feature_step=0.01', 'feature_step=inf'),
+     initial_genes_line + initial_genes_line.sub('features=none feature_step=0.01',
+                                                 'features=last_move feature_step=0.01 fw_near_last=0.05')].each do |output|
       in_experiment(generation: '0') do
         store = database
         gen = build_generation(generation: '0', store:)

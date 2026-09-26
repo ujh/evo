@@ -53,7 +53,9 @@ evolvetest: evolve
 	printf '\173\024\256\107\341\172\224\077' | dd of=parents/0002.ann bs=1 seek=78 conv=notrunc 2>/dev/null
 	! cmp -s -n 8 parents/0001.ann parents/0002.ann 78 78
 	grep '^genes ' parents/first.out > parents/first.genes
-	grep '^genes ' parents/second.out | sed -n 2p > parents/second.genes
+	# The second's genes line, with that feature_step.
+	grep '^genes ' parents/second.out | sed -n 2p | sed 's/ features=none feature_step=0.01$$/ features=none feature_step=0.02/' > parents/second.genes
+	grep -q ' features=none feature_step=0.02$$' parents/second.genes
 	# Rate 1 always crosses over. The same seed gives the same child, another
 	# seed another one. Random parents differ in all 907 weights, and each of
 	# the child's weights comes from one of them, so the counts add up to 907.
@@ -85,7 +87,7 @@ evolvetest: evolve
 	# change, and the features (the next 12) are the parent's.
 	./evolve 0 $(BOUNDS) parents/0001.ann parents/0002.ann mutated.ann 8 > mutated.out
 	set -- $$($(SUMMARY) mutated.out) && test "$$1 $$2 $$3 $$4" = "mutation first none 1" && test "$$5" -gt 0 && test "$$5" -le 5 && test "$$6" -eq 907
-	tail -n 1 mutated.out | grep -qx 'genes layers=1 width=5 act_hidden=linear act_output=relu copy_chance=[0-9.e-]* weight_changes=[0-9.e-]* weight_step=[0-9.e-]* activation_rate=[0-9.e-]* structure_rate=[0-9.e-]*'
+	tail -n 1 mutated.out | grep -qx 'genes layers=1 width=5 act_hidden=linear act_output=relu copy_chance=[0-9.e-]* weight_changes=[0-9.e-]* weight_step=[0-9.e-]* activation_rate=[0-9.e-]* structure_rate=[0-9.e-]* features=none feature_step=0.01'
 	cmp -n 26 mutated.ann parents/0001.ann
 	! cmp -s -n 34 mutated.ann parents/0001.ann
 	! tail -n 1 mutated.out | cmp -s - parents/first.genes

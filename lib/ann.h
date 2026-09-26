@@ -74,11 +74,6 @@ extern const int ANN_ACTIVATION_COUNT;
 // The activation's name, or NULL for a function GENANN does not offer.
 const char *ann_activation_name(genann_actfun function);
 
-// Prints the network's machine-readable genes line: "genes layers=L width=W
-// act_hidden=NAME act_output=NAME" and each gene as NAME=%.17g in ann_genes'
-// order. The width is 0 without hidden layers, as in the file.
-void ann_print_genes_line(FILE *out, genann const *ann, ann_genes const *genes);
-
 // The feature groups a network can see besides the stones and komi, as
 // bits of a mask. Each group adds inputs, in this layout on a board of N
 // points: [komi][N stones][F x N move features][3 x N liberties]
@@ -92,6 +87,15 @@ void ann_print_genes_line(FILE *out, genann const *ann, ann_genes const *genes);
 #define ANN_GROUP_LAST_MOVE 4u
 #define ANN_GROUP_LIBERTIES 8u
 #define ANN_GROUPS_ALL 15u
+
+typedef struct {
+    const char *name;
+    unsigned group; // its ANN_GROUP_* bit
+} ann_group_name;
+
+// Every group's name, in the fixed order a list of groups is written in.
+#define ANN_GROUP_COUNT 4
+extern const ann_group_name ANN_GROUP_NAMES[ANN_GROUP_COUNT];
 
 // The number of move features F of the groups, or -1 when the mask has a
 // bit that is no group.
@@ -138,6 +142,14 @@ typedef struct {
 // The features of a network with the groups before any evolution:
 // feature_step 0.01 and each feature's start_weight.
 ann_features ann_default_features(unsigned groups);
+
+// Prints the network's machine-readable genes line: "genes layers=L width=W
+// act_hidden=NAME act_output=NAME", each gene as NAME=%.17g in ann_genes'
+// order, "features=GROUPS feature_step=G" (GROUPS the groups' names in
+// ANN_GROUP_NAMES' order, comma-separated, or none), and fw_NAME=%.17g for
+// each move feature of the groups in ANN_FEATURES' order. The width is 0
+// without hidden layers, as in the file.
+void ann_print_genes_line(FILE *out, genann const *ann, ann_genes const *genes, ann_features const *features);
 
 // What is wrong with the features ("groups" for a bit that is no group,
 // "feature_step", or the name of a feature whose weight is not finite or

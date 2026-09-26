@@ -77,10 +77,17 @@ int ann_layout_inputs(unsigned groups, int points) {
            (groups & ANN_GROUP_LAST_MOVE ? points + 1 : 0);
 }
 
-void ann_print_genes_line(FILE *out, const genann *ann, const ann_genes *genes) {
+const ann_group_name ANN_GROUP_NAMES[ANN_GROUP_COUNT] = {
+    {"shapes", ANN_GROUP_SHAPES},
+    {"tactics", ANN_GROUP_TACTICS},
+    {"last_move", ANN_GROUP_LAST_MOVE},
+    {"liberties", ANN_GROUP_LIBERTIES},
+};
+
+void ann_print_genes_line(FILE *out, const genann *ann, const ann_genes *genes, const ann_features *features) {
     fprintf(out,
             "genes layers=%d width=%d act_hidden=%s act_output=%s copy_chance=%.17g weight_changes=%.17g "
-            "weight_step=%.17g activation_rate=%.17g structure_rate=%.17g\n",
+            "weight_step=%.17g activation_rate=%.17g structure_rate=%.17g features=",
             ann->hidden_layers,
             ann->hidden_layers ? ann->hidden : 0,
             ann_activation_name(ann->activation_hidden),
@@ -90,6 +97,18 @@ void ann_print_genes_line(FILE *out, const genann *ann, const ann_genes *genes) 
             genes->weight_step,
             genes->activation_rate,
             genes->structure_rate);
+    int listed = 0;
+    for (int i = 0; i < ANN_GROUP_COUNT; ++i) {
+        if (!(ANN_GROUP_NAMES[i].group & features->groups)) continue;
+        fprintf(out, "%s%s", listed++ ? "," : "", ANN_GROUP_NAMES[i].name);
+    }
+    fprintf(out, "%s feature_step=%.17g", listed ? "" : "none", features->feature_step);
+    int count = 0;
+    for (int i = 0; i < ANN_MAX_FEATURES; ++i) {
+        if (!(ANN_FEATURES[i].group & features->groups)) continue;
+        fprintf(out, " fw_%s=%.17g", ANN_FEATURES[i].name, features->weights[count++]);
+    }
+    fprintf(out, "\n");
 }
 
 // NaN fails both comparisons, so it is outside every range.
