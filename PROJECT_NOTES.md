@@ -58,11 +58,12 @@ Many settings rest on assumptions nobody has checked: the tournament size, wheth
 
 A network always plays its highest-scoring allowed move, so the same two networks with the same colors play the same game every time, and a tie between saturated outputs always goes the same way (usually a pass). Repeat pairings in the tournament and benchmark games without openings therefore add no information.
 
-**Idea to think about:** make the move choice a little random with a temperature parameter: pick among the allowed moves with probability proportional to `exp(score / T)`, so T near 0 is today's behavior and a larger T plays more varied moves. Questions before building it:
+**Idea to think about:** make the move choice a little random with a temperature parameter: pick among the allowed moves with probability proportional to `exp(score / T)`, so T near 0 comes close to today's behavior (except that today a tie goes to the pass or the lower index, while sampling would split it) and a larger T plays more varied moves. Questions before building it:
 
 - Where the randomness comes from: a per-game seed passed to `evo` and the arena, derived from the experiment seed like the GNU Go seeds, so runs stay reproducible.
 - Whether T applies to the tournament only, with the benchmark kept at T = 0 so checkpoints stay comparable, or to both.
 - Whether T is an experiment setting or another gene that evolves per network.
+- Whether the pass is one of the sampled moves, or keeps its own rule.
 - Whether varied games make tournament scores less noisy (more distinct games per pairing) or just weaker (worse moves on purpose).
 
 ## Go rules and scoring boundary
