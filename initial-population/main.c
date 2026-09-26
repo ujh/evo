@@ -61,6 +61,31 @@ static double parse_gene(const char *name, const char *text) {
   return value;
 }
 
+// GROUPS is none, all, or a comma-separated list of group names
+// (ANN_GROUP_NAMES), each at most once, in any order.
+static unsigned parse_groups(const char *text) {
+  if (strcmp(text, "none") == 0) return 0;
+  if (strcmp(text, "all") == 0) return ANN_GROUPS_ALL;
+  unsigned groups = 0;
+  const char *start = text;
+  for (;;) {
+    size_t length = strcspn(start, ",");
+    unsigned group = 0;
+    for (int i = 0; i < ANN_GROUP_COUNT; ++i) {
+      if (strlen(ANN_GROUP_NAMES[i].name) == length && strncmp(start, ANN_GROUP_NAMES[i].name, length) == 0) {
+        group = ANN_GROUP_NAMES[i].group;
+      }
+    }
+    if (group == 0 || (groups & group)) {
+      fprintf(stderr, "groups must be none, all, or distinct group names separated by commas, got %s\n", text);
+      exit(1);
+    }
+    groups |= group;
+    if (start[length] == '\0') return groups;
+    start += length + 1;
+  }
+}
+
 int main(int argc, char **argv) {
 
   // Do not buffer stdout
@@ -68,15 +93,16 @@ int main(int argc, char **argv) {
 
   int population_size, board_size, hidden_layers, hidden;
 
-  if (argc != 10 && argc != 11) {
-    fprintf(stderr, "9 arguments required: population_size, board size, no. hidden layers, no. neurons per layer, "
-                    "copy_chance, weight_changes, weight_step, activation_rate, structure_rate, and optionally a seed!\n");
+  if (argc != 13 && argc != 14) {
+    fprintf(stderr, "12 arguments required: population_size, board size, no. hidden layers, no. neurons per layer, "
+                    "copy_chance, weight_changes, weight_step, activation_rate, structure_rate, feature groups, "
+                    "feature weight noise, feature_step, and optionally a seed!\n");
     exit(1);
   }
 
   // Without a seed the networks differ on every run.
-  if (argc == 11) {
-    pcg32_srandom(parse_seed(argv[10]), 54u);
+  if (argc == 14) {
+    pcg32_srandom(parse_seed(argv[13]), 54u);
   } else {
     pcg32_srandom(time(NULL), (intptr_t)&rng);
   }
@@ -85,6 +111,11 @@ int main(int argc, char **argv) {
   board_size = atoi(argv[2]);
   hidden_layers = atoi(argv[3]);
   hidden = atoi(argv[4]);
+  // A network plays one square board, and the .ann reader refuses others.
+  if (board_size < ANN_MIN_SIDE || board_size > ANN_MAX_SIDE) {
+    fprintf(stderr, "board size must be %d to %d, got %s\n", ANN_MIN_SIDE, ANN_MAX_SIDE, argv[2]);
+    exit(1);
+  }
   // Every network starts with the same genes.
   ann_genes genes = {
     .copy_chance = parse_gene("copy_chance", argv[5]),
@@ -102,9 +133,24 @@ int main(int argc, char **argv) {
     hidden
   );
 
+  // Every network starts with the groups' starting feature weights, each
+  // with its own noise, and the same feature_step.
+  ann_features features = ann_default_features(parse_groups(argv[10]));
+  double noise = parse_gene("noise", argv[11]);
+  if (noise < 0 || noise > 1) {
+    fprintf(stderr, "noise must be 0 to 1, got %s\n", argv[11]);
+    exit(1);
+  }
+  features.feature_step = parse_gene("feature_step", argv[12]);
+  if (ann_features_invalid(&features)) {
+    fprintf(stderr, "feature_step must be %g to %g, got %s\n", ANN_FEATURE_STEP_MIN, ANN_FEATURE_STEP_MAX, argv[12]);
+    exit(1);
+  }
+  int feature_count = ann_feature_count(features.groups);
+
   char buffer[32];
-  // Pass in the komi
-  int inputs = (board_size * board_size) + 1;
+  // Komi, the stones, and the features' inputs
+  int inputs = ann_layout_inputs(features.groups, board_size * board_size);
   // Allow pass move
   int outputs = (board_size * board_size) + 1;
 
@@ -116,6 +162,13 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Cannot build a network with %d hidden layers of %d\n", hidden_layers, hidden);
       exit(1);
     }
+    // After the network's weights, from the same stream: each starting
+    // feature weight times 1 + u, u uniform within the noise, so no sign
+    // flips. Without move features nothing is drawn.
+    ann_features network_features = features;
+    for (int f = 0; f < feature_count; ++f) {
+      network_features.weights[f] *= 1 + noise * (2 * GENANN_RANDOM() - 1);
+    }
     const char *bad = ann_genes_invalid(&genes, ann->total_weights);
     if (bad) {
       fprintf(stderr, "%s is out of range for a network of %d weights\n", bad, ann->total_weights);
@@ -126,7 +179,7 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Could not open %s: %s\n", buffer, strerror(errno));
       exit(1);
     }
-    int written = ann_binary_write(ann, &genes, fd);
+    int written = ann_binary_write(ann, &genes, &network_features, fd);
     // A half-written network is removed, so the runner never stores one.
     if (fclose(fd) != 0 || written != 0) {
       fprintf(stderr, "Could not write %s\n", buffer);
@@ -134,7 +187,7 @@ int main(int argc, char **argv) {
       exit(1);
     }
     // One machine-readable line per network, in file order.
-    ann_print_genes_line(stdout, ann, &genes);
+    ann_print_genes_line(stdout, ann, &genes, &network_features);
     genann_free(ann);
   }
 }

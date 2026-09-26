@@ -163,7 +163,8 @@ void test_mutate_copies_the_parent() {
 static size_t child_bytes(genann const *child, ann_genes const *genes, unsigned char *buffer, size_t size) {
   FILE *file = tmpfile();
   lok(file != NULL);
-  lequal(ann_binary_write(child, genes, file), 0);
+  ann_features features = ann_default_features(0);
+  lequal(ann_binary_write(child, genes, &features, file), 0);
   rewind(file);
   size_t length = fread(buffer, 1, size, file);
   fclose(file);

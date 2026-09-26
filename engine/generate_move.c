@@ -40,33 +40,16 @@
 #include "generate_move.h"
 #include "features.h"
 
-// The network's inputs: komi, then one per point. Large enough for any
-// board Brown supports; generate_move only runs networks that fit the board.
-static double ann_inputs[MAX_BOARD * MAX_BOARD + 1];
+// The .ann reader accepts exactly the board sizes Brown can play.
+_Static_assert(ANN_MIN_SIDE == MIN_BOARD && ANN_MAX_SIDE == MAX_BOARD,
+               "lib/ann.h's board sides must equal Brown's MIN_BOARD and MAX_BOARD");
 
-// Build input for the neural network. Use 1 for stone of own color, -1 for other color
-static void generate_ann_inputs(double *inputs, int color) {
-  int ai, aj;
-  int input_index = 1;
-
-  // Set komi as the first input
-  inputs[0] = komi * (color == WHITE ? 1.0 : -1.0);
-  // Set all stones as inputs
-  for (ai = 0; ai < board_size; ai++)
-    for (aj = 0; aj < board_size; aj++) {
-      int v = get_board(ai, aj);
-      if (v == EMPTY) {
-        inputs[input_index] = 0.0;
-      } else {
-        if (v == color) {
-          inputs[input_index] = 1.0;
-        } else {
-          inputs[input_index] = -1.0;
-        }
-      }
-      input_index++;
-    }
-}
+// The network's inputs, in lib/ann.h's layout, and its scores with the
+// feature weights added. Large enough for any feature set on any board
+// Brown supports; generate_move only runs networks that fit the board.
+static double ann_inputs[GENERATE_MOVE_MAX_INPUTS];
+static double scores[MAX_BOARD * MAX_BOARD + 1];
+static unsigned move_bits[MAX_BOARD * MAX_BOARD];
 
 void find_and_set_best_move(genann const *ann, int *i, int *j, int color, const double *prediction) {
   int pred_index;
@@ -87,14 +70,35 @@ void find_and_set_best_move(genann const *ann, int *i, int *j, int color, const 
   }
 }
 
-int ann_fits_board(genann const *ann, int size) {
+int ann_fits_board(genann const *ann, ann_features const *features, int size) {
   int points = size * size;
-  // One input per point plus komi, one output per point plus pass.
-  return ann->inputs == points + 1 && ann->outputs == points + 1;
+  unsigned groups = features ? features->groups : 0;
+  // The feature set's inputs on the board, and one output per point plus pass.
+  int inputs = ann_layout_inputs(groups, points);
+  return inputs >= 0 && ann->inputs == inputs && ann->outputs == points + 1;
 }
 
-void generate_move(genann const *ann, int *i, int *j, int color) {
-  generate_ann_inputs(ann_inputs, color);
+void generate_move(genann const *ann, ann_features const *features, int *i, int *j, int color) {
+  unsigned groups = features ? features->groups : 0;
+  int points = board_size * board_size;
+  feature_inputs(groups, color, ann_inputs, move_bits);
   double const *prediction = genann_run(ann, ann_inputs);
-  find_and_set_best_move(ann, i, j, color, prediction);
+  if (groups == 0) {
+    find_and_set_best_move(ann, i, j, color, prediction);
+    return;
+  }
+  // B: each move feature of the groups adds its weight, where it is 1, to
+  // the point's score, in ANN_FEATURES' order. Pass keeps the network's.
+  memcpy(scores, prediction, (points + 1) * sizeof *scores);
+  unsigned wanted = group_features(groups);
+  for (int p = 0; p < points; p++) {
+    if (!move_bits[p]) continue;
+    int w = 0;
+    for (int f = 0; f < MOVE_FEATURES; f++) {
+      if (!(wanted & FEATURE_BIT(f))) continue;
+      if (move_bits[p] & FEATURE_BIT(f)) scores[p] += features->weights[w];
+      w++;
+    }
+  }
+  find_and_set_best_move(ann, i, j, color, scores);
 }

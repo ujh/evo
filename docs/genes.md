@@ -43,6 +43,24 @@ A network's `.ann` file holds everything about it:
 The limits are the clamps in `lib/ann.h`: a gene that evolves past one is
 set back to it. The settings accept the same ranges.
 
+- **Features.** Which feature groups the network sees besides the stones
+  and komi (shapes, tactics, the last move, chain liberties), a gene
+  `feature_step`, and one weight per move feature of its groups. For now
+  every network has no groups, so it has no feature weights and its
+  `feature_step` stays at 0.01. The engine plays with them (a network with
+  groups gets their inputs, and each feature weight is added to a point's
+  score where that feature is 1), but nothing breeds them yet: a child
+  takes its picked parent's features unchanged, whatever the operator.
+  `initial-population` and `evolve` print them at the end of each
+  network's genes line (`features=none feature_step=0.01`, and with groups
+  also a weight per move feature, such as `fw_capture=1`), and the runner
+  stops when a network's groups are not the experiment's (none, for now).
+
+The file starts with a header (the format version, the sizes, and the two
+activations), then the five genes, then the features, then the weights:
+86 bytes plus 8 per feature weight plus 8 per weight. Files of the
+earlier format, without the features, are no longer read.
+
 Example: a 9×9 network of `1x50` has 8,332 weights, so its default
 `weight_changes` is 0.0004 × 8,332 ≈ 3.3. A `1x10` network has 1,732
 weights; 0.0004 × 1,732 is 0.69, so it starts at the lower limit of 1.
@@ -318,7 +336,8 @@ Each network has a row in `births` in `experiments/NAME/experiment.sqlite3`:
 network twice), `operator` (`initial`, `crossover`, `mutation`, `copy`),
 `parent` (`first` or `second`: the one mutated or copied, or whose weights
 come first in a crossover), `structure`, `activation_changed`, and the
-genome: `layers`, `width`, `act_hidden`, `act_output`, and the five genes.
+genome: `layers`, `width`, `act_hidden`, `act_output`, and the five genes
+(the features are not stored there yet).
 `differs_from_first` and `differs_from_second` count weights that differ
 from each parent (0 for an identical copy, empty for a parent of another
 shape).

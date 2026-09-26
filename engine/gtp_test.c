@@ -117,6 +117,34 @@ void test_handicap() {
   lok(last_is(LAST_MOVE_POINT, 4, 4, WHITE));
 }
 
+// place_free_handicap plays the network with its features. The network
+// sees the liberty planes (liberties group): on 9x9 it scores the points as
+// network() does, plus 10 at E5 when A9 holds an own stone with two
+// liberties (plane 2 at A9). Its first stone goes to A9, the first point;
+// its second to E5, which it plays only if it reads its feature inputs.
+void test_free_handicap_with_features() {
+  int points = 81;
+  int inputs = ann_layout_inputs(ANN_GROUP_LIBERTIES, points);
+  genann *net = genann_init(inputs, 0, 0, points + 1);
+  net->activation_output = genann_act_linear;
+  for (int k = 0; k < net->total_weights; k++) net->weight[k] = 0.0;
+  for (int k = 0; k <= points; k++)
+    net->weight[k * (inputs + 1)] = k == points ? 1.0 : -1.0 + k * 0.01;
+  int e5 = 4 * 9 + 4;
+  int plane2_at_a9 = 1 + points + points; // komi, stones, plane 1, then plane 2's first point
+  net->weight[e5 * (inputs + 1) + 1 + plane2_at_a9] = 10.0;
+  use(net);
+  network_features = ann_default_features(ANN_GROUP_LIBERTIES);
+
+  gtp("boardsize 9\nclear_board\nplace_free_handicap 2\n");
+  lequal(get_board(0, 0), BLACK);
+  lequal(get_board(4, 4), BLACK);
+  lequal(get_board(0, 1), EMPTY);
+  lok(last_is(LAST_MOVE_NONE, -1, -1, EMPTY));
+
+  network_features = ann_default_features(0);
+}
+
 int main(void) {
   printf("GTP state test suite\n");
 
@@ -124,6 +152,7 @@ int main(void) {
   lrun("suicide", test_suicide);
   lrun("genmove", test_genmove);
   lrun("handicap", test_handicap);
+  lrun("free_features", test_free_handicap_with_features);
 
   lresults();
   return lfails != 0;

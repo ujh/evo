@@ -32,8 +32,9 @@ SOFTWARE.
 extern pcg32_random_t rng;
 
 void seed();
-// Reads both parents and their genes; exits 1 if either cannot be read.
-genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2]);
+// Reads both parents, their genes, and their features; exits 1 if either
+// cannot be read.
+genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2], ann_features features[2]);
 // Whether the parents can breed at all: the same inputs and outputs. Their
 // shapes, activations, and genes may differ.
 bool nns_compatible(genann **nns);

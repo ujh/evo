@@ -44,12 +44,16 @@ evolvetest: evolve
 	rm -rf parents && mkdir parents
 	# Two parents with different genes (as are all their weights). The first
 	# switches activations often.
-	cd parents && ../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.5 0.02 42 > first.out
+	cd parents && ../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.5 0.02 none 0.3 0.01 42 > first.out
 	mkdir parents/other
-	cd parents/other && ../../../initial-population/initial-population 2 9 1 5 0.02 2 0.25 0.04 0.03 42 > ../second.out
+	# Their features differ too: the second's feature_step (the 8 bytes after
+	# the genes and the 4-byte group mask, at byte 78) is 0.02.
+	cd parents/other && ../../../initial-population/initial-population 2 9 1 5 0.02 2 0.25 0.04 0.03 none 0.3 0.02 42 > ../second.out
 	mv parents/other/0002.ann parents/0002.ann
+	! cmp -s -n 8 parents/0001.ann parents/0002.ann 78 78
 	grep '^genes ' parents/first.out > parents/first.genes
 	grep '^genes ' parents/second.out | sed -n 2p > parents/second.genes
+	grep -q ' features=none feature_step=0.02$$' parents/second.genes
 	# Rate 1 always crosses over. The same seed gives the same child, another
 	# seed another one. Random parents differ in all 907 weights, and each of
 	# the child's weights comes from one of them, so the counts add up to 907.
@@ -59,14 +63,15 @@ evolvetest: evolve
 	cmp cross-a.ann cross-b.ann
 	! cmp -s cross-a.ann cross-c.ann
 	set -- $$($(SUMMARY) cross-a.out) && test "$$1 $$2 $$3 $$4" = "crossover second none 0" && test $$(($$5 + $$6)) -eq 907
-	# The child keeps the sizes, activations, and genes (the first 74 bytes)
-	# of the parent named in the summary, in argument order: with the order
-	# swapped, the same seed picks the other file.
-	cmp -n 74 cross-a.ann parents/0002.ann
+	# The child keeps the sizes, activations, genes, and features (the first
+	# 86 bytes, as these parents have no feature groups and so no feature
+	# weights) of the parent named in the summary, in argument order: with
+	# the order swapped, the same seed picks the other file.
+	cmp -n 86 cross-a.ann parents/0002.ann
 	tail -n 1 cross-a.out | cmp - parents/second.genes
 	./evolve 1 $(BOUNDS) parents/0002.ann parents/0001.ann cross-d.ann 7 > cross-d.out
 	set -- $$($(SUMMARY) cross-d.out) && test "$$1 $$2" = "crossover second"
-	cmp -n 74 cross-d.ann parents/0001.ann
+	cmp -n 86 cross-d.ann parents/0001.ann
 	tail -n 1 cross-d.out | cmp - parents/first.genes
 	# Rate 0 always mutates. With its parent's copy_chance (seed 28 draws
 	# it) the child is a byte-identical copy, genes included.
@@ -77,18 +82,20 @@ evolvetest: evolve
 	# Otherwise the genes mutate, and with the first parent's activation_rate
 	# of 0.5 seed 8 switches both activations: the sizes (the first 26 bytes)
 	# stay, the activation codes (the next 8) and the genes (the next 40)
-	# change.
+	# change, and the features (the next 12) are the parent's.
 	./evolve 0 $(BOUNDS) parents/0001.ann parents/0002.ann mutated.ann 8 > mutated.out
 	set -- $$($(SUMMARY) mutated.out) && test "$$1 $$2 $$3 $$4" = "mutation first none 1" && test "$$5" -gt 0 && test "$$5" -le 5 && test "$$6" -eq 907
-	tail -n 1 mutated.out | grep -qx 'genes layers=1 width=5 act_hidden=linear act_output=relu copy_chance=[0-9.e-]* weight_changes=[0-9.e-]* weight_step=[0-9.e-]* activation_rate=[0-9.e-]* structure_rate=[0-9.e-]*'
+	tail -n 1 mutated.out | grep -qx 'genes layers=1 width=5 act_hidden=linear act_output=relu copy_chance=[0-9.e-]* weight_changes=[0-9.e-]* weight_step=[0-9.e-]* activation_rate=[0-9.e-]* structure_rate=[0-9.e-]* features=none feature_step=0.01'
 	cmp -n 26 mutated.ann parents/0001.ann
 	! cmp -s -n 34 mutated.ann parents/0001.ann
 	! tail -n 1 mutated.out | cmp -s - parents/first.genes
+	cmp -n 12 mutated.ann parents/0001.ann 74 74
 	# Seed 4 mutates the second parent without switching an activation.
 	./evolve 0 $(BOUNDS) parents/0001.ann parents/0002.ann kept.ann 4 > kept.out
 	set -- $$($(SUMMARY) kept.out) && test "$$1 $$2 $$3 $$4" = "mutation second none 0"
 	cmp -n 34 kept.ann parents/0002.ann
 	! cmp -s -n 74 kept.ann parents/0002.ann
+	cmp -n 12 kept.ann parents/0002.ann 74 74
 	# Parents whose activations differ still cross over.
 	./evolve 1 $(BOUNDS) mutated.ann parents/0002.ann cross-e.ann 7 > cross-e.out
 	set -- $$($(SUMMARY) cross-e.out) && test "$$1" = crossover
@@ -97,7 +104,7 @@ evolvetest: evolve
 	# shape than either parent, so both differs counts are -1, and the engine
 	# plays it.
 	mkdir parents/shaped
-	cd parents/shaped && ../../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.02 0.5 42 > /dev/null
+	cd parents/shaped && ../../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.02 0.5 none 0.3 0.01 42 > /dev/null
 	./evolve 0 0.2 2 6 5 parents/shaped/0001.ann parents/shaped/0001.ann deep.ann 3 > deep.out
 	set -- $$($(SUMMARY) deep.out) && test "$$*" = "mutation first add_layer 0 -1 -1"
 	tail -n 1 deep.out | grep -q '^genes layers=2 width=5 '

@@ -52,6 +52,7 @@ typedef struct {
 typedef struct {
   char *path;
   genann *ann;     // NULL when it cannot be played
+  ann_features features; // its feature groups and weights
   char *problem;   // why, when ann is NULL
 } network;
 
@@ -120,11 +121,11 @@ static network *load(const char *path) {
     n->problem = problem(path, "cannot open", 1);
     return n;
   }
-  genann *ann = ann_binary_read(in, NULL);
+  genann *ann = ann_binary_read(in, NULL, &n->features);
   fclose(in);
   if (ann == NULL) {
     n->problem = problem(path, "holds no network", 0);
-  } else if (!ann_fits_board(ann, board_size)) {
+  } else if (!ann_fits_board(ann, &n->features, board_size)) {
     char reason[64];
     snprintf(reason, sizeof(reason), "does not fit a %dx%d board", board_size, board_size);
     n->problem = problem(path, reason, 0);
@@ -204,7 +205,7 @@ static void append_move(char **moves, size_t *used, size_t *capacity, int i, int
   *used += sprintf(*moves + *used, "%s%s", *used ? "," : "", vertex);
 }
 
-static void play_game(const game *g, genann const *black, genann const *white, long max_moves) {
+static void play_game(const game *g, network const *black, network const *white, long max_moves) {
   static char *moves = NULL;
   static size_t capacity = 0;
   size_t used = 0;
@@ -224,8 +225,9 @@ static void play_game(const game *g, genann const *black, genann const *white, l
   // once more than max_moves moves were played.
   while (passes < 2 && length <= max_moves) {
     int i, j;
+    network const *mover = color == BLACK ? black : white;
     double before = now();
-    generate_move(color == BLACK ? black : white, &i, &j, color);
+    generate_move(mover->ann, &mover->features, &i, &j, color);
     spent[color == BLACK ? 0 : 1] += now() - before;
     play_move(i, j, color);
     passes = (i == -1 && j == -1) ? passes + 1 : 0;
@@ -271,7 +273,7 @@ int main(int argc, char **argv) {
     network *black = load(games[k].black);
     network *white = load(games[k].white);
     if (black->ann && white->ann) {
-      play_game(&games[k], black->ann, white->ann, max_moves);
+      play_game(&games[k], black, white, max_moves);
     } else if (black->ann == NULL && white->ann == NULL) {
       printf("%s\terror=both\tmessage=%s; %s\tok\n", games[k].id, black->problem, white->problem);
     } else {

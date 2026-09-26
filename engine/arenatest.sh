@@ -9,8 +9,11 @@ set -eu
 # follow from the rules alone, so they are the same on every machine:
 # pass.ann always passes, play.ann plays the first allowed point (row 5
 # left to right, then row 4, and so on), and komi.ann passes exactly when
-# its komi input is positive (komi for white, -komi for black). Networks
-# from initial-population are compared with evo instead of pinned moves.
+# its komi input is positive (komi for white, -komi for black). The
+# feature networks capture.ann and careful.ann play like play.ann except
+# where their tactics feature weights decide (see tactics_network). Networks
+# from initial-population, with and without feature groups, are compared
+# with evo instead of pinned moves.
 
 cd "$(dirname "$0")"
 
@@ -29,7 +32,7 @@ fail() {
 network() {
   {
     printf 'EVOANN'
-    printf '\001\000\000\000'   # format version 1
+    printf '\002\000\000\000'   # format version 2
     printf '\032\000\000\000'   # 26 inputs
     printf '\000\000\000\000'   # no hidden layers
     printf '\000\000\000\000'   # no hidden neurons
@@ -43,6 +46,8 @@ network() {
     printf '\000\000\000\000\000\000\340\077'
     printf '\173\024\256\107\341\172\224\077'
     printf '\173\024\256\107\341\172\224\077'
+    printf '\000\000\000\000'   # no feature groups, so no feature weights
+    printf '\173\024\256\107\341\172\204\077'   # feature_step 0.01 (unused)
     # 25 point outputs of 27 weights each (bias, komi, 25 points), all 0.
     head -c $((25 * 27 * 8)) /dev/zero
     printf "$2$3"
@@ -56,6 +61,41 @@ minus_one='\000\000\000\000\000\000\360\277'
 network pass.ann "$minus_one" "$zero"
 network play.ann "$one" "$zero"
 network komi.ann "$zero" "$one"
+
+# A 5x5 network with the tactics group and no hidden layer, linear
+# outputs, and every network weight 0 except the pass output's bias weight
+# 1: every point scores 0 and pass -1, so it plays the first allowed point,
+# as play.ann does, unless its feature weights (capture $2, self_atari $3,
+# and saves_atari $4) make another point score higher or lower.
+tactics_network() {
+  {
+    printf 'EVOANN'
+    printf '\002\000\000\000'   # format version 2
+    printf '\145\000\000\000'   # 101 inputs: komi, 25 points, 3 x 25 tactics
+    printf '\000\000\000\000'   # no hidden layers
+    printf '\000\000\000\000'   # no hidden neurons
+    printf '\032\000\000\000'   # 26 outputs
+    printf '\001\000\000\000'   # hidden activation: sigmoid (unused)
+    printf '\004\000\000\000'   # output activation: linear
+    # The genes, as in network().
+    printf '\173\024\256\107\341\172\204\077'
+    printf '\000\000\000\000\000\000\360\077'
+    printf '\000\000\000\000\000\000\340\077'
+    printf '\173\024\256\107\341\172\224\077'
+    printf '\173\024\256\107\341\172\224\077'
+    printf '\002\000\000\000'   # feature groups: tactics
+    printf '\173\024\256\107\341\172\204\077'   # feature_step 0.01 (unused)
+    printf "$2$3$4"
+    # 25 point outputs of 102 weights each (bias, 101 inputs), all 0.
+    head -c $((25 * 102 * 8)) /dev/zero
+    printf "$one"
+    head -c $((101 * 8)) /dev/zero
+  } >"$tmp/$1"
+}
+minus_ten='\000\000\000\000\000\000\044\300'
+tactics_network capture.ann "$one" "$zero" "$zero"
+tactics_network careful.ann "$zero" "$minus_ten" "$zero"
+tactics_network flat.ann "$zero" "$zero" "$zero"
 printf 'not a network' >"$tmp/garbage.ann"
 
 # Replaces the times, which differ from run to run.
@@ -96,6 +136,26 @@ size $tmp/pass.ann example.ann
 both $tmp/garbage.ann example.ann
 EOF
 arena_ok main 5 6.5 10 "$schedule"
+
+# The feature weights decide the moves. The plain game: play.ann against
+# itself, and flat.ann, whose feature weights are all 0, plays the same.
+cat >"$tmp/feature-schedule" <<EOF
+pp $tmp/play.ann $tmp/play.ann
+pf $tmp/play.ann $tmp/flat.ann
+pc $tmp/play.ann $tmp/capture.ann
+pk $tmp/play.ann $tmp/careful.ann
+EOF
+arena_ok features 5 6.5 30 "$tmp/feature-schedule"
+plain="moves=A5,B5,C5,D5,E5,A4,B4,A5,C4,D4,E4,A3,B3,C3,D3,D5,D4,E3,A2,A5,B5,A4,A3,A5,A4,B2,C2,D2,E2,A1,B1"
+expect_line features pp "pp${T}result=B+13.5${T}end=limit${T}length=31${T}time_black=T${T}time_white=T${T}duration=T${T}${plain}${T}ok"
+expect_line features pf "pf${T}result=B+13.5${T}end=limit${T}length=31${T}time_black=T${T}time_white=T${T}duration=T${T}${plain}${T}ok"
+# White's capture weight 1: its second move is A4, which captures A5
+# (black A5 has only A4 left), where the plain game plays D5.
+expect_line features pc "pc${T}result=B+18.5${T}end=limit${T}length=31${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5,B5,C5,A4,D5,E5,B4,A5,C4,D4,E4,A3,B3,C3,D3,E3,A2,A5,B5,A4,A3,A5,A4,B2,C2,D2,E2,A1,B1,C1,D1${T}ok"
+# White's self_atari weight -10: after black's B4, white's A5 would join
+# A4 and B5 with the one liberty A3, which the plain game plays; white
+# plays the next allowed point, C4, instead.
+expect_line features pk "pk${T}result=W+24.5${T}end=limit${T}length=31${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5,B5,C5,D5,E5,A4,B4,C4,D4,C5,E4,A3,B3,C3,D3,A2,E3,B2,B4,B3,C2,D2,E2,A1,B1,C1,D1,C2,pass,E1,E5${T}ok"
 
 # Two passes in a row end the game; both count as moves. The empty board
 # is white's by komi.
@@ -180,14 +240,23 @@ if [ ! -x "$generator" ]; then
   exit 1
 fi
 # The default genes (weight_changes is 1 for 556 weights); play ignores them.
-(cd "$population" && "$generator" 3 5 1 10 0.01 1 0.5 0.02 0.02 42 >/dev/null)
+(cd "$population" && "$generator" 3 5 1 10 0.01 1 0.5 0.02 0.02 none 0.3 0.01 42 >/dev/null)
+# The same with every feature group, so that evo and the arena are seen to
+# read and use the features alike.
+featured="$tmp/featured"
+mkdir "$featured"
+(cd "$featured" && "$generator" 3 5 1 10 0.01 1 0.5 0.02 0.02 all 0.3 0.01 42 >/dev/null)
 same_as_evo 9 6.5 60 example.ann
 same_as_evo 9 -6.5 60 example.ann
 same_as_evo 5 6.5 40 "$tmp/komi.ann"
 same_as_evo 5 -6.5 40 "$tmp/komi.ann"
+same_as_evo 5 6.5 40 "$tmp/capture.ann"
+same_as_evo 5 6.5 40 "$tmp/careful.ann"
 for n in 0001 0002 0003; do
   same_as_evo 5 6.5 40 "$population/$n.ann"
   same_as_evo 5 0 40 "$population/$n.ann"
+  same_as_evo 5 6.5 40 "$featured/$n.ann"
+  same_as_evo 5 0 40 "$featured/$n.ann"
 done
 
 # Many networks in one schedule: each is loaded once, and every game's

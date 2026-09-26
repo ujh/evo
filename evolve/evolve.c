@@ -44,14 +44,14 @@ void seed() {
 
 // Exits with an error, instead of returning NULL, when the file cannot be
 // opened or does not hold a network.
-static genann *load_nn(char *name, ann_genes *genes) {
+static genann *load_nn(char *name, ann_genes *genes, ann_features *features) {
   printf("Loading %s ...", name);
   FILE *fd = fopen(name, "rb");
   if (fd == NULL) {
     fprintf(stderr, "\nCould not open %s: %s\n", name, strerror(errno));
     exit(1);
   }
-  genann *ann = ann_binary_read(fd, genes);
+  genann *ann = ann_binary_read(fd, genes, features);
   fclose(fd);
   if (ann == NULL) {
     fprintf(stderr, "\nCould not read a network from %s\n", name);
@@ -61,10 +61,10 @@ static genann *load_nn(char *name, ann_genes *genes) {
   return ann;
 }
 
-genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2]) {
+genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2], ann_features features[2]) {
   genann **anns = malloc(2 * sizeof(genann *));
-  anns[0] = load_nn(ann1_name, &genes[0]);
-  anns[1] = load_nn(ann2_name, &genes[1]);
+  anns[0] = load_nn(ann1_name, &genes[0], &features[0]);
+  anns[1] = load_nn(ann2_name, &genes[1], &features[1]);
   return anns;
 }
 

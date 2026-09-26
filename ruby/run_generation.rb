@@ -2,6 +2,7 @@ require 'digest'
 require 'open3'
 require_relative 'arena_result'
 require_relative 'checkpoint_benchmark'
+require_relative 'feature_groups'
 require_relative 'game_result'
 require_relative 'seeds'
 require_relative 'worker_pool'
@@ -346,7 +347,8 @@ class RunGeneration
     seed = Seeds.derive(experiment_seed, 'initial-population')
     genes = settings.values_at(*INITIAL_GENES)
     command = "../initial-population #{settings['population_size']} #{settings['board_size']} " \
-              "#{settings['hidden_layers']} #{settings['layer_size']} #{genes.join(' ')} #{seed}"
+              "#{settings['hidden_layers']} #{settings['layer_size']} #{genes.join(' ')} " \
+              "#{experiment_features} #{INITIAL_FEATURE_NOISE} #{INITIAL_FEATURE_STEP} #{seed}"
     # Stop before storing anything, so generation 0 never starts short of
     # networks, as breeding does when evolve fails.
     success, output = run_initial_population(command)
@@ -374,6 +376,11 @@ class RunGeneration
     initial_copy_chance initial_weight_changes initial_weight_step initial_activation_rate initial_structure_rate
   ].freeze
 
+  # The noise on generation 0's feature weights and its feature_step, until
+  # the runner gets settings for them.
+  INITIAL_FEATURE_NOISE = 0.3
+  INITIAL_FEATURE_STEP = 0.01
+
   # Returns [success, stdout]; stdout has a genes line per network.
   def run_initial_population(command)
     output, status = Open3.capture2(command)
@@ -382,7 +389,8 @@ class RunGeneration
 
   # The genes of each generation-0 network, in file order (0001.ann,
   # 0002.ann, ... sort as initial-population writes them). There must be one
-  # well-formed line per network, each of the generation-0 shape.
+  # well-formed line per network, each of the generation-0 shape and the
+  # experiment's feature set.
   def initial_genes(output, count, command)
     lines = output.lines.select { |line| line.start_with?('genes') }
     raise "initial-population printed #{lines.size} genes lines for #{count} networks: #{command}" unless lines.size == count
@@ -391,21 +399,44 @@ class RunGeneration
     lines.map do |line|
       genes = parse_genes(line, command)
       raise "initial-population printed genes of another shape: #{line.chomp}" unless genes.values_at(:layers, :width) == shape
+      unless genes[:features] == experiment_features
+        raise "initial-population printed genes of the feature set #{genes[:features]}, " \
+              "but the experiment's is #{experiment_features}: #{line.chomp}"
+      end
 
       genes
     end
   end
 
+  # The feature set every network of the experiment has, as the genes line
+  # writes it. The runner does not give networks features yet.
+  def experiment_features
+    'none'
+  end
+
   # A genes line of initial-population or evolve (ann_print_genes_line in
-  # lib/ann.h) as a birth's gene columns. Anything else raises.
+  # lib/ann.h) as a birth's gene columns, plus :features (the feature set as
+  # written), :feature_step, and :fw_NAME for each move feature of the set.
+  # Anything else raises.
   def parse_genes(line, command)
-    match = GENES_LINE.match(line.chomp)
-    genes = match&.named_captures(symbolize_names: true)&.to_h do |field, text|
-      [field, parse_gene(GENE_FIELDS.fetch(field), text)]
-    end
+    genes = parse_genes_fields(line.chomp)
     raise "malformed genes line #{line.chomp.inspect}: #{command}" if genes.nil? || genes.value?(nil)
 
     genes
+  end
+
+  # The fields of a genes line, with nil for a number that is not finite, or
+  # nil when the line has other fields, or other feature weights than its
+  # feature set's move features in their order.
+  def parse_genes_fields(line)
+    match = GENES_LINE.match(line) or return nil
+    move_features = FeatureGroups.move_features(match[:features]) or return nil
+    weights = match[:weights].scan(FEATURE_WEIGHT)
+    return nil unless weights.map(&:first) == move_features
+
+    genes = GENE_FIELDS.to_h { |field, kind| [field, parse_gene(kind, match[field])] }
+    genes.merge(features: match[:features], feature_step: parse_gene(:number, match[:feature_step]),
+                **weights.to_h { |name, text| [:"fw_#{name}", parse_gene(:number, text)] })
   end
 
   # nil for a number that is not finite.
@@ -423,7 +454,13 @@ class RunGeneration
     weight_changes: :number, weight_step: :number, activation_rate: :number, structure_rate: :number
   }.freeze
   GENE_PATTERNS = { integer: '\d+', activation: 'sigmoid|sigmoid_cached|threshold|linear|tanh|relu', number: '\S+' }.freeze
-  GENES_LINE = /\Agenes #{GENE_FIELDS.map { |field, kind| "#{field}=(?<#{field}>#{GENE_PATTERNS.fetch(kind)})" }.join(' ')}\z/
+  # The genes, the feature set and feature_step, then the feature weights,
+  # each as " fw_NAME=G", checked against the feature set by parse_genes_fields.
+  GENES_LINE = /
+    \Agenes\ #{GENE_FIELDS.map { |field, kind| "#{field}=(?<#{field}>#{GENE_PATTERNS.fetch(kind)})" }.join('\ ')}
+    \ features=(?<features>[a-z_,]+)\ feature_step=(?<feature_step>\S+)(?<weights>(?:\ fw_[a-z_]+=\S+)*)\z
+  /x
+  FEATURE_WEIGHT = / fw_([a-z_]+)=(\S+)/
 
   def evolve_from_previous_population
     return if data['setup_complete']
@@ -469,6 +506,10 @@ class RunGeneration
     raise "evolve printed #{genes_lines.size} genes lines for #{child}: #{command}" unless genes_lines.size == 1
 
     genes = parse_genes(genes_lines.first, command)
+    unless genes[:features] == experiment_features
+      raise "evolve printed genes of the feature set #{genes[:features]} for #{child}, " \
+            "but the experiment's is #{experiment_features}: #{command}"
+    end
     store.record_network(generation.to_i, child, File.binread(child))
     store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
                        operator: summary[:operator], differs_from_first: differs(summary[:first]),
