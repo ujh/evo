@@ -13,13 +13,13 @@ Write the plan to `plans/NAME.md` in the repository root. The directory is gitig
 - the goal, and what must not change (for example "a seeded run gives the same births, games, and rankings as main");
 - the owner's decisions and every finding declined so far, with the reason (give this list to every reviewer, so they do not raise it again);
 - the design decisions you made;
-- the steps as a checklist, grouped by PR, each small enough for one agent and one or two commits; tick each with its commit ids. A nit about lines a later step will rewrite goes into that step's item instead of being fixed now.
+- the steps as a checklist, grouped by PR, each small enough for one agent and one or two commits; tick each with its commit ids. A nit about lines a later step will rewrite goes into that step's item instead of being fixed now. Each PR updates the docs it makes stale (`CLAUDE.md`, `PROJECT_NOTES.md`, the README), as `docs/pull-requests.md` requires; do not park those edits in a final docs step, or the PRs before it merge with stale text.
 
-Have a fresh subagent review the plan itself before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here.
+Have a fresh subagent review the plan itself before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here. Ask the reviewer to check the maths numerically and the external tools by running them, not by reading alone. When the owner changes the design while discussing the plan, have a fresh subagent review the changed plan again before any code: the changes are the parts no reviewer has seen.
 
 Plan PRs that can merge in order. A PR may be stacked on another branch: CI runs on every pull request, whatever its base. The repository deletes a merged PR's branch, so once the base merges, GitHub retargets the stacked PR to `main` (check with `gh pr view PR --json baseRefName`); merge `origin/main` into it and push, and `mise run pr-checks` then checks it against `main`.
 
-Fold the review's findings into the plan, then show the plan to the owner and wait for their approval before any code is written. After that, stop only where section 5 says to.
+Fold the review's findings into the plan, then show the plan to the owner and wait for their approval before any code is written. Show it in plain language: explain each mechanism with an example or a small diagram, not only as a list of steps, since the owner can only approve what they understand; expect questions, and put the answers back into the plan. After that, stop only where section 5 says to.
 
 ## 3. Run each step through a subagent
 
@@ -27,20 +27,21 @@ Give each step to a fresh subagent with the plan's path, the step, the rules it 
 
 - writes tests first and checks that they fail before the code exists;
 - runs `mise run test` before each commit, and checks `git status` so no stray file is left or committed, and `git status --ignored` after adding files, since a rule such as `*.out` can hide a fixture the tests need;
+- for a C change, also runs `make test` under GCC in Docker (`gcc:14`), since the local build is clang and CI's is GCC: floating-point results and warnings differ between them;
 - commits with the conventions in `CLAUDE.md` and does not push.
 
 After each code commit, a different fresh subagent reviews that commit under the review rules in `docs/pull-requests.md`, with the owner's decisions and the declined findings. Fix blockers and important findings before the next step that depends on them. Send a fix back to the agent that wrote the step (it keeps its context), once no other agent is writing to that tree.
 
 A reviewer builds and runs tests only in its own scratch worktree at the commit under review (`git worktree add /tmp/... COMMIT`), never in a tree a step agent is writing to: a half-finished edit there shows up as failures that are not real. The whole-branch review also builds and tests a clean checkout (`git archive HEAD` plus `pcg-c`), which is the only place an untracked or ignored file the tests need goes missing.
 
-Independent work can run in parallel: a review of step N while step N+1 is built, or a second PR in its own `git worktree`. To set one up, link the main checkout's installed tools into it (`ln -s /path/to/checkout/.local .local`; `/.local` is gitignored), then run `mise trust` and `mise run setup` there (submodule, gems, build). Never let two agents write to the same working tree at once.
+Independent work can run in parallel: a review of step N while step N+1 is built, or a second PR in its own `git worktree`. To set one up, link the main checkout's installed tools into it (`ln -s /path/to/checkout/.local .local`; `/.local` is gitignored), then run `mise trust` and `mise run setup` there (submodule, gems, build). Never let two agents write to the same working tree at once. Branch a stacked PR's worktree from its base once the base's commits are final; if the base is rebased afterwards, move the stacked branch with `git rebase --onto NEW_BASE OLD_BASE`.
 
 Finish with checks on real runs, not only unit tests: a seeded run compared against `main` where behavior must not change, reproducibility, and resume after an interrupt where the change touches the runner. Examples in the docs come from seeded runs, with the full command, so a reader can repeat them.
 
 ## 4. Open the PRs
 
-Follow `docs/pull-requests.md` for each PR: the whole-branch review loop, then push, the PR, and `mise run pr-checks`. When a stacked PR's base merges, merge `origin/main` into it as for any pushed branch; the repository merges with merge commits, so that is clean. Remove a finished worktree with `git worktree remove --force`: without it git refuses, because the worktree holds the `pcg-c` submodule. For the same reason `gh pr merge --delete-branch` on a branch checked out in a worktree merges but skips the local cleanup; remove the worktree, then delete the local branch.
+Follow `docs/pull-requests.md` for each PR: the whole-branch review loop, then push, the PR, and `mise run pr-checks`. When a stacked PR's base merges, merge `origin/main` into it as for any pushed branch; the repository merges with merge commits, so that is clean. `mise run pr-checks` compares against the local `HEAD`, so run it in the checkout that has the PR's branch. To merge a stack once the owner says so, merge the bottom PR, confirm the next one now targets `main`, merge `origin/main` into it, push, run `mise run pr-checks`, merge it, and repeat. Remove a finished worktree with `git worktree remove --force`: without it git refuses, because the worktree holds the `pcg-c` submodule. For the same reason `gh pr merge --delete-branch` on a branch checked out in a worktree merges but skips the local cleanup; remove the worktree, then delete the local branch.
 
 ## 5. Notify the owner
 
-Report once, when the PRs are open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, and anything left open. Once the owner has approved the plan, do not stop for approval between steps, except where `docs/pull-requests.md` says to stop and ask (a third review round that is still not clean, or a finding only the owner can decide), and do not merge unless the owner says so.
+Report once, when the PRs are open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, what the real runs showed (including results that argue against the design), and anything left open. Once the owner has approved the plan, do not stop for approval between steps, except where `docs/pull-requests.md` says to stop and ask (a third review round that is still not clean, or a finding only the owner can decide), and do not merge unless the owner says so.
