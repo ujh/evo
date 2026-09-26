@@ -157,9 +157,9 @@ over about 0.6 to 1.0, but its best and second-best points differ by only
 the move almost always; a weight of 0.05 is worth a few near-ties, so it
 breaks close calls without deciding every move.
 
-Measured on generation-0 networks with all groups (step 2.4 of the
-features plan; 10 random 9×9 networks per shape, 100 positions from
-random play each, 1,000 positions per shape):
+Measured on generation-0 networks with all groups (10 random 9×9
+networks per shape, 100 positions from random play each, 1,000
+positions per shape):
 
 | Shape | Captures when it can | Saves an atari when it can | Avoids self-atari* | Plays a shape point (network alone) | Move changed by the feature weights |
 | --- | --- | --- | --- | --- | --- |
