@@ -85,6 +85,8 @@ static struct gtp_command commands[] = {
 };
 
 genann *ann = NULL;
+// The network's feature groups and weights, read with it (unused yet).
+ann_features network_features;
 
 void allocate_ann(char *ann_save_file) {
   fprintf(stderr, "Loading NN ...");
@@ -97,7 +99,7 @@ void allocate_ann(char *ann_save_file) {
     fprintf(stderr, "\nCould not open %s: %s\n", ann_save_file, strerror(errno));
     exit(1);
   }
-  ann = ann_binary_read(fd, NULL);
+  ann = ann_binary_read(fd, NULL, &network_features);
   fclose(fd);
   if (ann == NULL) {
     fprintf(stderr, "\nCould not read a network from %s\n", ann_save_file);

@@ -40,6 +40,10 @@
 #include "generate_move.h"
 #include "features.h"
 
+// The .ann reader accepts exactly the board sizes Brown can play.
+_Static_assert(ANN_MIN_SIDE == MIN_BOARD && ANN_MAX_SIDE == MAX_BOARD,
+               "lib/ann.h's board sides must equal Brown's MIN_BOARD and MAX_BOARD");
+
 // The network's inputs: komi, then one per point. Large enough for any
 // board Brown supports; generate_move only runs networks that fit the board.
 static double ann_inputs[MAX_BOARD * MAX_BOARD + 1];

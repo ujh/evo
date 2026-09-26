@@ -52,6 +52,7 @@ typedef struct {
 typedef struct {
   char *path;
   genann *ann;     // NULL when it cannot be played
+  ann_features features; // its feature groups and weights (unused yet)
   char *problem;   // why, when ann is NULL
 } network;
 
@@ -120,7 +121,7 @@ static network *load(const char *path) {
     n->problem = problem(path, "cannot open", 1);
     return n;
   }
-  genann *ann = ann_binary_read(in, NULL);
+  genann *ann = ann_binary_read(in, NULL, &n->features);
   fclose(in);
   if (ann == NULL) {
     n->problem = problem(path, "holds no network", 0);

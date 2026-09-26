@@ -29,13 +29,19 @@ test: initial-population
 	cd seeded-c && ../initial-population 3 9 1 5 $(GENES) 43 > /dev/null
 	cmp seeded-a/0001.ann seeded-b/0001.ann && cmp seeded-a/0003.ann seeded-b/0003.ann
 	! cmp -s seeded-a/0001.ann seeded-c/0001.ann
-	test $$(wc -c < seeded-a/0001.ann) -eq $$((34 + 5 * 8 + 907 * 8))
-	# The genes follow the 34-byte header as little-endian doubles.
+	test $$(wc -c < seeded-a/0001.ann) -eq $$((34 + 5 * 8 + 4 + 8 + 907 * 8))
+	# The genes follow the 34-byte header as little-endian doubles, then
+	# the features: no groups (a 0 mask, so no feature weights) and the
+	# default feature_step, 0.01.
 	test "$$(od -A n -t x1 -j 34 -N 40 seeded-a/0002.ann | tr -d ' \n')" = $(GENES_BYTES)
+	test "$$(od -A n -t x1 -j 74 -N 12 seeded-a/0002.ann | tr -d ' \n')" = 000000007b14ae47e17a843f
 	test "$$(grep -c '^genes ' seeded-a/out)" -eq 3
 	test "$$(grep '^genes ' seeded-a/out | sort -u)" = "$(GENES_LINE)"
 	cd seeded-c && ../initial-population 1 9 0 5 0.1 1.25 10 0.0001 0.5 1 | grep -qx 'genes layers=0 width=0 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.10000000000000001 weight_changes=1.25 weight_step=10 activation_rate=0.0001 structure_rate=0.5'
 	! ./initial-population 3 9 1 5 $(GENES) not-a-seed
+	# Board sizes the .ann reader refuses.
+	cd seeded-c && ! ../initial-population 1 1 1 5 $(GENES) 1 && ! ../initial-population 1 24 1 5 $(GENES) 1
+	cd seeded-c && ../initial-population 1 2 1 5 $(GENES) 1 > /dev/null && ../initial-population 1 23 0 5 $(GENES) 1 > /dev/null
 	! ./initial-population 3 9 1 5 42
 	! ./initial-population 3 9 1 5 0.01 1 0.5 0.02 42
 	cd seeded-c && ! ../initial-population 1 9 1 5 0.2 1 0.5 0.02 0.02 1

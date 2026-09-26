@@ -85,6 +85,11 @@ int main(int argc, char **argv) {
   board_size = atoi(argv[2]);
   hidden_layers = atoi(argv[3]);
   hidden = atoi(argv[4]);
+  // A network plays one square board, and the .ann reader refuses others.
+  if (board_size < ANN_MIN_SIDE || board_size > ANN_MAX_SIDE) {
+    fprintf(stderr, "board size must be %d to %d, got %s\n", ANN_MIN_SIDE, ANN_MAX_SIDE, argv[2]);
+    exit(1);
+  }
   // Every network starts with the same genes.
   ann_genes genes = {
     .copy_chance = parse_gene("copy_chance", argv[5]),
@@ -102,9 +107,12 @@ int main(int argc, char **argv) {
     hidden
   );
 
+  // No feature groups yet: every network sees only komi and the stones.
+  ann_features features = ann_default_features(0);
+
   char buffer[32];
-  // Pass in the komi
-  int inputs = (board_size * board_size) + 1;
+  // Komi, the stones, and the features' inputs
+  int inputs = ann_layout_inputs(features.groups, board_size * board_size);
   // Allow pass move
   int outputs = (board_size * board_size) + 1;
 
@@ -126,7 +134,7 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Could not open %s: %s\n", buffer, strerror(errno));
       exit(1);
     }
-    int written = ann_binary_write(ann, &genes, fd);
+    int written = ann_binary_write(ann, &genes, &features, fd);
     // A half-written network is removed, so the runner never stores one.
     if (fclose(fd) != 0 || written != 0) {
       fprintf(stderr, "Could not write %s\n", buffer);

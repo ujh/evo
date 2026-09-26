@@ -123,7 +123,8 @@ int main(int argc, char **argv) {
   );
 
   ann_genes genes[2];
-  genann **anns = load_nns(ann1_name, ann2_name, genes);
+  ann_features features[2];
+  genann **anns = load_nns(ann1_name, ann2_name, genes, features);
   check_nns(anns);
 
   breeding result;
@@ -137,7 +138,9 @@ int main(int argc, char **argv) {
     exit(1);
   }
   // A half-written child is removed, so the runner never finds one.
-  int written = ann_binary_write(child, &result.genes, fd);
+  // The child's features are the picked parent's, unchanged, whatever the
+  // operator: nothing breeds them yet.
+  int written = ann_binary_write(child, &result.genes, &features[result.picked], fd);
   if (fclose(fd) != 0 || written != 0) {
     fprintf(stderr, "\nCould not write %s: %s\n", output_name, strerror(errno));
     remove(output_name);

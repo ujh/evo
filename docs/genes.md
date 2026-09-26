@@ -43,6 +43,18 @@ A network's `.ann` file holds everything about it:
 The limits are the clamps in `lib/ann.h`: a gene that evolves past one is
 set back to it. The settings accept the same ranges.
 
+- **Features.** Which feature groups the network sees besides the stones
+  and komi (shapes, tactics, the last move, chain liberties), a gene
+  `feature_step`, and one weight per move feature of its groups. For now
+  every network has no groups, so it has no feature weights and its
+  `feature_step` stays at 0.01; nothing reads or breeds them yet. A child
+  takes its picked parent's features unchanged, whatever the operator.
+
+The file starts with a header (the format version, the sizes, and the two
+activations), then the five genes, then the features, then the weights:
+86 bytes plus 8 per feature weight plus 8 per weight. Files of the
+earlier format, without the features, are no longer read.
+
 Example: a 9×9 network of `1x50` has 8,332 weights, so its default
 `weight_changes` is 0.0004 × 8,332 ≈ 3.3. A `1x10` network has 1,732
 weights; 0.0004 × 1,732 is 0.69, so it starts at the lower limit of 1.

@@ -19,7 +19,7 @@ const ann_activation ANN_ACTIVATIONS[] = {
 const int ANN_ACTIVATION_COUNT = sizeof(ANN_ACTIVATIONS) / sizeof(ANN_ACTIVATIONS[0]);
 
 static const char MAGIC[6] = {'E', 'V', 'O', 'A', 'N', 'N'};
-static const uint32_t VERSION = 1;
+static const uint32_t VERSION = 2;
 
 // The code for an activation, or 0 for a function GENANN does not offer.
 static uint32_t activation_code(genann_actfun function) {
@@ -43,6 +43,25 @@ ann_genes ann_default_genes(int total_weights) {
         .structure_rate = 0.02,
     };
     return genes;
+}
+
+const ann_feature ANN_FEATURES[ANN_MAX_FEATURES] = {
+    {"hane", ANN_GROUP_SHAPES, 0.05},
+    {"cut", ANN_GROUP_SHAPES, 0.05},
+    {"edge", ANN_GROUP_SHAPES, 0.05},
+    {"capture", ANN_GROUP_TACTICS, 1.0},
+    {"self_atari", ANN_GROUP_TACTICS, -1.0},
+    {"saves_atari", ANN_GROUP_TACTICS, 0.8},
+    {"near_last", ANN_GROUP_LAST_MOVE, 0.05},
+};
+
+ann_features ann_default_features(unsigned groups) {
+    ann_features features = {.groups = groups, .feature_step = 0.01};
+    int count = 0;
+    for (int i = 0; i < ANN_MAX_FEATURES; ++i) {
+        if (ANN_FEATURES[i].group & groups) features.weights[count++] = ANN_FEATURES[i].start_weight;
+    }
+    return features;
 }
 
 int ann_feature_count(unsigned groups) {
@@ -87,6 +106,28 @@ const char *ann_genes_invalid(const ann_genes *genes, int total_weights) {
     return NULL;
 }
 
+const char *ann_features_invalid(const ann_features *features) {
+    if (ann_feature_count(features->groups) < 0) return "groups";
+    if (!in_range(features->feature_step, ANN_FEATURE_STEP_MIN, ANN_FEATURE_STEP_MAX)) return "feature_step";
+    int count = 0;
+    for (int i = 0; i < ANN_MAX_FEATURES; ++i) {
+        if (!(ANN_FEATURES[i].group & features->groups)) continue;
+        if (!in_range(features->weights[count++], ANN_FEATURE_WEIGHT_MIN, ANN_FEATURE_WEIGHT_MAX)) {
+            return ANN_FEATURES[i].name;
+        }
+    }
+    return NULL;
+}
+
+// The side of the square board with that many points plus pass, or 0 when
+// there is none from ANN_MIN_SIDE to ANN_MAX_SIDE.
+static int board_side(int outputs) {
+    for (int side = ANN_MIN_SIDE; side <= ANN_MAX_SIDE; ++side) {
+        if (side * side + 1 == outputs) return side;
+    }
+    return 0;
+}
+
 static int read_u32(FILE *in, uint32_t *v) {
     unsigned char b[4];
     if (fread(b, 1, 4, in) != 4) return 0;
@@ -116,7 +157,7 @@ static int write_f64(FILE *out, double d) {
     return fwrite(b, 1, 8, out) == 8;
 }
 
-genann *ann_binary_read(FILE *in, ann_genes *genes) {
+genann *ann_binary_read(FILE *in, ann_genes *genes, ann_features *features) {
     char magic[sizeof(MAGIC)];
     uint32_t version, sizes[4], codes[2];
 
@@ -154,10 +195,44 @@ genann *ann_binary_read(FILE *in, ann_genes *genes) {
     }
     ann_genes read_genes = {gene_values[0], gene_values[1], gene_values[2], gene_values[3], gene_values[4]};
 
+    uint32_t groups;
+    if (!read_u32(in, &groups)) {
+        fprintf(stderr, "ann_binary_read: file too short for the feature groups\n");
+        return NULL;
+    }
+    int feature_count = ann_feature_count(groups);
+    if (feature_count < 0) {
+        fprintf(stderr, "ann_binary_read: unknown feature groups in mask %u\n", groups);
+        return NULL;
+    }
+    ann_features read_features = {.groups = groups};
+    int ok = read_f64(in, &read_features.feature_step);
+    for (int i = 0; ok && i < feature_count; ++i) ok = read_f64(in, &read_features.weights[i]);
+    if (!ok) {
+        fprintf(stderr, "ann_binary_read: file too short for the features\n");
+        return NULL;
+    }
+    const char *bad_feature = ann_features_invalid(&read_features);
+    if (bad_feature) {
+        fprintf(stderr, "ann_binary_read: feature weight or step %s is not finite or out of range\n", bad_feature);
+        return NULL;
+    }
+
     int inputs = (int32_t)sizes[0], hidden_layers = (int32_t)sizes[1];
     int hidden = (int32_t)sizes[2], outputs = (int32_t)sizes[3];
     if (hidden_layers == 0 && hidden != 0) {
         fprintf(stderr, "ann_binary_read: %d hidden neurons without hidden layers\n", hidden);
+        return NULL;
+    }
+    int side = board_side(outputs);
+    if (side == 0) {
+        fprintf(stderr, "ann_binary_read: %d outputs are no board of %dx%d to %dx%d plus pass\n",
+                outputs, ANN_MIN_SIDE, ANN_MIN_SIDE, ANN_MAX_SIDE, ANN_MAX_SIDE);
+        return NULL;
+    }
+    if (inputs != ann_layout_inputs(groups, side * side)) {
+        fprintf(stderr, "ann_binary_read: %d inputs, but the feature groups need %d on a %dx%d board\n",
+                inputs, ann_layout_inputs(groups, side * side), side, side);
         return NULL;
     }
     genann *ann = genann_init(inputs, hidden_layers, hidden, outputs);
@@ -189,10 +264,11 @@ genann *ann_binary_read(FILE *in, ann_genes *genes) {
     }
 
     if (genes) *genes = read_genes;
+    if (features) *features = read_features;
     return ann;
 }
 
-int ann_binary_write(const genann *ann, const ann_genes *genes, FILE *out) {
+int ann_binary_write(const genann *ann, const ann_genes *genes, const ann_features *features, FILE *out) {
     uint32_t hidden_code = activation_code(ann->activation_hidden);
     uint32_t output_code = activation_code(ann->activation_output);
     if (!hidden_code || !output_code) {
@@ -206,6 +282,20 @@ int ann_binary_write(const genann *ann, const ann_genes *genes, FILE *out) {
     const char *bad = ann_genes_invalid(genes, ann->total_weights);
     if (bad) {
         fprintf(stderr, "ann_binary_write: gene %s is not finite or out of range\n", bad);
+        return -1;
+    }
+
+    if (features == NULL) {
+        fprintf(stderr, "ann_binary_write: no features given\n");
+        return -1;
+    }
+    const char *bad_feature = ann_features_invalid(features);
+    if (bad_feature && strcmp(bad_feature, "groups") == 0) {
+        fprintf(stderr, "ann_binary_write: unknown feature groups in mask %u\n", features->groups);
+        return -1;
+    }
+    if (bad_feature) {
+        fprintf(stderr, "ann_binary_write: feature weight or step %s is not finite or out of range\n", bad_feature);
         return -1;
     }
 
@@ -223,7 +313,11 @@ int ann_binary_write(const genann *ann, const ann_genes *genes, FILE *out) {
         && write_f64(out, genes->weight_changes)
         && write_f64(out, genes->weight_step)
         && write_f64(out, genes->activation_rate)
-        && write_f64(out, genes->structure_rate);
+        && write_f64(out, genes->structure_rate)
+        && write_u32(out, features->groups)
+        && write_f64(out, features->feature_step);
+    int feature_count = ann_feature_count(features->groups);
+    for (int i = 0; ok && i < feature_count; ++i) ok = write_f64(out, features->weights[i]);
     for (int i = 0; ok && i < ann->total_weights; ++i) ok = write_f64(out, ann->weight[i]);
     if (!ok) {
         fprintf(stderr, "ann_binary_write: write failed\n");

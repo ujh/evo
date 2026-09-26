@@ -29,7 +29,7 @@ fail() {
 network() {
   {
     printf 'EVOANN'
-    printf '\001\000\000\000'   # format version 1
+    printf '\002\000\000\000'   # format version 2
     printf '\032\000\000\000'   # 26 inputs
     printf '\000\000\000\000'   # no hidden layers
     printf '\000\000\000\000'   # no hidden neurons
@@ -43,6 +43,8 @@ network() {
     printf '\000\000\000\000\000\000\340\077'
     printf '\173\024\256\107\341\172\224\077'
     printf '\173\024\256\107\341\172\224\077'
+    printf '\000\000\000\000'   # no feature groups, so no feature weights
+    printf '\173\024\256\107\341\172\204\077'   # feature_step 0.01 (unused)
     # 25 point outputs of 27 weights each (bias, komi, 25 points), all 0.
     head -c $((25 * 27 * 8)) /dev/zero
     printf "$2$3"
