@@ -34,7 +34,7 @@ These are not findings:
 - **Important:** a real defect that someone hits in normal use, without corrupting results.
 - **Nit:** anything else that is still true and worth saying.
 
-Tests follow the risk. In experiment code (the engine, `evolve`, `initial-population`, the runner, scoring), a behavior change with no test that would fail when it breaks is important. In developer tooling (the `pr-*` scripts, mise tasks), ask for a test only where a break would produce a false pass. A test counts only if it fails when the behavior breaks: before relying on a new test, undo or break the fix and check that the test fails.
+Tests follow the risk. In experiment code (the engine, `evolve`, `initial-population`, the runner, scoring), a behavior change with no test that would fail when it breaks is important. In developer tooling (the `pr-*` scripts, mise tasks), ask for a test only where a break would produce a false pass. A test counts only if it fails when the behavior breaks: before relying on a new test, undo or break the fix and check that the test fails. The reviewer checks this too, in its own worktree: it breaks the behavior (a mutant: flip a condition, drop a call, change a constant) and runs the tests; a mutant no test catches is a missing test, rated as above.
 
 ### The loop
 

@@ -4,22 +4,25 @@ Use this for any change bigger than one PR, or one that needs several design dec
 
 ## 1. Agree the work with the owner
 
-Discuss the goal and ask every question whose answer is the owner's to give (scope, trade-offs, defaults) before writing any code. Record the answers. After that, decide the rest yourself and explain those decisions in the PR descriptions; do not come back for approval on choices the owner left to you.
+Discuss the goal and ask every question whose answer is the owner's to give (scope, trade-offs, defaults) before writing any code. Record the answers. Record a request the owner makes along the way that is not part of the plan's work (an open item for `PROJECT_NOTES.md`, a change to these docs) as an owner decision too, and give it a home in one PR's docs, so it is not lost. After that, decide the rest yourself and explain those decisions in the PR descriptions; do not come back for approval on choices the owner left to you.
 
 ## 2. Write the plan
 
 Write the plan to `plans/NAME.md` in the repository root. The directory is gitignored, so the plan survives a lost session without entering the history. It holds:
 
 - the goal, and what must not change (for example "a seeded run gives the same births, games, and rankings as main");
-- the owner's decisions and every finding declined so far, with the reason (give this list to every reviewer, so they do not raise it again);
+- the owner's decisions (with the PR whose docs carry each request outside the plan's work) and every finding declined so far, with the reason (give this list to every reviewer, so they do not raise it again);
 - the design decisions you made;
-- the steps as a checklist, grouped by PR, each small enough for one agent and one or two commits; tick each with its commit ids. A nit about lines a later step will rewrite goes into that step's item instead of being fixed now. Each PR updates the docs it makes stale (`CLAUDE.md`, `PROJECT_NOTES.md`, the README), as `docs/pull-requests.md` requires; do not park those edits in a final docs step, or the PRs before it merge with stale text.
+- the steps as a checklist, grouped by PR, each small enough for one agent and one or two commits; tick each with its commit ids. A nit about lines a later step will rewrite goes into that step's item instead of being fixed now. Each PR updates the docs it makes stale (`CLAUDE.md`, `PROJECT_NOTES.md`, the README), as `docs/pull-requests.md` requires; do not park those edits in a final docs step, or the PRs before it merge with stale text. The last step folds the learnings log into these docs (see section 5);
+- a learnings log: what worked, what went wrong, tool quirks, and what the owner asked to change about the process. Add to it as things happen, not from memory at the end.
+
+Only the orchestrator edits the plan. Step agents and reviewers report, and the orchestrator ticks the step, records their decisions, and hands nits on, so the plan has one writer and says what the orchestrator knows.
 
 Have a fresh subagent review the plan itself before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here. Ask the reviewer to check the maths numerically and the external tools by running them, not by reading alone. When the owner changes the design while discussing the plan, have a fresh subagent review the changed plan again before any code: the changes are the parts no reviewer has seen.
 
 Plan PRs that can merge in order. A PR may be stacked on another branch: CI runs on every pull request, whatever its base. The repository deletes a merged PR's branch, so once the base merges, GitHub retargets the stacked PR to `main` (check with `gh pr view PR --json baseRefName`); merge `origin/main` into it and push, and `mise run pr-checks` then checks it against `main`.
 
-Fold the review's findings into the plan, then show the plan to the owner and wait for their approval before any code is written. Show it in plain language: explain each mechanism with an example or a small diagram, not only as a list of steps, since the owner can only approve what they understand; expect questions, and put the answers back into the plan. After that, stop only where section 5 says to.
+Fold the review's findings into the plan, then show the plan to the owner and wait for their approval before any code is written. The owner may approve in advance (for example "start once the review is folded in"); then start as soon as the findings are in the plan, and record the approval as an owner decision. Show it in plain language: explain each mechanism with an example or a small diagram, not only as a list of steps, since the owner can only approve what they understand; expect questions, and put the answers back into the plan. After that, stop only where section 5 says to.
 
 ## 3. Run each step through a subagent
 
@@ -28,15 +31,17 @@ Give each step to a fresh subagent with the plan's path, the step, the rules it 
 - writes tests first and checks that they fail before the code exists;
 - runs `mise run test` before each commit, and checks `git status` so no stray file is left or committed, and `git status --ignored` after adding files, since a rule such as `*.out` can hide a fixture the tests need;
 - for a C change, also runs `make test` under GCC in Docker (`gcc:14`), since the local build is clang and CI's is GCC: floating-point results and warnings differ between them;
-- commits with the conventions in `CLAUDE.md` and does not push.
+- where the tests stub the programs a change spans (the Ruby tests stub the C programs), runs a short seeded experiment through the real runner, such as the smoke run in `CLAUDE.md`: a mismatch between the C output and the Ruby parser passes every test;
+- commits with the conventions in `CLAUDE.md` and does not push;
+- does not edit the plan: its report carries what the plan needs.
 
-After each code commit, a different fresh subagent reviews that commit under the review rules in `docs/pull-requests.md`, with the owner's decisions and the declined findings. Fix blockers and important findings before the next step that depends on them. Send a fix back to the agent that wrote the step (it keeps its context), once no other agent is writing to that tree.
+After each code commit, a different fresh subagent reviews that commit under the review rules in `docs/pull-requests.md`, with the owner's decisions and the declined findings. Fix blockers and important findings before the next step that depends on them. Send a fix back to the agent that wrote the step (it keeps its context), once no other agent is writing to that tree, as a new commit on top: amending or rebasing a commit that another branch is built on moves that branch's base. A stacked branch that is not yet pushed may instead be rebased onto its fixed base (see below). Nits from a whole-branch review about lines a later step touches go into that step's item rather than into a commit now, which would force a rebase of a stacked worktree an agent is using.
 
-A reviewer builds and runs tests only in its own scratch worktree at the commit under review (`git worktree add /tmp/... COMMIT`), never in a tree a step agent is writing to: a half-finished edit there shows up as failures that are not real. The whole-branch review also builds and tests a clean checkout (`git archive HEAD` plus `pcg-c`), which is the only place an untracked or ignored file the tests need goes missing.
+A reviewer builds and runs tests only in its own scratch worktree at the commit under review (`git worktree add /tmp/... COMMIT`), never in a tree a step agent is writing to: a half-finished edit there shows up as failures that are not real. The whole-branch review also builds and tests a clean checkout (`git archive HEAD` plus `pcg-c`), which is the only place an untracked or ignored file the tests need goes missing. Run `git init` and make one commit in it first: the `pr-checks` tests read `git rev-parse HEAD`.
 
-Independent work can run in parallel: a review of step N while step N+1 is built, or a second PR in its own `git worktree`. To set one up, link the main checkout's installed tools into it (`ln -s /path/to/checkout/.local .local`; `/.local` is gitignored), then run `mise trust` and `mise run setup` there (submodule, gems, build). Never let two agents write to the same working tree at once. Branch a stacked PR's worktree from its base once the base's commits are final; if the base is rebased afterwards, move the stacked branch with `git rebase --onto NEW_BASE OLD_BASE`, where OLD_BASE is the base's commit id from before its rebase.
+Run one agent at a time by default: on this side project token use matters more than speed. Parallel work is an option to agree with the owner at the start. When agreed, independent work can run in parallel: a review of step N in its own worktree while step N+1 is built, or a second PR in its own `git worktree`. To set one up, link the main checkout's installed tools into it (`ln -s /path/to/checkout/.local .local`; `/.local` is gitignored), then run `mise trust` and `mise run setup` there (submodule, gems, build). Never let two agents write to the same working tree at once. Branch a stacked PR's worktree from its base once the base's commits are final; if the base is rebased afterwards, move the stacked branch with `git rebase --onto NEW_BASE OLD_BASE`, where OLD_BASE is the base's commit id from before its rebase.
 
-Finish with checks on real runs, not only unit tests: a seeded run compared against `main` where behavior must not change, reproducibility, and resume after an interrupt where the change touches the runner. Examples in the docs come from seeded runs, with the full command, so a reader can repeat them.
+Finish with checks on real runs, not only unit tests; they find what reviews do not, such as a design consequence no one predicted: a seeded run compared against `main` where behavior must not change, reproducibility, and resume after an interrupt where the change touches the runner. Examples in the docs come from seeded runs, with the full command, so a reader can repeat them.
 
 ## 4. Open the PRs
 
@@ -46,4 +51,4 @@ Follow `docs/pull-requests.md` for each PR: the whole-branch review loop, then p
 
 Report once, when the PRs are open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, what the real runs showed (including results that argue against the design), and anything left open. Once the owner has approved the plan, do not stop for approval between steps, except where `docs/pull-requests.md` says to stop and ask (a third review round that is still not clean, or a finding only the owner can decide), and do not merge unless the owner says so.
 
-Once all of a plan's PRs have merged and the final report is given, delete the plan from `plans/`: it holds nothing the repository's history and docs do not.
+Every run ends with a step that folds the plan's learnings log into this file and `docs/pull-requests.md` (and repository quirks into `CLAUDE.md`, which every agent reads): keep what generalizes as a rule with its reason, drop one-offs. Once all of a plan's PRs have merged and the final report is given, delete the plan from `plans/`: it then holds nothing the repository's history and docs do not.
