@@ -54,6 +54,17 @@ Networks and SGFs are kept only for every `keep_every`-th generation. That saves
 
 Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The experiment database records what is needed (`games`, `births`, and `rankings` in `experiment.sqlite3`), and `stats` reports it, including children per parent and where the bots rank. Still to do: run a few seeded experiments that vary one setting at a time.
 
+### 7. Move choice is deterministic
+
+A network always plays its highest-scoring allowed move, so the same two networks with the same colors play the same game every time, and a tie between saturated outputs always goes the same way (usually a pass). Repeat pairings in the tournament and benchmark games without openings therefore add no information.
+
+**Idea to think about:** make the move choice a little random with a temperature parameter: pick among the allowed moves with probability proportional to `exp(score / T)`, so T near 0 is today's behavior and a larger T plays more varied moves. Questions before building it:
+
+- Where the randomness comes from: a per-game seed passed to `evo` and the arena, derived from the experiment seed like the GNU Go seeds, so runs stay reproducible.
+- Whether T applies to the tournament only, with the benchmark kept at T = 0 so checkpoints stay comparable, or to both.
+- Whether T is an experiment setting or another gene that evolves per network.
+- Whether varied games make tournament scores less noisy (more distinct games per pairing) or just weaker (worse moves on purpose).
+
 ## Go rules and scoring boundary
 
 Brown's internal final-status algorithm assumes the board has been filled according to Brown's original move policy. Evo can pass earlier, so those assumptions do not generally hold. The arena scores network games by Tromp–Taylor instead, but the GNU Go referee still decides every game with a bot and the whole benchmark.
