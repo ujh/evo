@@ -53,6 +53,8 @@ generation 0's shape and genes, the bounds on the shape
 (`max_hidden_layers`, `max_layer_size`), and the pace at which the mutation
 settings themselves change (`meta_rate`). `mise run new-experiment` without
 arguments lists every setting and its default.
+[The evolving genome](docs/genes.md) explains the genes, how a child is
+made, how shapes change, and how to read the genome tables in `stats`.
 
 You can pass the existing runner arguments after the name, for example
 `mise run run EXPERIMENT_NAME 2 one-generation`. `mise run` supplies the pinned
