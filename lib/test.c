@@ -528,7 +528,7 @@ void binary_no_hidden_layers() {
     genann_free(ann);
 }
 
-// Today's mutation load: 0.0004 changes per weight, at least one.
+// The default mutation load: 0.0004 changes per weight, at least one.
 void default_genes() {
     ann_genes g = ann_default_genes(418);
     lok(g.copy_chance == 0.01);

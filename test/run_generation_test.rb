@@ -217,14 +217,16 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
         evolve ? evolve.call(cmd) : [true, SUMMARY]
       end
       error = nil
+      err = nil
       begin
-        capture_io { gen.send(:evolve_from_previous_population) }
-      rescue StandardError => e
+        _, err = capture_io { gen.send(:evolve_from_previous_population) }
+      rescue StandardError, SystemExit => e
         error = e
       end
       {
         commands: commands,
         error: error,
+        err: err,
         children: Dir['*.ann'].sort.to_h { |f| [f, File.read(f)] },
         parent_files: Dir['parents/*'].sort,
         previous_networks: database.network_names(0),
@@ -275,6 +277,35 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
     assert_includes state[:previous_networks], '0001.ann'
     assert_nil state[:data]
+  end
+
+  # Ctrl-C reaches evolve too. Breeding stops like the tournament does, with
+  # no error: the setup is saved only after the last child, so a resume
+  # breeds again from the first.
+  def test_ctrl_c_during_breeding_exits_quietly
+    $stop_now = false
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) do
+      $stop_now = true
+      [false, '']
+    end
+    assert_instance_of SystemExit, state[:error]
+    assert_equal 0, state[:error].status
+    assert_equal 1, state[:commands].size
+    assert_includes state[:previous_networks], '0001.ann'
+    assert_nil state[:data]
+  ensure
+    $stop_now = false
+  end
+
+  # evolve can be back before the trap has set the flag; its status tells.
+  def test_evolve_interrupted_before_the_trap_ran_exits_with_130
+    PlayRoundTest::INTERRUPTED.each do |how, status|
+      state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [false, '', status] }
+      assert_instance_of SystemExit, state[:error], how
+      assert_equal 130, state[:error].status, how
+      assert_includes state[:previous_networks], '0001.ann', how
+      assert_nil state[:data], how
+    end
   end
 
   def test_evolve_writing_nothing_stops_breeding

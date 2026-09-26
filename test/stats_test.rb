@@ -69,6 +69,58 @@ class StatsTest < Minitest::Test
                   %w[2 c.ann GnuGoLevel0 0/4 0-0 0-0 0 0], %w[2 c.ann Gen0Champion 2/4 0-1 0-1 0 0]], rows
   end
 
+  TITLES = /\A(Generations|Genes|Shapes|Breeding|Benchmark)/
+
+  # The table titled `title`: its title line up to the next table's.
+  def section(out, title)
+    lines = out.lines
+    start = lines.index { |l| l.start_with?(title) }
+    assert start, "no #{title} table in\n#{out}"
+    rest = lines[(start + 1)..]
+    [lines[start], *rest.take_while { |l| !l.match?(TITLES) }].join
+  end
+
+  def rows_of(text)
+    text.lines.select { |l| l.start_with?('|') }.map { |l| cells(l) }.drop(1)
+  end
+
+  # Medians per generation, and the range of the latest generation with
+  # births. Generations 2 and 3 have no births.
+  def test_prints_the_genes_of_each_generation
+    out, = stats('x')
+    genes = section(out, 'Genes')
+    assert_includes genes.lines.first, 'generation 1'
+    assert_equal %w[Gen Copy Changes Step Act Struct Layers Width Weights], cells(genes.lines.find { |l| l.include?('Copy') })
+    rows = rows_of(genes)
+    assert_equal %w[0 0.01 1 0.5 0.02 0.02 1 10 1732], rows[0]
+    assert_equal %w[1 0.01 2.5 0.5 0.02 0.02 1 10 1732], rows[1]
+    assert_equal %w[2 - - - - - - - -], rows[2]
+    assert_equal %w[min 0.005 1 0.4 0.02 0.01 1 10 1732], rows.find { |r| r.first == 'min' }
+    assert_equal %w[max 0.02 4 0.6 0.02 0.03 1 11 1897], rows.find { |r| r.first == 'max' }
+  end
+
+  def test_prints_the_shapes_and_activations_of_each_generation
+    out, = stats('x')
+    shapes = section(out, 'Shapes')
+    assert_equal %w[Gen Shapes Hidden Output], cells(shapes.lines.find { |l| l.include?('Hidden') })
+    rows = rows_of(shapes)
+    assert_equal ['0', '1x10 3', 'sigc 3', 'sigc 2, relu 1'], rows[0]
+    assert_equal ['1', '1x10 2, 1x11 1', 'sigc 2, tanh 1', 'sigc 2, relu 1'], rows[1]
+    assert_equal %w[2 - - -], rows[2]
+  end
+
+  # Bot cells: the best copy's rank, and in brackets the networks above it.
+  def test_prints_breeding_and_bot_ranks_of_each_generation
+    out, = stats('x')
+    breeding = section(out, 'Breeding')
+    assert_equal %w[Gen Kids Childless Widen Narrow Add Remove Bots Brown AmiGo],
+                 cells(breeding.lines.find { |l| l.include?('Childless') })
+    rows = rows_of(breeding)
+    assert_equal ['0', '-', '-', '-', '-', '-', '-', '1 (0)', '1 (0)', '-'], rows[0]
+    assert_equal ['1', '3', '0', '1', '0', '0', '0', '4 (3)', '4 (3)', '-'], rows[1]
+    assert_equal ['2', '-', '-', '-', '-', '-', '-', '1 (0)', '1 (0)', '-'], rows[2]
+  end
+
   def test_once_mode_fits_in_100_columns
     out, = stats('x')
     long = out.lines.map(&:chomp).select { |l| l.size > 100 }
@@ -106,6 +158,36 @@ class StatsTest < Minitest::Test
     assert_equal '1', rows[2]['benchmark.Brown.black.failure']
   end
 
+  def test_csv_has_the_genome_breeding_and_bot_columns
+    out, = stats('--csv', 'x')
+    row = CSV.parse(out, headers: true)[1]
+    assert_equal '0.5', row['genes.weight_step.median']
+    assert_equal '0.005', row['genes.copy_chance.min']
+    assert_equal '4.0', row['genes.weight_changes.max']
+    assert_equal '11', row['shape.width.max']
+    assert_equal '1732', row['shape.weights.median']
+    assert_equal '1', row['activation.hidden.tanh']
+    assert_equal '0', row['activation.hidden.relu']
+    assert_equal '1', row['activation.output.relu']
+    assert_equal '1', row['structure.widen']
+    assert_equal '2', row['structure.none']
+    assert_equal %w[3 0 3], row.values_at('parents.max_children', 'parents.childless', 'parents.used')
+    assert_equal %w[4 3 4 3], row.values_at('bots.best_rank', 'bots.networks_above', 'bots.Brown.best_rank',
+                                            'bots.Brown.networks_above')
+  end
+
+  def test_csv_leaves_genome_cells_empty_where_a_generation_lacks_them
+    out, = stats('--csv', 'x')
+    rows = CSV.parse(out, headers: true)
+    assert_nil rows[2]['genes.weight_step.median']
+    assert_nil rows[2]['shape.layers.median']
+    assert_nil rows[2]['activation.hidden.relu']
+    assert_nil rows[0]['structure.none']
+    assert_nil rows[0]['parents.childless']
+    assert_nil rows[1]['bots.AmiGo.best_rank']
+    assert_equal '1', rows[0]['bots.Brown.best_rank']
+  end
+
   # The same columns for every experiment with the same panel, whatever it
   # has played so far.
   def test_csv_header_is_fixed_by_the_panel
@@ -118,8 +200,25 @@ class StatsTest < Minitest::Test
       population.children population.operators.initial population.operators.crossover population.operators.mutation
       population.operators.copy
       population.identical population.distinct_parents population.unique_genomes
-      population.scores.min population.scores.median population.scores.max benchmark.network benchmark.complete
+      population.scores.min population.scores.median population.scores.max
+    ] + genome_columns + %w[
+      bots.best_rank bots.networks_above bots.Brown.best_rank bots.Brown.networks_above
+      bots.AmiGo.best_rank bots.AmiGo.networks_above benchmark.network benchmark.complete
     ] + benchmark, CSV.parse(out).first
+  end
+
+  def genome_columns
+    activations = %w[sigmoid sigmoid_cached threshold linear tanh relu]
+    [
+      *%w[copy_chance weight_changes weight_step activation_rate structure_rate].flat_map do |gene|
+        %w[min median max].map { |key| "genes.#{gene}.#{key}" }
+      end,
+      *%w[layers width].flat_map { |part| %w[min median max].map { |key| "shape.#{part}.#{key}" } }, 
+      *%w[min median max].map { |key| "shape.weights.#{key}" },
+      *%w[hidden output].flat_map { |layer| activations.map { |name| "activation.#{layer}.#{name}" } },
+      *%w[none widen narrow add_layer remove_layer].map { |op| "structure.#{op}" },
+      'parents.max_children', 'parents.childless', 'parents.used'
+    ]
   end
 
   def test_csv_leaves_the_benchmark_empty_where_there_is_none

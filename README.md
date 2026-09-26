@@ -44,6 +44,16 @@ external programs, use `mise run setup` and `mise run test` (or `test-c` and
 2. Restart an interrupted experiment with the same command.
 3. View results with `mise run stats EXPERIMENT_NAME` (see [Statistics](#statistics)).
 
+Each network carries its own settings as genes, and they evolve with its
+weights: its hidden and output activations, its shape (hidden layers and
+their width), and its mutation settings (the chance that a child is a plain
+copy, how many weights a mutation changes and by how much, and how often it
+switches an activation or changes the shape). The experiment's settings give
+generation 0's shape and genes, the bounds on the shape
+(`max_hidden_layers`, `max_layer_size`), and the pace at which the mutation
+settings themselves change (`meta_rate`). `mise run new-experiment` without
+arguments lists every setting and its default.
+
 You can pass the existing runner arguments after the name, for example
 `mise run run EXPERIMENT_NAME 2 one-generation`. `mise run` supplies the pinned
 Ruby and Java versions even without shell activation.
@@ -88,18 +98,18 @@ experiment does:
 - `mise run stats EXPERIMENT_NAME --watch` redraws them every 5 seconds until
   Ctrl-C.
 - `mise run stats EXPERIMENT_NAME --csv` prints one row per generation with
-  every figure, for a spreadsheet. The columns depend only on the benchmark
-  panel, so experiments with the same panel line up.
+  every figure, for a spreadsheet. The columns depend only on the tournament's
+  opponents and the benchmark panel, so experiments with the same ones line up.
 
 The first table shows whether evolution is healthy: the games, draws, and
 failed games of each generation's tournament and their total time, the share
 of bred children identical to a parent, the distinct networks that passed on
 weights (a mutation or a copy comes from one parent only), the distinct genomes, and the
 lowest, median, and highest network score. A generation is done once its
-rounds and, at a checkpoint, its benchmark are played. The second table shows
+rounds and, at a checkpoint, its benchmark are played. The last table shows
 progress: each checkpoint's benchmark, with the network's wins and losses as
 Black and as White against each opponent. For example, after two generations
-of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (trimmed; the times vary):
+of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (trimmed to the first and last table; the times vary):
 
 ```text
 Generations
@@ -119,6 +129,13 @@ Benchmark
 |   1 | 3.ann    | Gen0Champion |   2/2 |   0-1 |   1-0 |     0 |      0 |
 +-----+----------+--------------+-------+-------+-------+-------+--------+
 ```
+
+Between the two, for the latest 10 generations, three tables show how the
+genomes evolve: Genes (the median of each gene, layers, width, and weights,
+with the range in the latest generation), Shapes and activations (the most
+common of each), and Breeding and bots (the most children of one parent,
+parents without children, the structural changes, and where the best copy of
+each bot ranks among the networks).
 
 The tournament score only ranks one generation's networks against each other,
 so compare generations by the benchmark, not by the scores.

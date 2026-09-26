@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
-# Shows an experiment's tournament, population, and benchmark figures (see
-# ExperimentStats). Reads the experiment database read-only, so it can run
+# Shows an experiment's tournament, population, genome, bot, and benchmark
+# figures (see ExperimentStats). Reads the experiment database read-only, so it can run
 # while the runner writes.
 require 'bundler/setup'
 require 'optparse'
@@ -38,7 +38,8 @@ if options[:watch]
     puts
   end
 elsif options[:csv]
-  puts ExperimentStats::Report.csv(ExperimentStats::Report.figures(stats), stats.benchmark_opponents)
+  puts ExperimentStats::Report.csv(ExperimentStats::Report.figures(stats), stats.benchmark_opponents,
+                                   bot_groups: stats.bot_groups)
 else
   puts ExperimentStats::Report.text(ExperimentStats::Report.figures(stats))
 end

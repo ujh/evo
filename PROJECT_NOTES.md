@@ -30,7 +30,9 @@ Crossing raw weight arrays also assumes that hidden units occupy compatible role
 
 **Proposed response:** establish a mutation-only baseline and compare it with the present crossover scheme at equal game budgets. Treat the number of mutated weights and the size of each perturbation as separate controls. The share of unchanged children is recorded in `births`; optionally also measure their move agreement on a small bank of positions.
 
-The three mutation values are now genes of each network (`copy_chance`, `weight_changes`, `weight_step`), evolved self-adaptively at the pace of the `meta_rate` setting and started from the `initial_*` settings, whose defaults are the old hard-coded values (1%, 0.0004 changes per weight, ±0.5). None of those starting values was chosen from evidence. Question them in these experiments: compare starting values, and a `meta_rate` of 0 (fixed genes) against self-adaptation, at equal game budgets.
+The genes start from the `initial_*` settings (defaults: `copy_chance` 1%, 0.0004 weight changes per weight, `weight_step` ±0.5) and adapt at the pace of `meta_rate`. None of those values was chosen from evidence. Question them in these experiments: compare starting values, and a `meta_rate` of 0 (fixed genes) against self-adaptation, at equal game budgets.
+
+**Open question: do the self-adaptive genes drift to their clamps?** Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies. A 20-generation seeded run with the default genes (9×9, 20 networks of 1×50, 5 rounds, 25 Sep 2026) hit no clamp, but the medians moved: `copy_chance` from 0.01 to about 0.005, `activation_rate` from 0.02 to about 0.01, `structure_rate` up to 0.04 and back to 0.016, `weight_changes` from 3.3 to 4.2, and `weight_step`'s median rose to about 0.74 around generations 14–17 and fell back to 0.48 (all births: 0.23–1.21). Only three structural changes and seven activation switches happened, and none spread: no generation had more than two networks with another activation or one with another shape than 1×50. Twenty generations cannot tell drift from selection. Watch the Genes table in longer runs; if genes reach a clamp, try a lower `meta_rate`, or fix `copy_chance` (and perhaps the other probabilities) while `weight_changes` and `weight_step` adapt. If shapes are to be explored, start with a higher `initial_structure_rate`.
 
 ### 4. The policy has to learn Go structure from very little guidance
 
@@ -50,11 +52,7 @@ Networks and SGFs are kept only for every `keep_every`-th generation. That saves
 
 ### 6. Test the assumptions with the recorded data
 
-Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The experiment database records what is needed (`games`, `births`, and `rankings` in `experiment.sqlite3`). Still to do:
-
-- report how many children each parent got, from `births`
-- report where the bots rank among the networks, from `rankings`
-- run a few seeded experiments that vary one setting at a time
+Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The experiment database records what is needed (`games`, `births`, and `rankings` in `experiment.sqlite3`), and `stats` reports it, including children per parent and where the bots rank. Still to do: run a few seeded experiments that vary one setting at a time.
 
 ## Go rules and scoring boundary
 
