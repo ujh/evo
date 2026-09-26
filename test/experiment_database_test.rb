@@ -112,7 +112,10 @@ class ExperimentDatabaseTest < Minitest::Test
 
   BIRTH = {
     generation: 2, child: '0.ann', first_parent: '../1/3.ann', second_parent: '../1/5.ann', operator: 'mutation',
-    differs_from_first: 0, differs_from_second: 907, seed: 2**62 + 5, genome: 'ab' * 32
+    differs_from_first: 0, differs_from_second: 907, seed: 2**62 + 5, genome: 'ab' * 32,
+    parent: 'second', structure: 'none', activation_changed: false, layers: 2, width: 10, act_hidden: 'tanh',
+    act_output: 'sigmoid_cached', copy_chance: 0.01, weight_changes: 1.5, weight_step: 0.5,
+    activation_rate: 0.02, structure_rate: 0.125
   }.freeze
 
   def test_records_births_and_replaces_a_rebred_child
@@ -126,9 +129,34 @@ class ExperimentDatabaseTest < Minitest::Test
   def test_initial_networks_are_births_without_parents
     with_store do |store|
       initial = BIRTH.merge(generation: 0, child: '0001.ann', first_parent: nil, second_parent: nil,
-                            operator: 'initial', differs_from_first: nil, differs_from_second: nil)
+                            operator: 'initial', differs_from_first: nil, differs_from_second: nil,
+                            parent: nil, structure: nil, activation_changed: nil)
       store.record_birth(**initial)
       assert_equal [initial], store.births(0)
+    end
+  end
+
+  # A child whose shape differs from a parent has no count for it.
+  def test_a_birth_without_differs_counts_keeps_them_nil
+    with_store do |store|
+      store.record_birth(**BIRTH, differs_from_first: nil)
+      assert_nil store.births(2).first[:differs_from_first]
+    end
+  end
+
+  # stats reads births of a database the runner has not migrated to 010.
+  def test_a_read_only_store_reads_births_from_before_the_genes_columns
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 9)
+      old_birth = BIRTH.slice(:generation, :child, :first_parent, :second_parent, :operator, :differs_from_first,
+                              :differs_from_second, :seed, :genome)
+      db[:births].insert(old_birth)
+      db.disconnect
+      reader = ExperimentDatabase.new(path, readonly: true)
+      assert_equal [old_birth], reader.births(2)
+      reader.close
     end
   end
 

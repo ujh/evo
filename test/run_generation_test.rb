@@ -235,7 +235,10 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     end
   end
 
-  SUMMARY = "Loading ...\nsummary operator=mutation differs_from_first=0 differs_from_second=907\n".freeze
+  GENES_LINE = 'genes layers=1 width=10 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 ' \
+               "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02\n".freeze
+  SUMMARY = "Loading ...\nsummary operator=mutation parent=first structure=none activation_changed=0 " \
+            "differs_from_first=0 differs_from_second=907\n#{GENES_LINE}".freeze
 
   # Writes the child to the output path, evolve's second-to-last argument, and succeeds.
   def write_child(cmd)
@@ -243,7 +246,9 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     [true, SUMMARY]
   end
 
-  PARENTS = %r{\A\.\./evolve 0\.5 parents/000[12]\.ann parents/000[12]\.ann}
+  # The crossover rate, the meta rate, and the bounds on the child's shape
+  # (the generation-0 shape for now), then the parents.
+  PARENTS = %r{\A\.\./evolve 0\.5 0\.2 1 10 10 parents/000[12]\.ann parents/000[12]\.ann}
 
   def test_breeds_children_from_selected_parents_and_deletes_the_parents
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
@@ -287,11 +292,79 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
     assert_equal %w[0.ann 1.ann], state[:births].map { |b| b[:child] }
     state[:births].each_with_index do |birth, i|
-      parents = state[:commands][i].split[2, 2].map { |path| File.basename(path) }
+      parents = state[:commands][i].split[6, 2].map { |path| File.basename(path) }
       assert_equal [1, parents, 'mutation', 0, 907, Seeds.derive(1, 'birth', 1, i)],
                    [birth[:generation], birth.values_at(:first_parent, :second_parent), birth[:operator],
                     birth[:differs_from_first], birth[:differs_from_second], birth[:seed]]
       assert_equal Digest::SHA256.hexdigest(state[:children]["#{i}.ann"]), birth[:genome]
+    end
+  end
+
+  # The summary and the child's genes line fill the rest of its birth.
+  def test_records_the_summary_and_the_childs_genes
+    summary = 'summary operator=mutation parent=second structure=none activation_changed=1 ' \
+              'differs_from_first=12 differs_from_second=3'
+    genes = 'genes layers=1 width=10 act_hidden=relu act_output=linear copy_chance=0.012345678901234567 ' \
+            'weight_changes=2.5 weight_step=1.0000000000000001e-04 activation_rate=0.25 structure_rate=0.03'
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) do |cmd|
+      File.write(cmd.split[-2], cmd)
+      [true, "Loading ...\n#{summary}\n#{genes}\n"]
+    end
+    assert_nil state[:error]
+    assert_equal({ parent: 'second', structure: 'none', activation_changed: true, layers: 1, width: 10,
+                   act_hidden: 'relu', act_output: 'linear', copy_chance: 0.012345678901234567, weight_changes: 2.5,
+                   weight_step: 1.0000000000000001e-04, activation_rate: 0.25, structure_rate: 0.03 },
+                 state[:births].first.slice(:parent, :structure, :activation_changed,
+                                            *ExperimentDatabase::BIRTH_GENE_COLUMNS))
+  end
+
+  def test_a_missing_or_malformed_genes_line_stops_breeding
+    summary = SUMMARY.lines[1]
+    ['', GENES_LINE.sub('weight_step=0.5', 'weight_step=inf'), GENES_LINE.sub('layers=1', 'layers=one'),
+     GENES_LINE.sub(' activation_rate=0.02', ''), GENES_LINE.sub('act_output=sigmoid_cached', 'act_output=gauss'),
+     GENES_LINE + GENES_LINE].each do |genes|
+      state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) do |cmd|
+        File.write(cmd.split[-2], cmd)
+        [true, "Loading ...\n#{summary}#{genes}"]
+      end
+      assert_match(/genes/, state[:error]&.message, genes)
+      assert_includes state[:previous_networks], '0001.ann'
+      assert_empty state[:networks]
+    end
+  end
+
+  def test_the_meta_rate_comes_from_the_settings
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'meta_rate' => 0.35 }) { |cmd| write_child(cmd) }
+    state[:commands].each { |cmd| assert_match(/\A\.\.\/evolve 0\.5 0\.35 1 10 10 /, cmd) }
+  end
+
+  # Writes the child and prints the given summary line.
+  def write_child_with(summary)
+    lambda do |cmd|
+      File.write(cmd.split[-2], cmd)
+      [true, "Loading ...\n#{summary}\n#{GENES_LINE}"]
+    end
+  end
+
+  def test_records_copies_and_counts_for_other_shapes_as_unknown
+    summary = 'summary operator=copy parent=second structure=none activation_changed=0 ' \
+              'differs_from_first=-1 differs_from_second=0'
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, &write_child_with(summary))
+    assert_nil state[:error]
+    state[:births].each do |birth|
+      assert_equal ['copy', nil, 0], birth.values_at(:operator, :differs_from_first, :differs_from_second)
+    end
+  end
+
+  def test_summary_with_an_unknown_field_value_stops_breeding
+    ['summary operator=mutation differs_from_first=0 differs_from_second=907',
+     'summary operator=clone parent=first structure=none activation_changed=0 differs_from_first=0 differs_from_second=1',
+     'summary operator=mutation parent=third structure=none activation_changed=0 differs_from_first=0 differs_from_second=1',
+     'summary operator=mutation parent=first structure=grow activation_changed=0 differs_from_first=0 differs_from_second=1',
+     'summary operator=mutation parent=first structure=none activation_changed=2 differs_from_first=0 differs_from_second=1',
+     'summary operator=mutation parent=first structure=none activation_changed=0 differs_from_first=-2 differs_from_second=1'].each do |summary|
+      state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, &write_child_with(summary))
+      assert_match(/no summary/, state[:error]&.message, summary)
     end
   end
 
@@ -863,23 +936,94 @@ class ReproducibleRoundsTest < Minitest::Test
     refute_equal tournament.call(1), tournament.call(2)
   end
 
+  # initial-population's genes line for a network of the given shape.
+  def initial_genes_line(layers: 1, width: 10)
+    "genes layers=#{layers} width=#{width} act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 " \
+      "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02\n"
+  end
+
+  # Runs setup_initial_population with initial-population replaced: it
+  # writes `networks` and prints `output` (by default a genes line for each
+  # network), and returns `result`.
+  def populate(gen, networks: %w[0001.ann 0002.ann], output: nil, result: true)
+    commands = []
+    output ||= "population_size = 2\n#{initial_genes_line * networks.size}"
+    gen.define_singleton_method(:run_initial_population) do |cmd|
+      commands << cmd
+      networks.each { |name| File.write(name, name) }
+      [result, output]
+    end
+    capture_io { gen.send(:setup_initial_population) }
+    commands
+  end
+
   def test_the_initial_population_gets_its_seed_and_is_recorded
     in_experiment(generation: '0') do
       store = database
       gen = build_generation(generation: '0', store:)
-      commands = []
-      gen.define_singleton_method(:system) do |cmd|
-        commands << cmd
-        %w[0001.ann 0002.ann].each { |name| File.write(name, name) }
-        true
-      end
-      capture_io { gen.send(:setup_initial_population) }
+      commands = populate(gen)
       seed = Seeds.derive(1, 'initial-population')
-      assert_equal ["../initial-population 2 9 1 10 #{seed}"], commands
+      assert_equal ["../initial-population 2 9 1 10 0.01 1.0 0.5 0.02 0.02 #{seed}"], commands
       assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
       assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]
       assert_equal %w[0001.ann 0002.ann], store.network_names(0)
+    end
+  end
+
+  # The initial genes are the experiment's settings.
+  def test_the_initial_population_gets_the_initial_genes
+    in_experiment(generation: '0') do
+      gen = build_generation(generation: '0', settings: { 'initial_copy_chance' => 0.03, 'initial_weight_changes' => 7.5,
+                                                          'initial_weight_step' => 0.25, 'initial_activation_rate' => 0.04,
+                                                          'initial_structure_rate' => 0.05 })
+      assert_equal '0.03 7.5 0.25 0.04 0.05', populate(gen).first.split[5, 5].join(' ')
+    end
+  end
+
+  # Each network's genes line, in file order, fills its birth.
+  def test_the_initial_births_record_each_networks_genes
+    in_experiment(generation: '0') do
+      store = database
+      lines = [initial_genes_line, initial_genes_line.sub('copy_chance=0.01', 'copy_chance=0.0625')]
+      populate(build_generation(generation: '0', store:), output: lines.join)
+      births = store.births(0)
+      assert_equal [0.01, 0.0625], births.map { |b| b[:copy_chance] }
+      assert_equal({ parent: nil, structure: nil, activation_changed: nil, layers: 1, width: 10,
+                     act_hidden: 'sigmoid_cached', act_output: 'sigmoid_cached', copy_chance: 0.01,
+                     weight_changes: 1.0, weight_step: 0.5, activation_rate: 0.02, structure_rate: 0.02 },
+                   births.first.slice(*ExperimentDatabase::BIRTH_GENE_COLUMNS, :parent, :structure, :activation_changed))
+    end
+  end
+
+  # A genes line per network, each well formed and of the generation-0
+  # shape, or the run stops before anything is stored.
+  def test_initial_genes_lines_that_do_not_match_the_networks_stop_the_run
+    [initial_genes_line,
+     initial_genes_line * 3,
+     initial_genes_line + initial_genes_line.sub('copy_chance=0.01', 'copy_chance=nan'),
+     initial_genes_line + initial_genes_line.sub('act_hidden=sigmoid_cached', 'act_hidden=softmax'),
+     initial_genes_line + initial_genes_line.sub(' structure_rate=0.02', ''),
+     initial_genes_line + initial_genes_line(width: 11),
+     initial_genes_line + initial_genes_line(layers: 2)].each do |output|
+      in_experiment(generation: '0') do
+        store = database
+        gen = build_generation(generation: '0', store:)
+        error = assert_raises(RuntimeError, output) { populate(gen, output:) }
+        assert_match(/genes/, error.message)
+        assert_empty store.births(0)
+        assert_empty store.network_names(0)
+      end
+      @database = nil
+    end
+  end
+
+  def test_initial_genes_lines_without_hidden_layers_have_width_0
+    in_experiment(generation: '0') do
+      store = database
+      gen = build_generation(generation: '0', store:, settings: { 'hidden_layers' => 0 })
+      populate(gen, output: initial_genes_line(layers: 0, width: 0) * 2)
+      assert_equal [[0, 0], [0, 0]], store.births(0).map { |b| b.values_at(:layers, :width) }
     end
   end
 
@@ -889,11 +1033,7 @@ class ReproducibleRoundsTest < Minitest::Test
     in_experiment(generation: '0') do
       store = database
       gen = build_generation(generation: '0', store:)
-      gen.define_singleton_method(:system) do |_cmd|
-        networks.each { |name| File.write(name, name) }
-        result
-      end
-      error = assert_raises(RuntimeError) { capture_io { gen.send(:setup_initial_population) } }
+      error = assert_raises(RuntimeError) { populate(gen, networks:, result:) }
       assert_empty store.births(0)
       assert_empty store.network_names(0)
       assert_nil store.state(0)

@@ -225,16 +225,22 @@ void persist() {
 void binary_persist() {
     genann *first = genann_init(1000, 5, 50, 10);
 
+    ann_genes genes = {0.05, 17.5, 0.25, 0.125, 0.375};
+
     FILE *out = fopen("persist.bin", "wb");
-    ann_binary_write(first, out);
+    lok(ann_binary_write(first, &genes, out) == 0);
     fclose(out);
 
 
+    ann_genes back = {0};
     FILE *in = fopen("persist.bin", "rb");
-    genann *second = ann_binary_read(in);
+    genann *second = ann_binary_read(in, &back);
     fclose(in);
     lok(second != NULL);
     if (!second) { genann_free(first); return; }
+
+    lok(back.copy_chance == 0.05 && back.weight_changes == 17.5 && back.weight_step == 0.25);
+    lok(back.activation_rate == 0.125 && back.structure_rate == 0.375);
 
     lequal(first->inputs, second->inputs);
     lequal(first->hidden_layers, second->hidden_layers);
@@ -286,7 +292,8 @@ void sigmoid() {
 
 // The .ann format, written out byte by byte so the test pins it down:
 // "EVOANN", a little-endian uint32 version, four int32 sizes, two uint32
-// activation codes, then the weights as little-endian IEEE 754 doubles.
+// activation codes, the five genes, then the weights, the genes and the
+// weights as little-endian IEEE 754 doubles.
 typedef struct {
     unsigned char bytes[4096];
     size_t length;
@@ -310,9 +317,20 @@ static void put_f64(buffer *b, double d) {
     put_bytes(b, le, 8);
 }
 
-// A header for a network of the given sizes and activation codes.
-static buffer header(uint32_t version, int32_t inputs, int32_t layers, int32_t hidden, int32_t outputs,
-                     uint32_t hidden_code, uint32_t output_code) {
+// Valid genes for any network, each distinct so a swap would show.
+static const ann_genes GENES = {0.03, 1.5, 0.75, 0.0625, 0.1875};
+
+static void put_genes(buffer *b, ann_genes g) {
+    put_f64(b, g.copy_chance);
+    put_f64(b, g.weight_changes);
+    put_f64(b, g.weight_step);
+    put_f64(b, g.activation_rate);
+    put_f64(b, g.structure_rate);
+}
+
+// The sizes and activation codes of a network, without the genes.
+static buffer header_only(uint32_t version, int32_t inputs, int32_t layers, int32_t hidden, int32_t outputs,
+                          uint32_t hidden_code, uint32_t output_code) {
     buffer b = {.length = 0};
     put_bytes(&b, "EVOANN", 6);
     put_u32(&b, version);
@@ -325,24 +343,40 @@ static buffer header(uint32_t version, int32_t inputs, int32_t layers, int32_t h
     return b;
 }
 
-static genann *read_bytes(const buffer *b) {
+// A header for a network of the given sizes and activation codes, with GENES.
+static buffer header(uint32_t version, int32_t inputs, int32_t layers, int32_t hidden, int32_t outputs,
+                     uint32_t hidden_code, uint32_t output_code) {
+    buffer b = header_only(version, inputs, layers, hidden, outputs, hidden_code, output_code);
+    put_genes(&b, GENES);
+    return b;
+}
+
+static genann *read_bytes_genes(const buffer *b, ann_genes *genes) {
     FILE *out = fopen("persist.bin", "wb");
     fwrite(b->bytes, 1, b->length, out);
     fclose(out);
     FILE *in = fopen("persist.bin", "rb");
-    genann *ann = ann_binary_read(in);
+    genann *ann = ann_binary_read(in, genes);
     fclose(in);
     return ann;
 }
 
-static int written_bytes(const genann *ann, buffer *b) {
+static genann *read_bytes(const buffer *b) {
+    return read_bytes_genes(b, NULL);
+}
+
+static int written_bytes_genes(const genann *ann, const ann_genes *genes, buffer *b) {
     FILE *out = fopen("persist.bin", "wb");
-    int rc = ann_binary_write(ann, out);
+    int rc = ann_binary_write(ann, genes, out);
     fclose(out);
     FILE *in = fopen("persist.bin", "rb");
     b->length = fread(b->bytes, 1, sizeof(b->bytes), in);
     fclose(in);
     return rc;
+}
+
+static int written_bytes(const genann *ann, buffer *b) {
+    return written_bytes_genes(ann, &GENES, b);
 }
 
 static genann_actfun ACTIVATIONS[] = {
@@ -387,7 +421,7 @@ void binary_layout() {
     for (int i = 0; i < 4; ++i) put_f64(&expected, i - 1.5);
     buffer got;
     lok(written_bytes(ann, &got) == 0);
-    lequal((int)got.length, 34 + 4 * 8);
+    lequal((int)got.length, 34 + 5 * 8 + 4 * 8);
     lok(got.length == expected.length && memcmp(got.bytes, expected.bytes, got.length) == 0);
 
     genann *back = read_bytes(&expected);
@@ -400,6 +434,113 @@ void binary_layout() {
         genann_free(back);
     }
     genann_free(ann);
+}
+
+// The genes come back exactly as written, in their own fields, and a
+// reader that does not want them passes NULL.
+void binary_genes() {
+    genann *ann = genann_init(2, 1, 3, 2);
+    buffer b;
+    lok(written_bytes(ann, &b) == 0);
+    ann_genes back = {0};
+    genann *second = read_bytes_genes(&b, &back);
+    lok(second != NULL);
+    lok(back.copy_chance == GENES.copy_chance);
+    lok(back.weight_changes == GENES.weight_changes);
+    lok(back.weight_step == GENES.weight_step);
+    lok(back.activation_rate == GENES.activation_rate);
+    lok(back.structure_rate == GENES.structure_rate);
+    if (second) genann_free(second);
+    second = read_bytes(&b);
+    lok(second != NULL);
+    if (second) genann_free(second);
+
+    // The bounds themselves are valid; weight_changes may be every weight.
+    ann_genes lowest = {ANN_COPY_CHANCE_MIN, ANN_WEIGHT_CHANGES_MIN, ANN_WEIGHT_STEP_MIN,
+                        ANN_ACTIVATION_RATE_MIN, ANN_STRUCTURE_RATE_MIN};
+    ann_genes highest = {ANN_COPY_CHANCE_MAX, ann->total_weights, ANN_WEIGHT_STEP_MAX,
+                         ANN_ACTIVATION_RATE_MAX, ANN_STRUCTURE_RATE_MAX};
+    lok(written_bytes_genes(ann, &lowest, &b) == 0);
+    second = read_bytes_genes(&b, &back);
+    lok(second != NULL && back.weight_changes == 1 && back.copy_chance == 1e-4);
+    if (second) genann_free(second);
+    lok(written_bytes_genes(ann, &highest, &b) == 0);
+    second = read_bytes_genes(&b, &back);
+    lok(second != NULL && back.weight_changes == ann->total_weights && back.structure_rate == 0.5);
+    if (second) genann_free(second);
+    genann_free(ann);
+}
+
+// Genes outside their clamps, or not finite, make the file unreadable, and
+// the writer refuses to produce such a file (or one without genes).
+void binary_read_rejects_bad_genes() {
+    const double inf = INFINITY, not_a_number = NAN;
+    // A 1-1-1-1 network has 4 weights, so weight_changes may be 1 to 4.
+    struct { int gene; double value; } bad[] = {
+        {0, 0.9e-4}, {0, 0.11}, {0, not_a_number}, {0, inf}, {0, -inf},
+        {1, 0.999}, {1, 4.001}, {1, not_a_number}, {1, inf},
+        {2, 0.9e-4}, {2, 10.01}, {2, not_a_number}, {2, -inf},
+        {3, 0.9e-4}, {3, 0.51}, {3, not_a_number},
+        {4, 0.9e-4}, {4, 0.51}, {4, inf},
+    };
+    genann *ann = genann_init(1, 1, 1, 1);
+    for (size_t k = 0; k < sizeof(bad) / sizeof(bad[0]); ++k) {
+        ann_genes g = GENES;
+        double *fields[] = {&g.copy_chance, &g.weight_changes, &g.weight_step,
+                            &g.activation_rate, &g.structure_rate};
+        *fields[bad[k].gene] = bad[k].value;
+        lok(ann_genes_invalid(&g, 4) != NULL);
+        buffer b = header_only(1, 1, 1, 1, 1, 2, 2);
+        put_genes(&b, g);
+        for (int i = 0; i < 4; ++i) put_f64(&b, i);
+        lok(read_bytes(&b) == NULL);
+        buffer ignored;
+        lok(written_bytes_genes(ann, &g, &ignored) != 0);
+    }
+    lok(ann_genes_invalid(&GENES, 4) == NULL);
+    buffer ignored;
+    lok(written_bytes_genes(ann, NULL, &ignored) != 0);
+    genann_free(ann);
+}
+
+// Without hidden layers the width means nothing: it is written as 0,
+// whatever the network says, and a file must hold 0 there.
+void binary_no_hidden_layers() {
+    genann *ann = genann_init(2, 0, 7, 3);
+    lequal(ann->total_weights, 9);
+    for (int i = 0; i < 9; ++i) ann->weight[i] = i;
+    buffer expected = header(1, 2, 0, 0, 3, 2, 2);
+    for (int i = 0; i < 9; ++i) put_f64(&expected, i);
+    buffer got;
+    lok(written_bytes(ann, &got) == 0);
+    lok(got.length == expected.length && memcmp(got.bytes, expected.bytes, got.length) == 0);
+    genann *back = read_bytes(&got);
+    lok(back != NULL);
+    if (back) {
+        lequal(back->hidden, 0);
+        lok(back->weight[8] == 8);
+        genann_free(back);
+    }
+
+    buffer wide = header(1, 2, 0, 7, 3, 2, 2);
+    for (int i = 0; i < 9; ++i) put_f64(&wide, i);
+    lok(read_bytes(&wide) == NULL);
+    genann_free(ann);
+}
+
+// Today's mutation load: 0.0004 changes per weight, at least one.
+void default_genes() {
+    ann_genes g = ann_default_genes(418);
+    lok(g.copy_chance == 0.01);
+    lok(g.weight_changes == 1);
+    lok(g.weight_step == 0.5);
+    lok(g.activation_rate == 0.02);
+    lok(g.structure_rate == 0.02);
+    lok(ann_default_genes(10000).weight_changes == 0.0004 * 10000);
+    lok(ann_default_genes(100000).weight_changes == 40);
+    lok(ann_genes_invalid(&g, 418) == NULL);
+    g = ann_default_genes(1);
+    lok(g.weight_changes == 1 && ann_genes_invalid(&g, 1) == NULL);
 }
 
 static double my_activation(const genann *ann, double a) { (void)ann; return a / 2; }
@@ -433,12 +574,24 @@ void binary_read_rejects_bad_files() {
     lok(read_bytes(&b) == NULL); // header cut short
 
     b = good;
+    b.length = 34 + 3 * 8 + 4;
+    lok(read_bytes(&b) == NULL); // genes cut short
+
+    b = good;
     b.length -= 1;
     lok(read_bytes(&b) == NULL); // weights cut short
 
     b = good;
     put_f64(&b, 9);
     lok(read_bytes(&b) == NULL); // bytes after the last weight
+
+    // The layout before the genes block, the weights right after the
+    // activation codes, is 40 bytes short, even when the first weights
+    // would pass as genes. This network (1 input, 3 outputs) has 6 weights.
+    b = header_only(1, 1, 0, 0, 3, 2, 2);
+    const double old_weights[6] = {0.01, 1, 0.5, 0.02, 0.02, 0.25};
+    for (int i = 0; i < 6; ++i) put_f64(&b, old_weights[i]);
+    lok(read_bytes(&b) == NULL);
 
     b = header(1, 1, -1, 1, 1, 2, 2);
     lok(read_bytes(&b) == NULL); // impossible sizes
@@ -469,6 +622,10 @@ int main(int argc, char *argv[])
     lrun("binary_bad", binary_read_rejects_bad_files);
     lrun("binary_acts", binary_activations);
     lrun("binary_layout", binary_layout);
+    lrun("binary_genes", binary_genes);
+    lrun("binary_bad_genes", binary_read_rejects_bad_genes);
+    lrun("binary_no_layers", binary_no_hidden_layers);
+    lrun("default_genes", default_genes);
     lrun("copy", copy);
     lrun("sigmoid", sigmoid);
 

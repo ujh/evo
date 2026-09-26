@@ -179,8 +179,15 @@ class ExperimentDatabase
     @db[:benchmark_games].where(generation:).order(:opponent, :opening, :network_color).select(*columns).all
   end
 
-  BIRTH_COLUMNS = %i[
-    generation child first_parent second_parent operator differs_from_first differs_from_second seed genome
+  # A network's genes, as the genes line of initial-population and evolve
+  # names them; see migration 010.
+  BIRTH_GENE_COLUMNS = %i[
+    layers width act_hidden act_output copy_chance weight_changes weight_step activation_rate structure_rate
+  ].freeze
+  BIRTH_COLUMNS = [
+    *%i[generation child first_parent second_parent operator differs_from_first differs_from_second seed genome
+        parent structure activation_changed],
+    *BIRTH_GENE_COLUMNS
   ].freeze
 
   # A child bred again after a crash replaces its row.
@@ -188,8 +195,10 @@ class ExperimentDatabase
     @births.insert_conflict(:replace).insert(birth.slice(*BIRTH_COLUMNS))
   end
 
+  # A database opened read-only before the runner migrated it lacks the
+  # newer columns, and its rows lack those keys.
   def births(generation)
-    @births.where(generation:).order(:child).select(*BIRTH_COLUMNS).all
+    @births.where(generation:).order(:child).select(*(BIRTH_COLUMNS & @births.columns)).all
   end
 
   # The standings, as rows with rank, name, score, and external.

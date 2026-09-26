@@ -9,7 +9,7 @@ require_relative 'checkpoint_benchmark'
 class ExperimentStats
   RESULTS = { 'network' => :win, 'opponent' => :loss }.freeze
   # Every generation counts each, so the CSV has the same columns for all.
-  OPERATORS = %w[initial crossover mutation].freeze
+  OPERATORS = %w[initial crossover mutation copy].freeze
 
   # `database` is an ExperimentDatabase, normally opened read-only.
   def initialize(database)
@@ -66,36 +66,59 @@ class ExperimentStats
   # bots are ranked too, but are left out).
   def population(generation)
     births = database.births(generation)
+    parents = generation.zero? ? {} : database.births(generation - 1).to_h { |birth| [birth[:child], birth] }
     scores = database.ranking(generation).reject { |row| row[:external] }.map { |row| row[:score] }.sort
     {
       children: births.size,
       operators: OPERATORS.to_h { |operator| [operator, 0] }.merge(births.map { |birth| birth[:operator] }.tally),
-      identical: births.count { |birth| birth[:operator] != 'initial' && identical?(birth) },
+      identical: births.count { |birth| birth[:operator] != 'initial' && identical?(birth, parents) },
       distinct_parents: births.flat_map { |birth| inherited_from(birth) }.uniq.size,
       unique_genomes: births.map { |birth| birth[:genome] }.uniq.size,
       scores: { min: scores.first, median: median(scores), max: scores.last }
     }
   end
 
-  # The parents a child has weights from. evolve mutates a copy of one
-  # parent, the one the child differs less from (the first when both are
-  # identical), and a crossover that copied one parent has only its weights.
+  # The parents a child has weights from. A mutation or a copy comes from
+  # the parent evolve picked; births from before the parent column name
+  # none, and there it is the one the child differs less from (the first
+  # when both are equal). A crossover that copied one parent has only its
+  # weights. A differs count is nil for a parent of another shape.
   def inherited_from(birth)
     first, second = birth.values_at(:first_parent, :second_parent)
     one, two = birth.values_at(:differs_from_first, :differs_from_second)
     case birth[:operator]
-    when 'mutation' then [one <= two ? first : second]
+    when 'mutation', 'copy'
+      picked = birth[:parent] || (two.nil? || (!one.nil? && one <= two) ? 'first' : 'second')
+      [picked == 'first' ? first : second]
     when 'crossover'
-      return [first] if one.zero?
-      return [second] if two.zero?
+      return [first] if one&.zero?
+      return [second] if two&.zero?
 
       [first, second]
     else []
     end
   end
 
-  def identical?(birth)
-    birth[:differs_from_first].zero? || birth[:differs_from_second].zero?
+  # A bred child equal to a parent: the same weights (differs 0) and the
+  # same activations. A copy always is. A child of another shape than a
+  # parent has no count for it; one whose activation switched plays
+  # differently even with the same weights; and a crossover takes the
+  # picked parent's activations, so it can have all of the other parent's
+  # weights but not its activations. `parents` are the previous
+  # generation's births by name (rows from before migration 010 have no
+  # activations, which then compare equal).
+  def identical?(birth, parents)
+    return true if birth[:operator] == 'copy'
+    return false if birth[:activation_changed]
+
+    { first_parent: :differs_from_first, second_parent: :differs_from_second }.any? do |parent, differs|
+      birth[differs]&.zero? && same_activations?(birth, parents[birth[parent]])
+    end
+  end
+
+  def same_activations?(birth, parent)
+    columns = %i[act_hidden act_output]
+    birth.values_at(*columns) == (parent || {}).values_at(*columns)
   end
 
   def median(sorted)

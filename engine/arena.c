@@ -120,7 +120,7 @@ static network *load(const char *path) {
     n->problem = problem(path, "cannot open", 1);
     return n;
   }
-  genann *ann = ann_binary_read(in);
+  genann *ann = ann_binary_read(in, NULL);
   fclose(in);
   if (ann == NULL) {
     n->problem = problem(path, "holds no network", 0);

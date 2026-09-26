@@ -43,14 +43,14 @@ void seed() {
 
 // Exits with an error, instead of returning NULL, when the file cannot be
 // opened or does not hold a network.
-static genann *load_nn(char *name) {
+static genann *load_nn(char *name, ann_genes *genes) {
   printf("Loading %s ...", name);
   FILE *fd = fopen(name, "rb");
   if (fd == NULL) {
     fprintf(stderr, "\nCould not open %s: %s\n", name, strerror(errno));
     exit(1);
   }
-  genann *ann = ann_binary_read(fd);
+  genann *ann = ann_binary_read(fd, genes);
   fclose(fd);
   if (ann == NULL) {
     fprintf(stderr, "\nCould not read a network from %s\n", name);
@@ -60,15 +60,16 @@ static genann *load_nn(char *name) {
   return ann;
 }
 
-genann **load_nns(char *ann1_name, char *ann2_name) {
+genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2]) {
   genann **anns = malloc(2 * sizeof(genann *));
-  anns[0] = load_nn(ann1_name);
-  anns[1] = load_nn(ann2_name);
+  anns[0] = load_nn(ann1_name, &genes[0]);
+  anns[1] = load_nn(ann2_name, &genes[1]);
   return anns;
 }
 
 // Prints each difference between the parents that makes them impossible to
-// breed, and returns whether there was none.
+// breed, and returns whether there was none. Activations and genes do not
+// count: the child takes them from the picked parent.
 bool nns_compatible(genann **nns) {
   genann *nn1 = nns[0];
   genann *nn2 = nns[1];
@@ -90,16 +91,6 @@ bool nns_compatible(genann **nns) {
     printf("nn1.hidden = %d, nn2.hidden = %d\n", nn1->hidden, nn2->hidden);
     failed = true;
   }
-  if (nn1->activation_hidden != nn2->activation_hidden) {
-    printf("nn1.activation_hidden = %s, nn2.activation_hidden = %s\n",
-           ann_activation_name(nn1->activation_hidden), ann_activation_name(nn2->activation_hidden));
-    failed = true;
-  }
-  if (nn1->activation_output != nn2->activation_output) {
-    printf("nn1.activation_output = %s, nn2.activation_output = %s\n",
-           ann_activation_name(nn1->activation_output), ann_activation_name(nn2->activation_output));
-    failed = true;
-  }
   return !failed;
 }
 
@@ -111,10 +102,10 @@ void check_nns(genann **nns) {
   printf("Sanity check passed\n");
 }
 
-genann *child_from_cross_over(genann **nns) {
-  printf("Cross over\n");
+genann *child_from_cross_over(genann **nns, int *picked) {
   // Pick order in which to use the NNs
   int i = pcg32_boundedrand(2);
+  *picked = i;
   genann *first_parent = nns[i];
   genann *second_parent = nns[(i+1) % 2];
   // Find weight at which to cross over
@@ -131,26 +122,100 @@ genann *cross_over(genann *first_parent, genann *second_parent, int cross_over_p
   return child;
 }
 
-genann *child_from_mutation(genann **nns) {
-  printf("Mutation\n");
+genann *child_from_mutation(genann **nns, ann_genes const genes[2], double meta_rate,
+                            int *picked, ann_genes *child_genes, mutation_outcome *outcome) {
   // Pick a NN to use
-  genann *parent = nns[pcg32_boundedrand(2)];
+  *picked = pcg32_boundedrand(2);
   // Do the mutations
-  return mutate(parent);
+  return mutate(nns[*picked], &genes[*picked], meta_rate, child_genes, outcome);
 }
 
-genann *mutate(genann *parent) {
-  genann *child = genann_copy(parent);
-  // Hacky way to also have a slight chance of no mutation at all.
-  if (GENANN_RANDOM() < 0.01) return child;
+double standard_normal(void) {
+  // u1 lies in (0, 1], so its logarithm is finite. No second value is kept
+  // for the next call, so every draw takes the same two numbers.
+  double u1 = (pcg32_random() + 1.0) * 0x1p-32;
+  double u2 = ldexp(pcg32_random(), -32);
+  return sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
+}
 
-  float mutation_rate = 0.0004; // 1/2500
-  for (int i = 0; i < child->total_weights; i++)
-  {
-    if (GENANN_RANDOM() < mutation_rate) {
-      child->weight[i] += (GENANN_RANDOM() - 0.5);
+static double clamp(double value, double min, double max) {
+  return fmin(fmax(value, min), max);
+}
+
+static double log_normal_step(double gene, double meta_rate) {
+  return gene * exp(meta_rate * standard_normal());
+}
+
+static double logit_normal_step(double p, double meta_rate) {
+  double x = log(p / (1.0 - p)) + meta_rate * standard_normal();
+  return 1.0 / (1.0 + exp(-x));
+}
+
+ann_genes mutate_genes(ann_genes genes, double meta_rate, int total_weights) {
+  ann_genes child;
+  child.copy_chance = clamp(logit_normal_step(genes.copy_chance, meta_rate),
+                            ANN_COPY_CHANCE_MIN, ANN_COPY_CHANCE_MAX);
+  child.weight_changes = clamp(log_normal_step(genes.weight_changes, meta_rate),
+                               ANN_WEIGHT_CHANGES_MIN, total_weights);
+  child.weight_step = clamp(log_normal_step(genes.weight_step, meta_rate),
+                            ANN_WEIGHT_STEP_MIN, ANN_WEIGHT_STEP_MAX);
+  child.activation_rate = clamp(logit_normal_step(genes.activation_rate, meta_rate),
+                                ANN_ACTIVATION_RATE_MIN, ANN_ACTIVATION_RATE_MAX);
+  child.structure_rate = clamp(logit_normal_step(genes.structure_rate, meta_rate),
+                               ANN_STRUCTURE_RATE_MIN, ANN_STRUCTURE_RATE_MAX);
+  return child;
+}
+
+// With probability rate, a different activation than the current one, each
+// of the other five equally likely; otherwise the current one.
+static genann_actfun switch_activation(genann_actfun current, double rate, bool *switched) {
+  if (GENANN_RANDOM() >= rate) return current;
+  int index = 0;
+  while (index < ANN_ACTIVATION_COUNT && ANN_ACTIVATIONS[index].function != current) index++;
+  // Skip the current one; an unknown activation may become any.
+  int choices = index < ANN_ACTIVATION_COUNT ? ANN_ACTIVATION_COUNT - 1 : ANN_ACTIVATION_COUNT;
+  int choice = pcg32_boundedrand(choices);
+  if (choice >= index) choice++;
+  *switched = true;
+  return ANN_ACTIVATIONS[choice].function;
+}
+
+bool mutate_activations(genann *child, double activation_rate) {
+  bool switched = false;
+  child->activation_hidden = switch_activation(child->activation_hidden, activation_rate, &switched);
+  child->activation_output = switch_activation(child->activation_output, activation_rate, &switched);
+  return switched;
+}
+
+// The draws come in a fixed order, so a seed gives one child: the copy
+// check, the genes, the activations, then the weights.
+genann *mutate(genann const *parent, ann_genes const *parent_genes, double meta_rate,
+               ann_genes *child_genes, mutation_outcome *outcome) {
+  mutation_outcome result = {.copy = false, .activation_changed = false};
+  genann *child = genann_copy(parent);
+  *child_genes = *parent_genes;
+  if (GENANN_RANDOM() < parent_genes->copy_chance) {
+    result.copy = true;
+    if (outcome) *outcome = result;
+    return child;
+  }
+
+  // weight_changes is clamped against the child's final total_weights. No
+  // structural change exists yet, so that is the parent's.
+  *child_genes = mutate_genes(*parent_genes, meta_rate, child->total_weights);
+
+  result.activation_changed = mutate_activations(child, child_genes->activation_rate);
+
+  // The structure draw goes here, after the activations.
+
+  double change_chance = fmin(1.0, child_genes->weight_changes / child->total_weights);
+  double step = child_genes->weight_step;
+  for (int i = 0; i < child->total_weights; i++) {
+    if (GENANN_RANDOM() < change_chance) {
+      child->weight[i] += (2.0 * GENANN_RANDOM() - 1.0) * step;
     }
   }
 
+  if (outcome) *outcome = result;
   return child;
 }

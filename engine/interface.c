@@ -97,7 +97,7 @@ void allocate_ann(char *ann_save_file) {
     fprintf(stderr, "\nCould not open %s: %s\n", ann_save_file, strerror(errno));
     exit(1);
   }
-  ann = ann_binary_read(fd);
+  ann = ann_binary_read(fd, NULL);
   fclose(fd);
   if (ann == NULL) {
     fprintf(stderr, "\nCould not read a network from %s\n", ann_save_file);

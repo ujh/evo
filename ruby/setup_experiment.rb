@@ -46,15 +46,27 @@ class SetupExperiment
   def self.number(min, max) = Type.new(:number, min, max)
   def self.half(min, max) = Type.new(:half, min, max)
 
+  # A default computed from the settings before it when the experiment is
+  # created, and stored like a given value, so a later change of `compute`
+  # never changes an experiment that exists. `description` says where it
+  # comes from, in the help.
+  Derived = Data.define(:description, :compute) do
+    def value_for(settings) = compute.call(settings)
+  end
+
   # Every setting, with its prompt, its default, and its type. A nil default
-  # means required; a Proc is called for a fresh default. The database keeps
-  # the settings as strings, and loading parses them again. Board sizes stop
-  # at 19, the largest the GNU Go referee plays.
+  # means required; a Proc is called for a fresh default, and a Derived is
+  # computed from the settings before it. The database keeps the settings
+  # as strings, and loading parses them again. Board sizes stop at 19, the
+  # largest the GNU Go referee plays. The initial_* settings are the genes
+  # every generation-0 network starts with, and their ranges are the clamps
+  # in lib/ann.h; evolution changes them from there, at the pace meta_rate
+  # (the tau of self-adaptive mutation) sets.
   SETTINGS = {
     'board_size' => ['Board size', nil, integer(2, 19)],
     'population_size' => ['Population size', nil, integer(1)],
-    'hidden_layers' => ['Number of hidden layers', nil, integer(0)],
-    'layer_size' => ['Number of neurons per layer', nil, integer(1)],
+    'hidden_layers' => ['Hidden layers of generation 0', nil, integer(0)],
+    'layer_size' => ['Neurons per hidden layer of generation 0', nil, integer(1)],
     'cross_over_rate' => ['Cross over rate', nil, number(0, 1)],
     'game_length' => ['Time per player per game, in minutes', nil, integer(1)],
     'max_moves' => ['Max moves', nil, integer(1)],
@@ -68,8 +80,39 @@ class SetupExperiment
     # Given to both players and the referee of every game. A multiple of
     # 0.5, so an area-scored margin is never zero unless the game is a
     # draw, and never prints as W+0.0.
-    'komi' => ['Komi', '6.5', half(-50, 50)]
+    'komi' => ['Komi', '6.5', half(-50, 50)],
+    'meta_rate' => ['Meta rate of self-adaptive mutation', '0.2', number(0, 10)],
+    'initial_copy_chance' => ['Chance a child is a copy (initial gene)', '0.01', number(0.0001, 0.1)],
+    # The old hard-coded load: 0.0004 changes per weight, at least 1. The count, not
+    # the share, is the gene, so growing a network does not raise its load.
+    'initial_weight_changes' => [
+      'Weights changed per mutated child (initial gene)',
+      Derived.new('from the generation-0 shape', ->(settings) { default_weight_changes(settings).to_s }),
+      number(1, 1_000_000_000)
+    ],
+    'initial_weight_step' => ['Largest change of a mutated weight (initial gene)', '0.5', number(0.0001, 10)],
+    'initial_activation_rate' => ['Chance a mutation switches each activation (initial gene)', '0.02',
+                                  number(0.0001, 0.5)],
+    'initial_structure_rate' => ['Chance of a structural mutation (initial gene)', '0.02', number(0.0001, 0.5)]
   }.freeze
+
+  # The weights of a network for the board with the given hidden layers, as
+  # GENANN counts them: each neuron has a bias and one weight per neuron of
+  # the layer before. A board of N has N*N+1 inputs and outputs.
+  def self.total_weights(board_size, layers, width)
+    points = (board_size**2) + 1
+    return points * (points + 1) if layers.zero?
+
+    (width * (points + 1)) + ((layers - 1) * width * (width + 1)) + (points * (width + 1))
+  end
+
+  def self.generation_0_weights(settings)
+    total_weights(*settings.values_at('board_size', 'hidden_layers', 'layer_size'))
+  end
+
+  def self.default_weight_changes(settings)
+    [1.0, 0.0004 * generation_0_weights(settings)].max
+  end
 
   EXECUTABLES = %w[engine/evo engine/arena initial-population/initial-population evolve/evolve].freeze
 
@@ -153,11 +196,22 @@ class SetupExperiment
 
   # Parses settings read as strings, from the database or the options.
   def self.parse(strings)
-    SETTINGS.to_h do |key, (_, _, type)|
+    SETTINGS.each_key.with_object({}) do |key, settings|
       raise ArgumentError, "#{key} is missing" unless strings.key?(key)
 
-      [key, type.parse(key, strings[key])]
+      settings[key] = parse_setting(key, strings[key], settings)
     end
+  end
+
+  # Parses one setting, checked against the settings before it.
+  def self.parse_setting(key, text, settings)
+    value = SETTINGS.fetch(key)[2].parse(key, text)
+    return value unless key == 'initial_weight_changes'
+
+    total = generation_0_weights(settings)
+    return value if value <= total
+
+    raise ArgumentError, "initial_weight_changes must be at most #{total}, the weights of a generation-0 network, got #{text}"
   end
 
   # One --option per setting (board_size becomes --board-size), filling
@@ -169,6 +223,7 @@ class SetupExperiment
       parser.require_exact = true
       SETTINGS.each do |key, (prompt, default, type)|
         note = if default.nil? then 'required'
+               elsif default.is_a?(Derived) then "default #{default.description}"
                elsif default.respond_to?(:call) then 'default random'
                else "default #{default}"
                end
@@ -186,12 +241,17 @@ class SetupExperiment
     missing = SETTINGS.select { |key, (_, default)| default.nil? && !given.key?(key) }.keys
     raise ArgumentError, "missing options: #{missing.map { |key| "--#{key.tr('_', '-')}" }.join(', ')}" if missing.any?
 
-    parse(SETTINGS.to_h { |key, (_, default)| [key, given.fetch(key) { default_for(default) }] })
+    SETTINGS.each_with_object({}) do |(key, (_, default)), settings|
+      settings[key] = parse_setting(key, given.fetch(key) { default_for(default, settings) }, settings)
+    end
   rescue OptionParser::ParseError => e
     raise ArgumentError, e.message
   end
 
-  def self.default_for(default)
+  # The text of a default; `settings` are those parsed so far.
+  def self.default_for(default, settings)
+    return default.value_for(settings) if default.is_a?(Derived)
+
     default.respond_to?(:call) ? default.call : default
   end
 
@@ -248,12 +308,18 @@ class SetupExperiment
   # left empty; saving empty settings would leave an experiment that looks
   # configured but plays zero rounds.
   def self.prompt_for_settings
-    SETTINGS.to_h { |key, (prompt, default, type)| [key, prompt_for(key, prompt, default, type)] }
+    SETTINGS.each_with_object({}) do |(key, (prompt, default)), settings|
+      settings[key] = prompt_for(key, prompt, default, settings)
+    end
   end
 
-  # Asks until the answer parses.
-  def self.prompt_for(key, prompt, default, type)
-    label = default.nil? ? prompt : "#{prompt} (default #{default.respond_to?(:call) ? 'random' : default})"
+  # Asks until the answer parses. `settings` are those answered so far.
+  def self.prompt_for(key, prompt, default, settings)
+    shown = if default.is_a?(Derived) then default.value_for(settings)
+            elsif default.respond_to?(:call) then 'random'
+            else default
+            end
+    label = default.nil? ? prompt : "#{prompt} (default #{shown})"
     loop do
       print "#{label}: "
       line = $stdin.gets
@@ -263,7 +329,7 @@ class SetupExperiment
       raise PromptAborted, "#{key} is required" if answer.empty? && default.nil?
 
       begin
-        return type.parse(key, answer.empty? ? default_for(default) : answer)
+        return parse_setting(key, answer.empty? ? default_for(default, settings) : answer, settings)
       rescue ArgumentError => e
         puts e.message
       end

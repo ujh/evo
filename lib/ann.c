@@ -34,6 +34,46 @@ const char *ann_activation_name(genann_actfun function) {
     return code ? ANN_ACTIVATIONS[code - 1].name : NULL;
 }
 
+ann_genes ann_default_genes(int total_weights) {
+    ann_genes genes = {
+        .copy_chance = 0.01,
+        .weight_changes = fmax(ANN_WEIGHT_CHANGES_MIN, 0.0004 * total_weights),
+        .weight_step = 0.5,
+        .activation_rate = 0.02,
+        .structure_rate = 0.02,
+    };
+    return genes;
+}
+
+void ann_print_genes_line(FILE *out, const genann *ann, const ann_genes *genes) {
+    fprintf(out,
+            "genes layers=%d width=%d act_hidden=%s act_output=%s copy_chance=%.17g weight_changes=%.17g "
+            "weight_step=%.17g activation_rate=%.17g structure_rate=%.17g\n",
+            ann->hidden_layers,
+            ann->hidden_layers ? ann->hidden : 0,
+            ann_activation_name(ann->activation_hidden),
+            ann_activation_name(ann->activation_output),
+            genes->copy_chance,
+            genes->weight_changes,
+            genes->weight_step,
+            genes->activation_rate,
+            genes->structure_rate);
+}
+
+// NaN fails both comparisons, so it is outside every range.
+static int in_range(double value, double min, double max) {
+    return isfinite(value) && value >= min && value <= max;
+}
+
+const char *ann_genes_invalid(const ann_genes *genes, int total_weights) {
+    if (!in_range(genes->copy_chance, ANN_COPY_CHANCE_MIN, ANN_COPY_CHANCE_MAX)) return "copy_chance";
+    if (!in_range(genes->weight_changes, ANN_WEIGHT_CHANGES_MIN, total_weights)) return "weight_changes";
+    if (!in_range(genes->weight_step, ANN_WEIGHT_STEP_MIN, ANN_WEIGHT_STEP_MAX)) return "weight_step";
+    if (!in_range(genes->activation_rate, ANN_ACTIVATION_RATE_MIN, ANN_ACTIVATION_RATE_MAX)) return "activation_rate";
+    if (!in_range(genes->structure_rate, ANN_STRUCTURE_RATE_MIN, ANN_STRUCTURE_RATE_MAX)) return "structure_rate";
+    return NULL;
+}
+
 static int read_u32(FILE *in, uint32_t *v) {
     unsigned char b[4];
     if (fread(b, 1, 4, in) != 4) return 0;
@@ -63,7 +103,7 @@ static int write_f64(FILE *out, double d) {
     return fwrite(b, 1, 8, out) == 8;
 }
 
-genann *ann_binary_read(FILE *in) {
+genann *ann_binary_read(FILE *in, ann_genes *genes) {
     char magic[sizeof(MAGIC)];
     uint32_t version, sizes[4], codes[2];
 
@@ -92,12 +132,31 @@ genann *ann_binary_read(FILE *in) {
         }
     }
 
+    double gene_values[5];
+    for (int i = 0; i < 5; ++i) {
+        if (!read_f64(in, &gene_values[i])) {
+            fprintf(stderr, "ann_binary_read: file too short for the genes\n");
+            return NULL;
+        }
+    }
+    ann_genes read_genes = {gene_values[0], gene_values[1], gene_values[2], gene_values[3], gene_values[4]};
+
     int inputs = (int32_t)sizes[0], hidden_layers = (int32_t)sizes[1];
     int hidden = (int32_t)sizes[2], outputs = (int32_t)sizes[3];
+    if (hidden_layers == 0 && hidden != 0) {
+        fprintf(stderr, "ann_binary_read: %d hidden neurons without hidden layers\n", hidden);
+        return NULL;
+    }
     genann *ann = genann_init(inputs, hidden_layers, hidden, outputs);
     if (ann == NULL) {
         fprintf(stderr, "ann_binary_read: invalid network dimensions %d %d %d %d\n",
                 inputs, hidden_layers, hidden, outputs);
+        return NULL;
+    }
+    const char *bad = ann_genes_invalid(&read_genes, ann->total_weights);
+    if (bad) {
+        fprintf(stderr, "ann_binary_read: gene %s is not finite or out of range\n", bad);
+        genann_free(ann);
         return NULL;
     }
     ann->activation_hidden = ANN_ACTIVATIONS[codes[0] - 1].function;
@@ -116,25 +175,42 @@ genann *ann_binary_read(FILE *in) {
         return NULL;
     }
 
+    if (genes) *genes = read_genes;
     return ann;
 }
 
-int ann_binary_write(const genann *ann, FILE *out) {
+int ann_binary_write(const genann *ann, const ann_genes *genes, FILE *out) {
     uint32_t hidden_code = activation_code(ann->activation_hidden);
     uint32_t output_code = activation_code(ann->activation_output);
     if (!hidden_code || !output_code) {
         fprintf(stderr, "ann_binary_write: the network uses an activation GENANN does not offer\n");
         return -1;
     }
+    if (genes == NULL) {
+        fprintf(stderr, "ann_binary_write: no genes given\n");
+        return -1;
+    }
+    const char *bad = ann_genes_invalid(genes, ann->total_weights);
+    if (bad) {
+        fprintf(stderr, "ann_binary_write: gene %s is not finite or out of range\n", bad);
+        return -1;
+    }
 
+    // Without hidden layers the width means nothing, so it is always 0.
+    int hidden = ann->hidden_layers ? ann->hidden : 0;
     int ok = fwrite(MAGIC, 1, sizeof(MAGIC), out) == sizeof(MAGIC)
         && write_u32(out, VERSION)
         && write_u32(out, (uint32_t)ann->inputs)
         && write_u32(out, (uint32_t)ann->hidden_layers)
-        && write_u32(out, (uint32_t)ann->hidden)
+        && write_u32(out, (uint32_t)hidden)
         && write_u32(out, (uint32_t)ann->outputs)
         && write_u32(out, hidden_code)
-        && write_u32(out, output_code);
+        && write_u32(out, output_code)
+        && write_f64(out, genes->copy_chance)
+        && write_f64(out, genes->weight_changes)
+        && write_f64(out, genes->weight_step)
+        && write_f64(out, genes->activation_rate)
+        && write_f64(out, genes->structure_rate);
     for (int i = 0; ok && i < ann->total_weights; ++i) ok = write_f64(out, ann->weight[i]);
     if (!ok) {
         fprintf(stderr, "ann_binary_write: write failed\n");

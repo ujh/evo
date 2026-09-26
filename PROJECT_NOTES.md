@@ -22,11 +22,7 @@ Parents are chosen by tournament selection with a default size of 3 (`tournament
 
 ### 3. Mutation and crossover deserve separate experiments
 
-Mutation changes each weight with probability 0.0004, using an additive perturbation between -0.5 and +0.5. There is also a 1% explicit chance of copying the parent unchanged. For a network with `W` weights:
-
-`P(no changed weights on a mutation attempt) ≈ 0.01 + 0.99 × (1 − 0.0004)^W`
-
-The bundled example has 418 weights, making this probability approximately **84.75%**. Larger networks receive more mutations per child under the same fixed rate. Changes in weights can also leave the chosen moves unchanged, so genetic and behavioral diversity are different measurements.
+A mutated child changes each weight with probability `weight_changes / total_weights`, by a uniform amount within `±weight_step`, and with probability `copy_chance` a child is an unchanged copy instead. All three are genes of each network (see the last paragraph). Because `weight_changes` is a count, the expected number of changed weights per child does not grow with the network. With few changes per child, many children differ from their parent in only a weight or two, and changes in weights can also leave the chosen moves unchanged, so genetic and behavioral diversity are different measurements.
 
 Crossover and mutation are mutually exclusive in `evolve/main.c`. Increasing the crossover rate reduces the number of mutation attempts. Crossing identical parents produces an identical child, which becomes relevant if selection concentrates the population.
 
@@ -34,7 +30,7 @@ Crossing raw weight arrays also assumes that hidden units occupy compatible role
 
 **Proposed response:** establish a mutation-only baseline and compare it with the present crossover scheme at equal game budgets. Treat the number of mutated weights and the size of each perturbation as separate controls. The share of unchanged children is recorded in `births`; optionally also measure their move agreement on a small bank of positions.
 
-All three mutation settings are hard-coded in `mutate()` (`evolve/evolve.c`): the 1% plain-copy chance, the per-weight rate of 0.0004, and the ±0.5 uniform perturbation. None was chosen from evidence, and none can be varied per experiment. Question each of them in these experiments, and make the ones worth varying experiment settings passed to `evolve`, recorded with the other settings. The tests in `evolve/test.c` pin the current values, so changing a value means changing its test.
+The three mutation values are now genes of each network (`copy_chance`, `weight_changes`, `weight_step`), evolved self-adaptively at the pace of the `meta_rate` setting and started from the `initial_*` settings, whose defaults are the old hard-coded values (1%, 0.0004 changes per weight, ±0.5). None of those starting values was chosen from evidence. Question them in these experiments: compare starting values, and a `meta_rate` of 0 (fixed genes) against self-adaptation, at equal game budgets.
 
 ### 4. The policy has to learn Go structure from very little guidance
 
@@ -42,7 +38,7 @@ The dense network receives a flat board and komi. It has no explicit liberties, 
 
 That makes a compact policy an interesting learning experiment, with substantial representational demands. In particular, a two-neuron hidden layer such as the bundled fixture compresses the whole board very aggressively; it should not be taken as a recommended training architecture.
 
-None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. The sizes are experiment settings today; activations, and later perhaps sizes, could evolve as genes of each network ([Neural network library](#neural-network-library)). Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
+None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. The sizes of generation 0 are experiment settings, and the activations are now genes of each network that mutation can switch; sizes could later evolve as genes too ([Neural network library](#neural-network-library)). Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
 
 **Proposed representation experiment:** use a small shared scorer for the 3×3 neighborhood around each candidate move. Run it early, alongside a short check of scoring and variation. Additional tactical features and search remain choices to discuss.
 
@@ -119,7 +115,7 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). A shared 3×3 scorer is just a small GENANN network evaluated once per candidate, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes and both activations. What is still missing:
 
-- **Network settings in the genome.** Every network uses GENANN's default activation, the cached sigmoid, for now; the owner does not want activations as experiment settings. Sizes and activations could later evolve instead, as genes of each network, which the file format already records. Changing an activation is a simple mutation; changing sizes needs a rule for the weights that appear or disappear, and crossover between different shapes.
+- **Network settings in the genome.** The hidden and output activations now evolve as genes of each network (generation 0 starts with the cached sigmoid); the owner does not want activations as experiment settings. Sizes are to evolve as genes too, in the next PR. Changing an activation is a simple mutation; changing sizes needs a rule for the weights that appear or disappear, and crossover between different shapes.
 - **Scorer metadata.** The shared 3×3 scorer will need more in the file, such as its feature set and symmetry handling. Add it under a new format version.
 
 GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.

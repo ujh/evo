@@ -26,6 +26,12 @@ module RunGenerationHelpers
     'benchmark_games' => 20,
     'benchmark_opening_moves' => 4,
     'komi' => 6.5,
+    'meta_rate' => 0.2,
+    'initial_copy_chance' => 0.01,
+    'initial_weight_changes' => 1.0,
+    'initial_weight_step' => 0.5,
+    'initial_activation_rate' => 0.02,
+    'initial_structure_rate' => 0.02,
     'concurrency' => 1
   }.freeze
 
