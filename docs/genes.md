@@ -5,22 +5,18 @@ makes a child, and how to read the genome tables in `stats`. The settings
 named here are the ones `mise run new-experiment` takes (without arguments
 it lists them all).
 
-## Before and after
+## Overview
 
-Before, evolution only touched the weights. Every network kept the
-experiment's shape and activations for life, and one fixed set of mutation
-numbers applied to every network.
+Each network carries its own genome, and all of it evolves:
 
-Now each network carries its own genome, and all of it evolves:
+| Part | How it evolves |
+| --- | --- |
+| Weights | changed by mutation, mixed by crossover |
+| Hidden and output activation | genes, can switch |
+| Shape (hidden layers × width) | genes, can grow and shrink |
+| Mutation settings | five genes per network |
 
-| Part | Before | Now |
-| --- | --- | --- |
-| Weights | evolved | evolved |
-| Hidden and output activation | fixed by the experiment | genes, can switch |
-| Shape (hidden layers × width) | fixed by the experiment | genes, can grow and shrink |
-| Mutation settings | hard-coded, the same for all | five genes per network |
-
-The experiment's settings now give generation 0, the limits, and the rates that drive breeding.
+The experiment's settings give generation 0, the limits, and the rates that drive breeding.
 
 ## 1. What a network's genome is
 
