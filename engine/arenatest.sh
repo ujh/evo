@@ -182,7 +182,7 @@ if [ ! -x "$generator" ]; then
   exit 1
 fi
 # The default genes (weight_changes is 1 for 556 weights); play ignores them.
-(cd "$population" && "$generator" 3 5 1 10 0.01 1 0.5 0.02 0.02 42 >/dev/null)
+(cd "$population" && "$generator" 3 5 1 10 0.01 1 0.5 0.02 0.02 none 0.3 0.01 42 >/dev/null)
 same_as_evo 9 6.5 60 example.ann
 same_as_evo 9 -6.5 60 example.ann
 same_as_evo 5 6.5 40 "$tmp/komi.ann"

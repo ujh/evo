@@ -1112,7 +1112,8 @@ class ReproducibleRoundsTest < Minitest::Test
       gen = build_generation(generation: '0', store:)
       commands = populate(gen)
       seed = Seeds.derive(1, 'initial-population')
-      assert_equal ["../initial-population 2 9 1 10 0.01 1.0 0.5 0.02 0.02 #{seed}"], commands
+      # No feature groups yet, with the default noise and feature_step.
+      assert_equal ["../initial-population 2 9 1 10 0.01 1.0 0.5 0.02 0.02 none 0.3 0.01 #{seed}"], commands
       assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
       assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]

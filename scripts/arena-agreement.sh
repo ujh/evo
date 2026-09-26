@@ -273,7 +273,7 @@ sample() {
   mkdir "$population"
   # Genes do not affect play, so every sample gets the defaults with
   # weight_changes 1.
-  (cd "$population" && "$generator" "$3" "$size" 1 20 0.01 1 0.5 0.02 0.02 "$4" >/dev/null)
+  (cd "$population" && "$generator" "$3" "$size" 1 20 0.01 1 0.5 0.02 0.02 none 0.3 0.01 "$4" >/dev/null)
   : >"$scratch/schedule-$size"
   for black in "$population"/*.ann; do
     for white in "$population"/*.ann; do

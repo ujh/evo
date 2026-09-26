@@ -44,17 +44,15 @@ evolvetest: evolve
 	rm -rf parents && mkdir parents
 	# Two parents with different genes (as are all their weights). The first
 	# switches activations often.
-	cd parents && ../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.5 0.02 42 > first.out
+	cd parents && ../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.5 0.02 none 0.3 0.01 42 > first.out
 	mkdir parents/other
-	cd parents/other && ../../../initial-population/initial-population 2 9 1 5 0.02 2 0.25 0.04 0.03 42 > ../second.out
-	mv parents/other/0002.ann parents/0002.ann
 	# Their features differ too: the second's feature_step (the 8 bytes after
-	# the genes and the 4-byte group mask, at byte 78) becomes 0.02.
-	printf '\173\024\256\107\341\172\224\077' | dd of=parents/0002.ann bs=1 seek=78 conv=notrunc 2>/dev/null
+	# the genes and the 4-byte group mask, at byte 78) is 0.02.
+	cd parents/other && ../../../initial-population/initial-population 2 9 1 5 0.02 2 0.25 0.04 0.03 none 0.3 0.02 42 > ../second.out
+	mv parents/other/0002.ann parents/0002.ann
 	! cmp -s -n 8 parents/0001.ann parents/0002.ann 78 78
 	grep '^genes ' parents/first.out > parents/first.genes
-	# The second's genes line, with that feature_step.
-	grep '^genes ' parents/second.out | sed -n 2p | sed 's/ features=none feature_step=0.01$$/ features=none feature_step=0.02/' > parents/second.genes
+	grep '^genes ' parents/second.out | sed -n 2p > parents/second.genes
 	grep -q ' features=none feature_step=0.02$$' parents/second.genes
 	# Rate 1 always crosses over. The same seed gives the same child, another
 	# seed another one. Random parents differ in all 907 weights, and each of
@@ -106,7 +104,7 @@ evolvetest: evolve
 	# shape than either parent, so both differs counts are -1, and the engine
 	# plays it.
 	mkdir parents/shaped
-	cd parents/shaped && ../../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.02 0.5 42 > /dev/null
+	cd parents/shaped && ../../../initial-population/initial-population 1 9 1 5 0.01 1 0.5 0.02 0.5 none 0.3 0.01 42 > /dev/null
 	./evolve 0 0.2 2 6 5 parents/shaped/0001.ann parents/shaped/0001.ann deep.ann 3 > deep.out
 	set -- $$($(SUMMARY) deep.out) && test "$$*" = "mutation first add_layer 0 -1 -1"
 	tail -n 1 deep.out | grep -q '^genes layers=2 width=5 '
