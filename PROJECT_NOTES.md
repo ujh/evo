@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** test evolution of a shared local pattern scorer, with the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** give the network hand-coded Go knowledge as extra inputs: good 3×3 shapes, perhaps a few tactical features, and the last move (see “3×3 shapes and tactical features as inputs” below), with the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 ## What most affects the experiment
 
@@ -42,7 +42,7 @@ That makes a compact policy an interesting learning experiment, with substantial
 
 None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. Generation 0's sizes and activations are experiment settings and defaults; from there, activations and sizes evolve as genes of each network. Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
 
-**Proposed representation experiment:** use a small shared scorer for the 3×3 neighborhood around each candidate move. Run it early, alongside a short check of scoring and variation. Additional tactical features and search remain choices to discuss.
+**Proposed representation change:** add hand-coded shape and tactical features as extra inputs (below). Search remains a choice to discuss.
 
 ### 5. Long runs need recoverable evidence
 
@@ -74,19 +74,20 @@ Before treating results as reliable, specify the board size, suicide policy, ko 
 
 ## Comparing the owner's two proposed directions
 
-### Shared 3×3 move scoring
+### 3×3 shapes and tactical features as inputs
 
-The proposed design evaluates each legal candidate with the same small network:
+Strong engines before AlphaZero gave their move choosers hand-coded Go knowledge, and the owner wants Evo to have it too. What they did:
 
-`local board pattern + optional tactical/context features → shared network → move score`
+| Engine | Knowledge given | Where it came from |
+| --- | --- | --- |
+| MoGo (2006), later Pachi and michi | About 13 hand-written good 3×3 shapes (hane, cuts, edge moves), checked around the last move; a matching move is preferred in playouts. | Hand-written. |
+| CrazyStone ([Coulom 2007](https://www.remi-coulom.fr/Amsterdam2007/icgaj.pdf)) | A move's 3×3 shape plus capture, extension out of atari, self-atari, and distance to the last move. | Weights learned from game records. |
+| AlphaGo (2016), fast rollout policy | A linear model over about 69,000 3×3 shapes (colour and liberty count 1, 2, ≥3 of each neighbour), shapes answering the previous move, and saving from atari. | Weights learned from human games. |
+| AlphaGo (2016), policy network | 48 input planes: stone colour, liberties, capture size, self-atari size, liberties after the move, ladder capture and escape, "sensible" (legal and not filling an own eye), turns since a move. No shape patterns. | Hand-coded features; the network learned their use. |
 
-Sharing the network is the key assumption: an evolved preference for a local shape applies wherever that shape occurs. Encoding board boundaries distinctly from empty intersections and treating colors relative to the player makes the inputs meaningful at edges and for either side. Equivalent rotations and reflections can share an encoding as well, provided associated features are transformed consistently.
+For Evo: hand-code the features, pass them to the network as extra input planes (one input per point per feature, next to the stones and komi), and let evolution learn their weights. [michi's `pat3src`](https://github.com/pasky/michi/blob/master/michi.py) lists MoGo's shapes in a form that is easy to port; each counts in all 8 rotations and reflections and both colours. Candidate planes: the move matches a good shape (one plane, or one per shape family), the stones it captures, self-atari, saving a chain from atari, and liberties after the move. The last move is a candidate too, since the network sees no move history today: a plane marking the opponent's last move (or, as AlphaGo did, planes for how many turns ago each stone was played), and one input for whether the opponent just passed, which would also help decide when to pass. Brown records only the ko point, so `evo` (from GTP `play` and `genmove`) and the arena would have to track the last moves. Each plane adds 81 weights per first-layer neuron on 9×9 (4,050 for a layer of 50). The feature set goes into the `.ann` file under a new format version.
 
-Appending separate pattern inputs to the existing dense whole-board network would expose local structure, but would not by itself enforce this reuse. A shared scorer keeps the number of learned parameters independent of board area for a fixed feature set, although it must be evaluated at each candidate. Actual move speed relative to the present architecture needs measurement.
-
-Pure 3×3 occupancy cannot describe all tactical situations. A neighboring chain can extend beyond the window and have liberties elsewhere. A small number of optional features—such as whether the move captures, saves a chain in atari, or leaves the played chain with one liberty—would expose this information. Passing also needs an explicit mechanism with enough whole-board context. Which features to supply is still open.
-
-This is the recommended first representation experiment. The hypothesis is that reusable local features make useful behavior easier to evolve. Success must be measured as improvement within this representation from its own initial population, and against random search using the same representation. A stronger starting policy alone would not demonstrate learning through evolution.
+Measure a feature run against a stones-only run on the benchmark, so the features' effect is known; that is a comparison, not a condition for using them.
 
 ### A network inside UCT-style search
 
@@ -94,7 +95,7 @@ Search and local patterns can be combined. There are three distinct roles for a 
 
 | Network role | What it supplies | Implication for Evo |
 | --- | --- | --- |
-| Guide exploration | A preference over candidate moves when expanding a search node. | A local move scorer could provide these preferences; incorporating policy priors requires a corresponding tree-selection rule rather than plain UCT alone. |
+| Guide exploration | A preference over candidate moves when expanding a search node. | The network's move scores could provide these preferences; incorporating policy priors requires a corresponding tree-selection rule rather than plain UCT alone. |
 | Guide rollouts | Move choices during simulated games. | Calls to the policy occur repeatedly inside simulations, making their speed and effect on rollout outcomes important. |
 | Evaluate leaves | An estimate of who will win from a position. | Requires a position-value output with consistent player perspective; existing move scores do not supply this value. |
 
@@ -102,7 +103,7 @@ There is direct precedent for combining learned knowledge with Go search. Gelly 
 
 For this repository, search also needs a way to copy or restore full board state, correct treatment of simulation endings and ko, and reliable simulation scoring. The current Brown board state is stored in static arrays and exposes neither a snapshot API nor undo. Its inherited scorer cannot simply be used on arbitrary search leaves.
 
-The recommendation is to consider using the local scorer to guide exploration after establishing a useful direct policy. A subsequent experiment must compare search with evolved guidance against the same search with uniform or frozen initial guidance. Use equal simulation budgets to study guidance quality, and equal elapsed-time budgets to measure practical benefit; report both. Search adds work per move, but whether it reduces total compute needed to reach a target strength is an empirical question.
+The recommendation is to consider using the network's move scores to guide exploration after establishing a useful direct policy. A subsequent experiment must compare search with evolved guidance against the same search with uniform or frozen initial guidance. Use equal simulation budgets to study guidance quality, and equal elapsed-time budgets to measure practical benefit; report both. Search adds work per move, but whether it reduces total compute needed to reach a target strength is an empirical question.
 
 ### Slow experiments: identify the cost before choosing the remedy
 
@@ -123,9 +124,9 @@ The code was written quickly as a side project. The C/Ruby split can stay. Prote
 
 ### Neural network library
 
-GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). A shared 3×3 scorer is just a small GENANN network evaluated once per candidate, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes and both activations. What is still missing:
+GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). Extra feature inputs only widen the input layer, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes and both activations. What is still missing:
 
-- **Scorer metadata.** The shared 3×3 scorer will need more in the file, such as its feature set and symmetry handling. Add it under a new format version.
+- **Feature metadata.** Networks with feature inputs need their feature set in the file. Add it under a new format version.
 
 GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
 
@@ -135,7 +136,7 @@ These are candidate milestones for discussion, rather than an implementation com
 
 0. **Clean up the code under test.** Carry out the remaining [cleanup](#code-cleanup) alongside milestone 1.
 1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9 and the komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring.
-2. **Test evolution with shared local patterns.** Use a compact scorer and a simple mutation-based evolutionary baseline. Compare it with random search using the same representation and game budget. Preserve the original dense-policy implementation as a reference; if comparing representations, use the same breeding procedure and account explicitly for differing genome sizes. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
+2. **Add shape and tactical features as inputs.** Compare a feature run with a stones-only run and with random search using the same inputs and game budget, with the same breeding procedure. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.
 
 Repeated deterministic games from the same starting position do not provide independent evidence. Evaluation needs controlled variation in openings or opponent seeds, with color-balanced comparisons. Compare methods by games and compute consumed, not merely generation count.
@@ -160,11 +161,10 @@ This design remains provisional. The acceptable feature set and available comput
 
 ## Later directions
 
-Understanding evolution through measurable improvement is the chosen direction. These remain possible extensions once it has results:
+The goal is a strong player reached through evolution, and head starts such as features and search are part of it. These remain possible extensions:
 
 | Direction | What it would emphasize | Main tradeoff |
 | --- | --- | --- |
-| Build an enjoyable opponent | Add useful Go features and potentially search, with evolution optimizing the policy or evaluator. | More strength may come from authored Go knowledge and search. |
 | Explore evolving structures | Investigate topology evolution, indirect encodings, or program evolution after establishing a baseline. | Larger experimental and implementation scope. |
 
 There is precedent for training substantial neural policies with genetic algorithms: [Such et al., Deep Neuroevolution](https://arxiv.org/abs/1712.06567) demonstrated this on Atari and locomotion tasks. That supports taking the idea seriously, but does not establish how well the present Go setup should learn or what compute it needs.
@@ -173,8 +173,7 @@ There is precedent for training substantial neural policies with genetic algorit
 
 - Should the owner's parked elitism and champion-retention work on [`wip/elitism-and-champion-retention`](https://github.com/ujh/evo/tree/wip/elitism-and-champion-retention) come back once selection is reworked and tested? Its commit message describes what it changes.
 - Which network sizes, populations, and approximate runtimes were used before? Do historical results or champions exist elsewhere?
-- For a shared 3×3 scorer, should the first version use occupancy patterns alone or also a few tactical features such as liberties and captures?
+- For the feature inputs: shapes alone or also tactical features; one good-shape plane or one per shape family; the last move only, or a few moves of history; shapes at every point or only around the last move; and whether features are an experiment setting, so stones-only runs stay possible.
 - What hardware, compute budget, and unattended runtime are comfortable for a single experiment?
 - Which board size and first opponent would make a satisfying initial milestone?
 - For the opponent ladder: what promotes a network to the next bot (for example, a win rate over a number of games in both colors, sustained for some generations), whether beaten bots leave the panel, and which bots fill the gaps?
-- How much built-in Go knowledge (features, search) is acceptable before improvement no longer counts as coming from evolution?

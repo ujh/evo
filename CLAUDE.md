@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Evo evolves dense neural networks that play Go: their weights, activations, mutation settings, and shape. The C programs build, breed, and play networks. The Ruby scripts run the tournaments: games between two networks in the C arena, scored by Tromp–Taylor, and games with a bot through GoGui, with GNU Go as referee. The goal is to show measurable improvement from evolution, not a strong engine.
+Evo evolves dense neural networks that play Go: their weights, activations, mutation settings, and shape. The C programs build, breed, and play networks. The Ruby scripts run the tournaments: games between two networks in the C arena, scored by Tromp–Taylor, and games with a bot through GoGui, with GNU Go as referee. The goal is a network that plays Go well, reached through evolution: evolution should show measurable improvement, and any head start is welcome, such as Go knowledge given to the network as extra inputs, or search. Improvement need not come from evolution alone, so compare a head start against a run without it rather than ruling it out.
 
 `PROJECT_NOTES.md` holds only work still to do: known defects, cleanup, proposed experiments, and open questions. Read it before changing behavior. When a change fixes a listed item or settles a question, delete it from `PROJECT_NOTES.md` in the same change. Do not record finished work or history there. If a future agent must know something about the change, put it in this file instead.
 
