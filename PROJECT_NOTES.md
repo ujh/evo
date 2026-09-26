@@ -47,7 +47,7 @@ The other settings define the experiment or its measurement and stay settings: t
 
 ### 4. The policy has to learn Go structure from very little guidance
 
-The dense network receives the board and komi, and, with feature groups, per-point shape and tactical features, chain liberties, the last move, and whether the opponent passed, plus shared feature weights added to its move scores (the engine can play such networks; experiments do not create them yet). A `features none` network has none of that: only a flat board and komi. Neither has more move history than the last move or spatial weight sharing. The engine's legality checks handle immediate constraints, but the policy has no lookahead to examine consequences.
+The dense network receives the board and komi, and, with feature groups, per-point shape and tactical features, chain liberties, the last move, and whether the opponent passed, plus shared feature weights added to its move scores (the `features` setting, `all` by default). A `features none` network has none of that: only a flat board and komi. Neither has more move history than the last move or spatial weight sharing. The engine's legality checks handle immediate constraints, but the policy has no lookahead to examine consequences.
 
 That makes a compact policy an interesting learning experiment, with substantial representational demands. In particular, a two-neuron hidden layer such as the bundled fixture compresses the whole board very aggressively; it should not be taken as a recommended training architecture.
 

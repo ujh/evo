@@ -56,15 +56,16 @@ set back to it. The settings accept the same ranges.
 
   | Gene | What it does | Starts at | Limits |
   | --- | --- | --- | --- |
-  | feature weights | Added to a point's score where the feature is 1 | hand-set (capture +1.0, saves_atari +0.8, self_atari −1.0, the others +0.05), times 1 ± a little noise per network | −10 to 10 |
-  | `feature_step` | Largest change of one feature weight (uniform in ±step) | 0.01 | 0.0001 to 1 |
+  | feature weights | Added to a point's score where the feature is 1 | hand-set (capture +1.0, saves_atari +0.8, self_atari −1.0, the others +0.05), times 1 + u per network, u uniform within ±`initial_feature_noise` (0.3) | −10 to 10 |
+  | `feature_step` | Largest change of one feature weight (uniform in ±step) | `initial_feature_step`, 0.01 | 0.0001 to 1 |
 
-  For now the runner creates every network without groups, so it has no
-  feature weights and its `feature_step` stays at 0.01.
-  `initial-population` and `evolve` print them at the end of each
-  network's genes line (`features=none feature_step=0.01`, and with groups
-  also a weight per move feature, such as `fw_capture=1`), and the runner
-  stops when a network's groups are not the experiment's (none, for now).
+  The experiment's `features` setting (default `all`) gives every network
+  its groups; with `none` a network has no feature weights, and its
+  `feature_step` stays where it started. `initial-population` and `evolve`
+  print them at the end of each network's genes line (`features=none
+  feature_step=0.01`, and with groups also a weight per move feature, such
+  as `fw_capture=1`), and the runner stops when a network's groups are not
+  the experiment's.
 
 The file starts with a header (the format version, the sizes, and the two
 activations), then the five genes, then the features, then the weights:
@@ -356,8 +357,11 @@ Each network has a row in `births` in `experiments/NAME/experiment.sqlite3`:
 network twice), `operator` (`initial`, `crossover`, `mutation`, `copy`),
 `parent` (`first` or `second`: the one mutated or copied, or whose weights
 come first in a crossover), `structure`, `activation_changed`, and the
-genome: `layers`, `width`, `act_hidden`, `act_output`, and the five genes
-(the features are not stored there yet).
+genome: `layers`, `width`, `act_hidden`, `act_output`, the five genes, and
+the features: `features` (the groups, or `none`), `feature_step`, and one
+column per feature weight (`fw_hane`, `fw_cut`, `fw_edge`, `fw_capture`,
+`fw_self_atari`, `fw_saves_atari`, `fw_near_last`), empty when the
+network's groups lack that feature.
 `differs_from_first` and `differs_from_second` count the network weights
 that differ from each parent (0 for an identical copy, empty for a parent
 of another shape). They leave the feature weights out, so a mutated child
@@ -388,15 +392,18 @@ gen  child   first_parent  second_parent  parent  structure  shape  act_hidden  
 | Setting | Default | What it controls |
 | --- | --- | --- |
 | `hidden_layers`, `layer_size` | required | generation 0's shape |
+| `features` | `all` | the feature groups every network sees: `none`, `all`, or a comma-separated list of `shapes`, `tactics`, `last_move`, `liberties` |
 | `max_hidden_layers` | 4 | most hidden layers a network may reach |
 | `max_layer_size` | 200 | widest a hidden layer may get |
 | `cross_over_rate` | required | chance of trying crossover (0 to 1) |
 | `meta_rate` | 0.2 | how fast the genes move |
 | `initial_copy_chance` | 0.01 | generation 0's `copy_chance` |
-| `initial_weight_changes` | 0.0004 × generation 0's weights, at least 1 | generation 0's `weight_changes` (at most its total weights) |
+| `initial_weight_changes` | 0.0004 × generation 0's weights (feature inputs included), at least 1 | generation 0's `weight_changes` (at most its total weights) |
 | `initial_weight_step` | 0.5 | generation 0's `weight_step` |
 | `initial_activation_rate` | 0.02 | generation 0's `activation_rate` |
 | `initial_structure_rate` | 0.02 | generation 0's `structure_rate` |
+| `initial_feature_step` | 0.01 | generation 0's `feature_step` (0.0001 to 1) |
+| `initial_feature_noise` | 0.3 | how far generation 0's feature weights spread around their hand-set values: each is multiplied by 1 + u, u uniform within ±this (0 to 1) |
 | `tournament_size` | 3 | selection pressure when picking parents |
 
 With the defaults, shape changes are rare. In a population of 20 with

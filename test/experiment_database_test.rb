@@ -115,8 +115,34 @@ class ExperimentDatabaseTest < Minitest::Test
     differs_from_first: 0, differs_from_second: 907, seed: 2**62 + 5, genome: 'ab' * 32,
     parent: 'second', structure: 'none', activation_changed: false, layers: 2, width: 10, act_hidden: 'tanh',
     act_output: 'sigmoid_cached', copy_chance: 0.01, weight_changes: 1.5, weight_step: 0.5,
-    activation_rate: 0.02, structure_rate: 0.125
+    activation_rate: 0.02, structure_rate: 0.125, features: 'tactics,last_move', feature_step: 0.015625,
+    fw_hane: nil, fw_cut: nil, fw_edge: nil, fw_capture: 1.25, fw_self_atari: -0.5, fw_saves_atari: 0.75,
+    fw_near_last: 0.0625
   }.freeze
+
+  # Migration 011: the feature set, feature_step, and a column per feature
+  # weight, in lib/ann.c's ANN_FEATURES order.
+  def test_births_have_a_column_per_feature_weight
+    assert_equal %i[fw_hane fw_cut fw_edge fw_capture fw_self_atari fw_saves_atari fw_near_last],
+                 ExperimentDatabase::BIRTH_FEATURE_WEIGHT_COLUMNS
+    with_store do |store, path|
+      store.close
+      db = Sequel.sqlite(path)
+      columns = db.schema(:births).to_h
+      assert_equal :string, columns[:features][:type]
+      ExperimentDatabase::BIRTH_FEATURE_WEIGHT_COLUMNS.each { |column| assert_equal :float, columns[column][:type], column }
+      assert_equal :float, columns[:feature_step][:type]
+      db.disconnect
+    end
+  end
+
+  # A birth recorded without some feature weights keeps them NULL.
+  def test_a_birth_without_feature_weights_keeps_them_nil
+    with_store do |store|
+      store.record_birth(**BIRTH.except(:fw_capture, :fw_self_atari, :fw_saves_atari, :fw_near_last), features: 'none')
+      assert_equal [nil] * 7, store.births(2).first.values_at(*ExperimentDatabase::BIRTH_FEATURE_WEIGHT_COLUMNS)
+    end
+  end
 
   def test_records_births_and_replaces_a_rebred_child
     with_store do |store|

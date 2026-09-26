@@ -1,4 +1,5 @@
 require 'sequel'
+require_relative 'feature_groups'
 
 Sequel.extension :migration
 
@@ -184,10 +185,13 @@ class ExperimentDatabase
   BIRTH_GENE_COLUMNS = %i[
     layers width act_hidden act_output copy_chance weight_changes weight_step activation_rate structure_rate
   ].freeze
+  # A column per move feature's weight, NULL when the network's feature
+  # set lacks that feature (migration 011).
+  BIRTH_FEATURE_WEIGHT_COLUMNS = FeatureGroups::GROUPS.values.flatten.map { |name| :"fw_#{name}" }.freeze
   BIRTH_COLUMNS = [
     *%i[generation child first_parent second_parent operator differs_from_first differs_from_second seed genome
         parent structure activation_changed],
-    *BIRTH_GENE_COLUMNS
+    *BIRTH_GENE_COLUMNS, :features, :feature_step, *BIRTH_FEATURE_WEIGHT_COLUMNS
   ].freeze
 
   # A child bred again after a crash replaces its row.

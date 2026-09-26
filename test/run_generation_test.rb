@@ -367,7 +367,34 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     end
   end
 
-  # A child's genes line must have the experiment's feature set, none for now.
+  ALL_GROUPS = 'shapes,tactics,last_move,liberties'.freeze
+  ALL_WEIGHTS = 'fw_hane=0.05 fw_cut=0.0625 fw_edge=0.04 fw_capture=1.25 fw_self_atari=-1 fw_saves_atari=0.75 ' \
+                'fw_near_last=0.03125'.freeze
+  ALL_BIRTH = { features: ALL_GROUPS, feature_step: 0.02, fw_hane: 0.05, fw_cut: 0.0625, fw_edge: 0.04,
+                fw_capture: 1.25, fw_self_atari: -1.0, fw_saves_atari: 0.75, fw_near_last: 0.03125 }.freeze
+
+  # A child's feature set, feature_step, and feature weights go into its birth.
+  def test_records_the_childs_feature_genes
+    summary = SUMMARY.lines[1]
+    genes = GENES_LINE.sub('features=none feature_step=0.01', "features=#{ALL_GROUPS} feature_step=0.02 #{ALL_WEIGHTS}")
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'features' => ALL_GROUPS }) do |cmd|
+      File.write(cmd.split[-2], cmd)
+      [true, "Loading ...\n#{summary}#{genes}"]
+    end
+    assert_nil state[:error]
+    state[:births].each { |birth| assert_equal ALL_BIRTH, birth.slice(*ALL_BIRTH.keys) }
+  end
+
+  # A feature weight the child's groups lack is NULL; feature_step is kept.
+  def test_a_child_without_some_features_has_null_feature_weights
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
+    assert_nil state[:error]
+    birth = state[:births].first
+    assert_equal ['none', 0.01], birth.values_at(:features, :feature_step)
+    assert_equal [nil] * 7, birth.values_at(*ExperimentDatabase::BIRTH_FEATURE_WEIGHT_COLUMNS)
+  end
+
+  # A child's genes line must have the experiment's feature set.
   def test_a_child_of_another_feature_set_stops_breeding
     summary = SUMMARY.lines[1]
     genes = GENES_LINE.sub('features=none feature_step=0.01', 'features=tactics feature_step=0.01 fw_capture=1 ' \
@@ -1112,7 +1139,6 @@ class ReproducibleRoundsTest < Minitest::Test
       gen = build_generation(generation: '0', store:)
       commands = populate(gen)
       seed = Seeds.derive(1, 'initial-population')
-      # No feature groups yet, with the default noise and feature_step.
       assert_equal ["../initial-population 2 9 1 10 0.01 1.0 0.5 0.02 0.02 none 0.3 0.01 #{seed}"], commands
       assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
@@ -1128,6 +1154,32 @@ class ReproducibleRoundsTest < Minitest::Test
                                                           'initial_weight_step' => 0.25, 'initial_activation_rate' => 0.04,
                                                           'initial_structure_rate' => 0.05 })
       assert_equal '0.03 7.5 0.25 0.04 0.05', populate(gen).first.split[5, 5].join(' ')
+    end
+  end
+
+  # The feature set, the noise on the feature weights, and the initial
+  # feature_step are the experiment's settings.
+  def test_the_initial_population_gets_the_feature_settings
+    in_experiment(generation: '0') do
+      gen = build_generation(generation: '0', settings: { 'features' => 'shapes,liberties', 'initial_feature_noise' => 0.25,
+                                                          'initial_feature_step' => 0.0001 })
+      line = initial_genes_line.sub('features=none', 'features=shapes,liberties')
+                               .sub('feature_step=0.01', 'feature_step=0.0001 fw_hane=0.05 fw_cut=0.05 fw_edge=0.05')
+      assert_equal 'shapes,liberties 0.25 0.0001', populate(gen, output: line * 2).first.split[10, 3].join(' ')
+    end
+  end
+
+  # Generation 0's births hold each network's feature genes, NULL for the
+  # feature weights its groups lack.
+  def test_the_initial_births_record_the_feature_genes
+    in_experiment(generation: '0') do
+      store = database
+      line = initial_genes_line.sub('features=none feature_step=0.01', 'features=tactics feature_step=0.02 ' \
+                                                                       'fw_capture=1.25 fw_self_atari=-1 fw_saves_atari=0.75')
+      populate(build_generation(generation: '0', store:, settings: { 'features' => 'tactics' }), output: line * 2)
+      assert_equal [{ features: 'tactics', feature_step: 0.02, fw_hane: nil, fw_cut: nil, fw_edge: nil, fw_capture: 1.25,
+                      fw_self_atari: -1.0, fw_saves_atari: 0.75, fw_near_last: nil }] * 2,
+                   store.births(0).map { |b| b.slice(:features, :feature_step, *ExperimentDatabase::BIRTH_FEATURE_WEIGHT_COLUMNS) }
     end
   end
 

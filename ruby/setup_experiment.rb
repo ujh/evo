@@ -1,6 +1,7 @@
 require 'fileutils'
 require 'optparse'
 require_relative 'experiment_database'
+require_relative 'feature_groups'
 require_relative 'seeds'
 require_relative 'run_generation'
 
@@ -41,6 +42,20 @@ class SetupExperiment
     end
   end
 
+  # The feature groups the networks see: `none`, `all`, or groups
+  # comma-separated in any order, each once. It parses to the feature set as
+  # the genes line writes it (`none`, or the groups in their fixed order),
+  # which is also what the database stores.
+  FeatureSet = Data.define do
+    def parse(key, text)
+      FeatureGroups.normalize(text.to_s) or raise ArgumentError, "#{key} must be #{description}, got #{text}"
+    end
+
+    def description
+      "none, all, or a comma-separated list of #{FeatureGroups::GROUPS.keys.join(', ')}"
+    end
+  end
+
   def self.integer(min, max = nil) = Type.new(:integer, min, max)
   def self.even(min) = Type.new(:even, min, nil)
   def self.number(min, max) = Type.new(:number, min, max)
@@ -61,7 +76,8 @@ class SetupExperiment
   # largest the GNU Go referee plays. The initial_* settings are the genes
   # every generation-0 network starts with, and their ranges are the clamps
   # in lib/ann.h; evolution changes them from there, at the pace meta_rate
-  # (the tau of self-adaptive mutation) sets.
+  # (the tau of self-adaptive mutation) sets. initial_feature_noise is no
+  # gene but the spread of generation 0's feature weights.
   SETTINGS = {
     'board_size' => ['Board size', nil, integer(2, 19)],
     'population_size' => ['Population size', nil, integer(1)],
@@ -71,6 +87,10 @@ class SetupExperiment
     # generation-0 shape must be within them.
     'max_hidden_layers' => ['Most hidden layers a network may evolve', '4', integer(0)],
     'max_layer_size' => ['Most neurons per hidden layer a network may evolve', '200', integer(1)],
+    # Every network of the experiment sees these groups' features as
+    # inputs and has their move features' weights; none gives networks of
+    # the stones alone. Before initial_weight_changes, which counts them.
+    'features' => ['Feature groups the networks see', 'all', FeatureSet.new],
     'cross_over_rate' => ['Cross over rate', nil, number(0, 1)],
     'game_length' => ['Time per player per game, in minutes', nil, integer(1)],
     'max_moves' => ['Max moves', nil, integer(1)],
@@ -97,21 +117,21 @@ class SetupExperiment
     'initial_weight_step' => ['Largest change of a mutated weight (initial gene)', '0.5', number(0.0001, 10)],
     'initial_activation_rate' => ['Chance a mutation switches each activation (initial gene)', '0.02',
                                   number(0.0001, 0.5)],
-    'initial_structure_rate' => ['Chance of a structural mutation (initial gene)', '0.02', number(0.0001, 0.5)]
+    'initial_structure_rate' => ['Chance of a structural mutation (initial gene)', '0.02', number(0.0001, 0.5)],
+    # Each generation-0 feature weight is its starting value times (1 + u),
+    # u uniform within this, so no weight changes sign.
+    'initial_feature_noise' => ['Relative noise on the starting feature weights', '0.3', number(0, 1)],
+    'initial_feature_step' => ['Largest change of a mutated feature weight (initial gene)', '0.01', number(0.0001, 1)]
   }.freeze
 
-  # The weights of a network for the board with the given hidden layers, as
-  # GENANN counts them: each neuron has a bias and one weight per neuron of
-  # the layer before. A board of N has N*N+1 inputs and outputs.
-  def self.total_weights(board_size, layers, width)
-    points = (board_size**2) + 1
-    return points * (points + 1) if layers.zero?
-
-    (width * (points + 1)) + ((layers - 1) * width * (width + 1)) + (points * (width + 1))
+  # The weights of a network for the board with the given hidden layers and
+  # feature set, feature inputs included (FeatureGroups.total_weights).
+  def self.total_weights(board_size, layers, width, features)
+    FeatureGroups.total_weights(board_size, layers, width, features)
   end
 
   def self.generation_0_weights(settings)
-    total_weights(*settings.values_at('board_size', 'hidden_layers', 'layer_size'))
+    total_weights(*settings.values_at('board_size', 'hidden_layers', 'layer_size', 'features'))
   end
 
   def self.default_weight_changes(settings)

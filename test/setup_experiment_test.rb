@@ -17,8 +17,10 @@ class SetupExperimentTest < Minitest::Test
     SetupExperiment::SETTINGS.map { |key, (_, default)| answers.fetch(key) { default.nil? ? '1' : '' } }
   end
 
-  # 9x9 with 1 hidden layer of 10: 10 x 83 + 82 x 11.
-  REQUIRED_WEIGHTS = 1732
+  # 9x9 with 1 hidden layer of 10 and every feature group (the default):
+  # 974 inputs, so 10 x 975 + 82 x 11.
+  REQUIRED_WEIGHTS = 10_652
+  ALL_GROUPS = 'shapes,tactics,last_move,liberties'.freeze
 
   def in_tmpdir(&)
     Dir.mktmpdir { |dir| Dir.chdir(dir, &) }
@@ -65,7 +67,12 @@ class SetupExperimentTest < Minitest::Test
     %w[--initial-weight-step 0.00009], %w[--initial-weight-step 10.5],
     %w[--initial-activation-rate 0.00009], %w[--initial-activation-rate 0.6],
     %w[--initial-structure-rate 0], %w[--initial-structure-rate 0.51],
-    %w[--max-hidden-layers -1], %w[--max-hidden-layers many], %w[--max-layer-size 0], %w[--max-layer-size 2.5]
+    %w[--max-hidden-layers -1], %w[--max-hidden-layers many], %w[--max-layer-size 0], %w[--max-layer-size 2.5],
+    %w[--initial-feature-noise -0.1], %w[--initial-feature-noise 1.1], %w[--initial-feature-noise some],
+    %w[--initial-feature-step 0.00009], %w[--initial-feature-step 1.1], %w[--initial-feature-step tiny],
+    %w[--features nothing], %w[--features shapes,], %w[--features ,shapes], %w[--features shapes,,tactics],
+    %w[--features shapes,shapes], %w[--features none,shapes], %w[--features all,shapes], %w[--features Shapes],
+    %w[--features ALL], %w[--features ladders], %w[--features shapes\ tactics]
   ].freeze
 
   def test_a_bad_value_is_refused_with_its_option_and_value
@@ -76,6 +83,79 @@ class SetupExperimentTest < Minitest::Test
       assert_includes error.message, option.delete_prefix('--').tr('-', '_')
       assert_includes error.message, value
     end
+  end
+
+  # The feature set is stored as the genes line writes it: `none`, or the
+  # groups in their fixed order, so `all` is spelled out.
+  def test_the_features_default_to_every_group
+    assert_equal ALL_GROUPS, SetupExperiment.settings_from_arguments(REQUIRED)['features']
+  end
+
+  def test_a_feature_set_is_normalized
+    {
+      'all' => ALL_GROUPS, 'none' => 'none', 'liberties' => 'liberties', 'tactics,shapes' => 'shapes,tactics',
+      'liberties,last_move,tactics,shapes' => ALL_GROUPS, ALL_GROUPS => ALL_GROUPS
+    }.each do |text, expected|
+      assert_equal expected, SetupExperiment.settings_from_arguments(REQUIRED + ['--features', text])['features'], text
+    end
+  end
+
+  def test_an_empty_feature_set_is_refused
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + ['--features', '']) }
+    assert_includes error.message, 'features'
+  end
+
+  # save_settings stores value.to_s, and loading parses it again.
+  def test_a_feature_set_round_trips_through_the_database
+    in_tmpdir do
+      SetupExperiment.create('experiments/x', REQUIRED + %w[--features last_move,shapes])
+      database = ExperimentDatabase.new('experiments/x/experiment.sqlite3', readonly: true)
+      assert_equal 'shapes,last_move', database.settings['features']
+      assert_equal 'shapes,last_move', SetupExperiment.parse(database.settings)['features']
+    end
+  end
+
+  def test_the_feature_gene_settings_have_defaults
+    settings = SetupExperiment.settings_from_arguments(REQUIRED)
+    assert_equal [0.3, 0.01], settings.values_at('initial_feature_noise', 'initial_feature_step')
+  end
+
+  def test_the_edges_of_the_feature_gene_ranges_are_accepted
+    low = SetupExperiment.settings_from_arguments(REQUIRED + %w[--initial-feature-noise 0 --initial-feature-step 0.0001])
+    assert_equal [0.0, 0.0001], low.values_at('initial_feature_noise', 'initial_feature_step')
+    high = SetupExperiment.settings_from_arguments(REQUIRED + %w[--initial-feature-noise 1 --initial-feature-step 1])
+    assert_equal [1.0, 1.0], high.values_at('initial_feature_noise', 'initial_feature_step')
+  end
+
+  # The feature set comes before initial_weight_changes, whose default and
+  # check count the feature inputs.
+  def test_the_feature_set_comes_before_the_weight_changes
+    keys = SetupExperiment::SETTINGS.keys
+    assert_operator keys.index('features'), :<, keys.index('initial_weight_changes')
+  end
+
+  # An experiment created before the feature settings does not load.
+  def test_loading_an_experiment_without_the_feature_settings_fails
+    %w[features initial_feature_noise initial_feature_step].each do |key|
+      in_tmpdir do
+        database = ExperimentDatabase.new('experiment.sqlite3')
+        database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED).except(key))
+        error = assert_raises(ArgumentError, key) { SetupExperiment.settings(database) }
+        assert_equal "#{key} is missing", error.message
+      end
+    end
+  end
+
+  def test_a_prompt_asks_again_for_a_bad_feature_set
+    answers = prompt_answers('features' => "ladders\ntactics,shapes")
+    $stdin = StringIO.new("#{answers.join("\n")}\n")
+    settings = nil
+    out, = capture_io { settings = SetupExperiment.prompt_for_settings }
+    assert_equal 'shapes,tactics', settings['features']
+    assert_includes out, 'features must be'
+    assert_includes out, 'Feature groups'
+  ensure
+    $stdin = STDIN
   end
 
   def test_the_edges_of_each_range_are_accepted
@@ -107,7 +187,7 @@ class SetupExperimentTest < Minitest::Test
       REQUIRED + %W[--meta-rate 10 --initial-copy-chance 0.1 --initial-weight-changes #{REQUIRED_WEIGHTS}
                     --initial-weight-step 10 --initial-activation-rate 0.5 --initial-structure-rate 0.5]
     )
-    assert_equal [10.0, 0.1, 1732.0, 10.0, 0.5, 0.5], high.values_at('meta_rate', *RunGeneration::INITIAL_GENES)
+    assert_equal [10.0, 0.1, 10_652.0, 10.0, 0.5, 0.5], high.values_at('meta_rate', *RunGeneration::INITIAL_GENES)
   end
 
   # Without the option, weight_changes is the old hard-coded load: 0.0004
@@ -120,16 +200,37 @@ class SetupExperimentTest < Minitest::Test
       [5, 1, 10] => 1.0
     }.each do |(board_size, layers, width), expected|
       arguments = REQUIRED + %W[--board-size #{board_size} --hidden-layers #{layers} --layer-size #{width}
-                                --max-layer-size 400]
+                                --max-layer-size 400 --features none]
       assert_equal expected, SetupExperiment.settings_from_arguments(arguments)['initial_weight_changes'],
                    [board_size, layers, width].inspect
     end
   end
 
+  # With every group, 9x9 1x10's 4.2608: 0.0004 x 10,652 weights.
+  def test_the_initial_weight_changes_count_the_feature_inputs
+    assert_in_delta 0.0004 * REQUIRED_WEIGHTS, SetupExperiment.settings_from_arguments(REQUIRED)['initial_weight_changes'],
+                    1e-12
+    assert_equal 4.2608, SetupExperiment.settings_from_arguments(REQUIRED)['initial_weight_changes'].round(4)
+  end
+
   def test_the_total_weights_count_every_bias_and_weight
-    assert_equal REQUIRED_WEIGHTS, SetupExperiment.total_weights(9, 1, 10)
-    assert_equal 82 * 83, SetupExperiment.total_weights(9, 0, 10)
-    assert_equal (400 * 83) + (2 * 400 * 401) + (82 * 401), SetupExperiment.total_weights(9, 3, 400)
+    assert_equal 1732, SetupExperiment.total_weights(9, 1, 10, 'none')
+    assert_equal 82 * 83, SetupExperiment.total_weights(9, 0, 10, 'none')
+    assert_equal (400 * 83) + (2 * 400 * 401) + (82 * 401), SetupExperiment.total_weights(9, 3, 400, 'none')
+  end
+
+  # Each group's inputs, as lib/ann.c's ann_layout_inputs lays them out: 3
+  # planes each for shapes, tactics, and liberties, and for last_move the
+  # near_last plane, the last_move plane, and opponent_passed.
+  def test_the_total_weights_count_the_feature_inputs
+    { 'shapes' => 82 + 243, 'tactics' => 82 + 243, 'liberties' => 82 + 243, 'last_move' => 82 + 163,
+      ALL_GROUPS => 974, 'shapes,liberties' => 82 + 486 }.each do |features, inputs|
+      assert_equal (inputs + 1) * 82, SetupExperiment.total_weights(9, 0, 10, features), features
+      assert_equal (10 * (inputs + 1)) + (82 * 11), SetupExperiment.total_weights(9, 1, 10, features), features
+    end
+    assert_equal REQUIRED_WEIGHTS, SetupExperiment.total_weights(9, 1, 10, ALL_GROUPS)
+    # 19x19: 1 + 12 x 361 + 1 inputs; 1x50.
+    assert_equal 235_212, SetupExperiment.total_weights(19, 1, 50, ALL_GROUPS)
   end
 
   def test_initial_weight_changes_above_the_networks_weights_are_refused
@@ -146,7 +247,7 @@ class SetupExperimentTest < Minitest::Test
     in_tmpdir do
       SetupExperiment.create('experiments/x', REQUIRED + %w[--hidden-layers 3 --layer-size 400 --max-layer-size 400])
       database = ExperimentDatabase.new('experiments/x/experiment.sqlite3', readonly: true)
-      expected = 0.0004 * SetupExperiment.total_weights(9, 3, 400)
+      expected = 0.0004 * SetupExperiment.total_weights(9, 3, 400, ALL_GROUPS)
       assert_equal expected, Float(database.settings['initial_weight_changes'])
       assert_equal expected, SetupExperiment.parse(database.settings)['initial_weight_changes']
     end
@@ -157,7 +258,7 @@ class SetupExperimentTest < Minitest::Test
     $stdin = StringIO.new("#{answers.join("\n")}\n")
     settings = nil
     out, = capture_io { settings = SetupExperiment.prompt_for_settings }
-    expected = 0.0004 * SetupExperiment.total_weights(9, 3, 400)
+    expected = 0.0004 * SetupExperiment.total_weights(9, 3, 400, ALL_GROUPS)
     assert_equal expected, settings['initial_weight_changes']
     assert_includes out, "(default #{expected})"
   ensure
@@ -178,7 +279,7 @@ class SetupExperimentTest < Minitest::Test
   def test_loading_refuses_more_weight_changes_than_weights
     in_tmpdir do
       database = ExperimentDatabase.new('experiment.sqlite3')
-      database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED).merge('initial_weight_changes' => '1733'))
+      database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED).merge('initial_weight_changes' => '10653'))
       error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
       assert_includes error.message, 'initial_weight_changes'
     end
