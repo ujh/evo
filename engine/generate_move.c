@@ -38,6 +38,7 @@
 
 #include "brown.h"
 #include "generate_move.h"
+#include "features.h"
 
 // The network's inputs: komi, then one per point. Large enough for any
 // board Brown supports; generate_move only runs networks that fit the board.
@@ -68,29 +69,11 @@ static void generate_ann_inputs(double *inputs, int color) {
 }
 
 void find_and_set_best_move(genann const *ann, int *i, int *j, int color, const double *prediction) {
-  int pred_index, ai, aj, k;
+  int pred_index;
   int best_index = -1;
   for(pred_index = 0; pred_index < ann->outputs - 1; pred_index++) {
     if ((best_index == -1) || (prediction[pred_index] > prediction[best_index])) {
-      ai = I(pred_index);
-      aj = J(pred_index);
-      // Needs to be a legal move and not a suicide
-      if (legal_move(ai, aj, color) && !suicide(ai, aj, color)) {
-        // Can't be a suicide for the oppponent either
-        if (!suicide(ai, aj, OTHER_COLOR(color))) {
-          best_index = pred_index;
-        } else {
-          // Unless it's a capture move
-          for (k = 0; k < 4; k++) {
-	          int bi = ai + deltai[k];
-	          int bj = aj + deltaj[k];
-	          if (on_board(bi, bj) && get_board(bi, bj) == OTHER_COLOR(color)) {
-              best_index = pred_index;
-              break;
-            }
-          }
-        }
-      }
+      if (move_allowed(I(pred_index), J(pred_index), color)) best_index = pred_index;
     }
   }
   // Check the pass output, which is the last one

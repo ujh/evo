@@ -66,8 +66,8 @@ extern float komi;
 extern int board_size;
 
 /* Offsets for the four directly adjacent neighbors. Used for looping. */
-static int deltai[4] = {-1, 1, 0, 0};
-static int deltaj[4] = {0, 0, -1, 1};
+static const int deltai[4] = {-1, 1, 0, 0};
+static const int deltaj[4] = {0, 0, -1, 1};
 
 /* What last_move() reports. */
 #define LAST_MOVE_NONE 0

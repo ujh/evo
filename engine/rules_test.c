@@ -9,6 +9,7 @@
 #include "brown.h"
 #include "ann.h"
 #include "generate_move.h"
+#include "features.h"
 #include "minctest.h"
 
 // Sets up a position from rows of 'X' (black), 'O' (white) and '.', on a
@@ -413,6 +414,38 @@ void test_the_move_filter() {
   genann_free(ann);
 }
 
+// The move choice refuses exactly the points move_allowed refuses, so the
+// move features, which are 0 where move_allowed is false, never point at a
+// move the engine would not play.
+void test_the_move_choice_follows_move_allowed() {
+  genann *ann = genann_init(26, 0, 0, 26);
+  double prediction[26];
+  const char *positions[][5] = {
+    {".X...", "X....", ".....", ".....", "....."},
+    {"O.X..", "XX...", ".....", ".....", "....."},
+    {".XO..", "X.XO.", ".XO..", ".....", "....."},
+    {".X.O.", "X.XO.", "OX.OO", ".OXX.", "XX.O."},
+    {"XXXXX", "XXXXX", "XX.XX", "XXXXX", "XXXX."},
+  };
+  int refused = 0, allowed = 0;
+  for (int n = 0; n < 5; n++) {
+    setup(positions[n]);
+    if (n == 2) play_move(1, 1, WHITE); // a ko
+    for (int color = WHITE; color <= BLACK; color++)
+      for (int p = 0; p < 25; p++) {
+        int i, j;
+        predict(prediction, 25, p, -1, 0);
+        find_and_set_best_move(ann, &i, &j, color, prediction);
+        int played = i == I(p) && j == J(p);
+        lok(played == move_allowed(I(p), J(p), color));
+        if (played) allowed++; else refused++;
+      }
+  }
+  // Both kinds occur, and not only on occupied points.
+  lok(allowed > 0 && refused > 0);
+  genann_free(ann);
+}
+
 int main(void) {
   printf("Go rules test suite\n");
 
@@ -437,6 +470,7 @@ int main(void) {
   lrun("last_suicide", test_last_move_after_a_suicide);
   lrun("last_handicap", test_fixed_handicap_leaves_no_last_move);
   lrun("move_filter", test_the_move_filter);
+  lrun("move_allowed", test_the_move_choice_follows_move_allowed);
 
   lresults();
   return lfails != 0;
