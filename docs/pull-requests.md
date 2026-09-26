@@ -6,7 +6,7 @@ Follow these steps in order for every PR. The PR title and body follow the conve
 2. Run `mise run test`, plus any smoke run the change calls for. Fix failures first. Once a code file changes, earlier results are stale, so run them again.
 3. List what the change makes newly true. Search the whole repository, including files the diff does not touch, for text that still says the old thing, and correct it.
 4. Review the whole branch (`git diff origin/main...HEAD`) under the [review rules](#review-rules) below, and loop until a round is clean.
-5. Push and open the PR.
+5. Check that the commits hold what you meant (`git show --stat`; an amend without `-a` leaves unstaged edits out), then push and open the PR.
 6. Run `mise run pr-checks <pr>`. It waits for CI and fails unless every check passed on the local `HEAD` and the PR is up to date with `main` without conflicts. If a check fails, fix the cause. Do not skip or disable it. If the PR is behind `main`, follow the command the script prints, then go back to step 2. Run it on a commit that is pushed: it waits for GitHub to show the local `HEAD`, so on an unpushed commit it takes about five minutes to fail.
 7. For any later fix, repeat steps 1–4 for the whole branch, push, then repeat step 6.
 
