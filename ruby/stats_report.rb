@@ -30,6 +30,14 @@ class ExperimentStats
       Changes: weight_changes. Step: weight_step. Act, Struct: activation_rate, structure_rate.
       Weights: per network.
     NOTE
+    FEATURES_NOTE = <<~NOTE.freeze
+      Medians of feature_step (Step) and of the weight each move feature adds to a point's score, then min
+      and max in one generation. Only the experiment's features.
+    NOTE
+    # Column names for the feature weights.
+    FEATURE_NAMES = { 'fw_hane' => 'Hane', 'fw_cut' => 'Cut', 'fw_edge' => 'Edge', 'fw_capture' => 'Capture',
+                      'fw_self_atari' => 'SelfAtari', 'fw_saves_atari' => 'SavesAtari',
+                      'fw_near_last' => 'NearLast' }.freeze
     SHAPES_HEADINGS = %w[Gen Shapes Hidden Output].freeze
     SHAPES_NOTE = <<~NOTE.freeze
       Networks per shape (hidden layers x width) and per activation, the three most common.
@@ -82,7 +90,9 @@ class ExperimentStats
       'population.children', *ExperimentStats::OPERATORS.map { |operator| "population.operators.#{operator}" },
       *%w[identical distinct_parents unique_genomes].map { |key| "population.#{key}" },
       *SUMMARY.map { |key| "population.scores.#{key}" },
-      *ExperimentStats::GENES.flat_map { |gene| SUMMARY.map { |key| "genes.#{gene}.#{key}" } },
+      *(ExperimentStats::GENES + [ExperimentStats::FEATURE_STEP] + ExperimentStats::FEATURE_WEIGHTS).flat_map do |gene|
+        SUMMARY.map { |key| "genes.#{gene}.#{key}" }
+      end,
       *%w[layers width weights].flat_map { |part| SUMMARY.map { |key| "shape.#{part}.#{key}" } },
       *%w[hidden output].flat_map { |layer| ExperimentStats::ACTIVATIONS.map { |name| "activation.#{layer}.#{name}" } },
       *ExperimentStats::STRUCTURES.map { |op| "structure.#{op}" },
@@ -157,24 +167,40 @@ class ExperimentStats
       minutes < 60 ? format('%dm%02ds', minutes, seconds % 60) : format('%dh%02dm', minutes / 60, minutes % 60)
     end
 
-    # The genes, shapes and activations, and breeding and bots tables.
+    # The genes, feature weights (none without features), shapes and
+    # activations, and breeding and bots tables.
     def genome_tables(shown)
       latest = shown.reverse.find { |f| f[:genes].values.any? { |gene| gene[:median] } }
-      genes = shown.map { |f| genes_row(f[:generation], f, :median) }
-      title = 'Genes'
-      if latest
-        genes += [:separator, genes_row('min', latest, :min), genes_row('max', latest, :max)]
-        title += " (range: generation #{latest[:generation]})"
-      end
+      weights = shown.last ? shown.last[:genes].keys & ExperimentStats::FEATURE_WEIGHTS : []
       bots = shown.last&.fetch(:bots)&.keys&.grep(String) || []
-      "\n#{title}\n#{table(GENES_HEADINGS, genes)}\n#{GENES_NOTE}" \
-        "\nShapes and activations\n#{table(SHAPES_HEADINGS, shown.map { |f| shapes_row(f) }, left: [1, 2, 3])}\n#{SHAPES_NOTE}" \
+      out = genes_table('Genes', GENES_HEADINGS, shown, latest) { |f, key| genes_row(f, key) }
+      out << "\n#{GENES_NOTE}"
+      unless weights.empty?
+        headings = %w[Gen Step] + weights.map { |gene| FEATURE_NAMES.fetch(gene) }
+        features = genes_table('Feature weights', headings, shown, latest) do |f, key|
+          [ExperimentStats::FEATURE_STEP, *weights].map { |gene| number(f[:genes][gene][key]) }
+        end
+        out << features << "\n#{FEATURES_NOTE}"
+      end
+      out << "\nShapes and activations\n#{table(SHAPES_HEADINGS, shown.map { |f| shapes_row(f) }, left: [1, 2, 3])}\n#{SHAPES_NOTE}" \
         "\nBreeding and bots\n#{table(BREEDING_HEADINGS + bots, shown.map { |f| breeding_row(f, bots) })}\n#{BREEDING_NOTE}"
     end
 
-    def genes_row(label, figures, key)
+    # A row of medians per generation, then the min and max of `latest`, the
+    # latest generation with births; the block gives a row's cells after
+    # its label.
+    def genes_table(title, headings, shown, latest)
+      rows = shown.map { |f| [f[:generation], *yield(f, :median)] }
+      if latest
+        rows += [:separator, ['min', *yield(latest, :min)], ['max', *yield(latest, :max)]]
+        title += " (range: generation #{latest[:generation]})"
+      end
+      +"\n#{title}\n#{table(headings, rows)}"
+    end
+
+    def genes_row(figures, key)
       shape = figures[:shape]
-      [label, *ExperimentStats::GENES.map { |gene| number(figures[:genes][gene][key]) },
+      [*ExperimentStats::GENES.map { |gene| number(figures[:genes][gene][key]) },
        *%i[layers width weights].map { |part| number(shape[part][key]) }]
     end
 

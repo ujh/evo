@@ -281,7 +281,8 @@ are mutations.
 ## 5. Reading a run
 
 `mise run stats NAME` prints, between the Generations and Benchmark tables,
-three genome tables for the latest 10 generations. Each row describes the
+the genome tables for the latest 10 generations (four, or three with
+`features none`). Each row describes the
 networks *of* that generation, from the `births` table.
 
 ### Genes
@@ -295,12 +296,34 @@ networks *of* that generation, from the `births` table.
 
 One row of **medians** per generation: Copy (`copy_chance`), Changes
 (`weight_changes`), Step (`weight_step`), Act (`activation_rate`), Struct
-(`structure_rate`), then Layers, Width, and Weights per network. The `min`
+(`structure_rate`), then Layers, Width, and Weights per network (feature
+inputs included). The `min`
 and `max` rows give the range in the latest generation.
 
 Watch for a gene that walks to a limit and stays there, for example Copy at
 0.1 (a tenth of mutated children would be plain copies) or Step at 10. A
 median that wanders and comes back is normal.
+
+### Feature weights
+
+```
+| Gen | Step    | Hane   | Cut    | Edge   | Capture | SelfAtari | SavesAtari | NearLast |
+|   1 |    0.01 | 0.0594 | 0.0603 | 0.0505 |    1.29 |     -1.14 |      0.626 |   0.0427 |
+| min | 0.00872 | 0.0528 | 0.0555 | 0.0435 |   0.828 |     -1.14 |      0.619 |   0.0332 |
+| max |  0.0104 | 0.0691 | 0.0631 | 0.0623 |     1.3 |    -0.752 |      0.947 |   0.0483 |
+```
+
+The same rows as Genes for `feature_step` (Step, not `weight_step`) and
+for the weight each move feature adds to a point's score. Only the
+experiment's features have a column; with `features none` there is no
+table, since no network has a feature weight and `feature_step` never
+moves. (From a seeded smoke run, generation 1: `--features all --seed 3`,
+4 networks of `1x10`.)
+
+A sign that flips (Capture or SavesAtari below 0, SelfAtari above 0) or a
+weight that runs to ±10 is selection at work, and worth a look. Small
+shape weights that drift by a few hundredths over generations are
+`feature_step` doing its job.
 
 ### Shapes and activations
 
@@ -342,7 +365,11 @@ passes on a tie, so they pass a lot: selection's problem, not a bug.
 ### CSV columns
 
 `stats NAME --csv` has one row per generation, with every generation (not
-just the latest 10). The genome columns: `genes.GENE.min|median|max`,
+just the latest 10). The genome columns: `genes.GENE.min|median|max` for
+the five genes, `genes.feature_step.*` (filled for every network), and
+`genes.fw_NAME.*` for all seven feature weights, empty where the
+experiment's feature set lacks that feature, so experiments with different
+feature sets have the same columns;
 `shape.layers|width|weights.min|median|max`, `activation.hidden|output.NAME`
 (counts for all six), `structure.none|widen|narrow|add_layer|remove_layer`,
 `population.operators.initial|crossover|mutation|copy`,

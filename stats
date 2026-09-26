@@ -31,16 +31,23 @@ end
 database = ExperimentDatabase.new(path, readonly: true)
 stats = ExperimentStats.new(database)
 
-if options[:watch]
-  begin
-    ExperimentStats::Report.watch(stats, $stdout)
-  rescue Interrupt
-    puts
+begin
+  if options[:watch]
+    begin
+      ExperimentStats::Report.watch(stats, $stdout)
+    rescue Interrupt
+      puts
+    end
+  elsif options[:csv]
+    puts ExperimentStats::Report.csv(ExperimentStats::Report.figures(stats), stats.benchmark_opponents,
+                                     bot_groups: stats.bot_groups)
+  else
+    puts ExperimentStats::Report.text(ExperimentStats::Report.figures(stats))
   end
-elsif options[:csv]
-  puts ExperimentStats::Report.csv(ExperimentStats::Report.figures(stats), stats.benchmark_opponents,
-                                   bot_groups: stats.bot_groups)
-else
-  puts ExperimentStats::Report.text(ExperimentStats::Report.figures(stats))
+rescue ExperimentStats::MissingSetting => e
+  # An experiment created before a setting the figures need.
+  warn e.message
+  exit 1
+ensure
+  database.close
 end
-database.close

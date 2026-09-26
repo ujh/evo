@@ -239,15 +239,37 @@ class ExperimentStatsTest < Minitest::Test
         'weight_changes' => { min: 1.0, median: 2.5, max: 4.0 },
         'weight_step' => { min: 0.4, median: 0.5, max: 0.6 },
         'activation_rate' => { min: 0.02, median: 0.02, max: 0.02 },
-        'structure_rate' => { min: 0.01, median: 0.02, max: 0.03 } },
+        'structure_rate' => { min: 0.01, median: 0.02, max: 0.03 },
+        'feature_step' => { min: 0.008, median: 0.01, max: 0.012 },
+        'fw_hane' => { min: 0.05, median: 0.05, max: 0.06 },
+        'fw_cut' => { min: 0.05, median: 0.05, max: 0.05 },
+        'fw_edge' => { min: 0.05, median: 0.05, max: 0.05 },
+        'fw_capture' => { min: 0.99, median: 1.0, max: 1.02 },
+        'fw_self_atari' => { min: -1.0, median: -1.0, max: -0.97 },
+        'fw_saves_atari' => { min: 0.8, median: 0.8, max: 0.8 } },
       @stats.generation(1)[:genes]
     )
   end
 
-  # Total weights for 9x9: 82 inputs and 82 outputs.
+  # Only the move features of the experiment's set have a weight; without
+  # features there is only feature_step, which every network has.
+  def test_feature_weights_follow_the_experiments_feature_set
+    reopen_writing { |writer| writer.save_settings(StatsFixture::SETTINGS.merge('features' => 'none')) }
+    genes = figures_of({ features: 'none', fw_hane: nil, fw_cut: nil, fw_edge: nil, fw_capture: nil,
+                         fw_self_atari: nil, fw_saves_atari: nil })[:genes]
+    assert_equal ExperimentStats::GENES + ['feature_step'], genes.keys
+    assert_equal({ min: 0.01, median: 0.01, max: 0.01 }, genes['feature_step'])
+    reopen_writing { |writer| writer.save_settings(StatsFixture::SETTINGS.merge('features' => FeatureGroups::ALL)) }
+    genes = figures_of({ features: FeatureGroups::ALL, fw_near_last: 0.04 })[:genes]
+    assert_equal %w[fw_hane fw_cut fw_edge fw_capture fw_self_atari fw_saves_atari fw_near_last], genes.keys.grep(/\Afw_/)
+    assert_equal({ min: 0.04, median: 0.04, max: 0.04 }, genes['fw_near_last'])
+  end
+
+  # Total weights for 9x9 with the shapes and tactics groups: 82 inputs
+  # (komi and the stones) plus six planes of 81, and 82 outputs.
   def test_shapes_of_a_generation
     assert_equal(
-      { layers: { min: 1, median: 1, max: 1 }, width: { min: 10, median: 10, max: 11 }, weights: { min: 1732, median: 1732, max: 1897 },
+      { layers: { min: 1, median: 1, max: 1 }, width: { min: 10, median: 10, max: 11 }, weights: { min: 6592, median: 6592, max: 7243 },
         counts: { '1x10' => 2, '1x11' => 1 } },
       @stats.generation(1)[:shape]
     )
@@ -258,9 +280,30 @@ class ExperimentStatsTest < Minitest::Test
   # width.
   def test_total_weights_of_other_depths
     shape = figures_of({ layers: 0, width: 0 }, { layers: 2, width: 10 }, { layers: 2, width: 10 })[:shape]
-    assert_equal({ min: 1842, median: 1842, max: 6806 }, shape[:weights])
+    assert_equal({ min: 6702, median: 6702, max: 46658 }, shape[:weights])
     assert_equal({ '0x0' => 1, '2x10' => 2 }, shape[:counts])
     assert_equal({ min: 0, median: 2, max: 2 }, shape[:layers])
+  end
+
+  # The weights count the inputs of the experiment's feature set: 1,732 for
+  # a 9x9 1x10 network without features, 10,652 with all of them.
+  def test_total_weights_count_the_feature_inputs
+    { 'none' => 1732, FeatureGroups::ALL => 10_652 }.each do |features, weights|
+      reopen_writing { |writer| writer.save_settings(StatsFixture::SETTINGS.merge('features' => features)) }
+      assert_equal({ min: weights, median: weights, max: weights }, figures_of({})[:shape][:weights], features)
+    end
+  end
+
+  # Without the setting the weights (and the feature weights shown) would
+  # be guessed, so an experiment created before it fails as the runner
+  # does.
+  def test_an_experiment_without_features_fails
+    reopen_writing { |writer| writer.save_settings(StatsFixture::SETTINGS.except('features')) }
+    error = assert_raises(ExperimentStats::MissingSetting) { @stats.generation(1) }
+    assert_equal 'features is missing', error.message
+    reopen_writing { |writer| writer.save_settings(StatsFixture::SETTINGS.except('board_size')) }
+    error = assert_raises(ExperimentStats::MissingSetting) { @stats.generation(1) }
+    assert_equal 'board_size is missing', error.message
   end
 
   def test_activations_count_every_name
