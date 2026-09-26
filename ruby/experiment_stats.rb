@@ -1,4 +1,5 @@
 require_relative 'checkpoint_benchmark'
+require_relative 'feature_groups'
 
 # What `stats` reports about an experiment, computed from its database
 # alone. A tournament score only ranks the networks of one generation, so
@@ -11,6 +12,10 @@ require_relative 'checkpoint_benchmark'
 # toward its bound); the bot ranks come from the rankings and place the
 # networks against the fixed bots.
 class ExperimentStats
+  # A setting the figures depend on is not stored: the experiment was
+  # created before it, and figures without it would be wrong.
+  class MissingSetting < ArgumentError; end
+
   RESULTS = { 'network' => :win, 'opponent' => :loss }.freeze
   # Every generation counts each, so the CSV has the same columns for all.
   OPERATORS = %w[initial crossover mutation copy].freeze
@@ -20,6 +25,10 @@ class ExperimentStats
   GENES = %w[copy_chance weight_changes weight_step activation_rate structure_rate].freeze
   ACTIVATIONS = %w[sigmoid sigmoid_cached threshold linear tanh relu].freeze
   STRUCTURES = %w[none widen narrow add_layer remove_layer].freeze
+  # Every network has a feature_step; a feature weight only a network whose
+  # feature set has that move feature (births' fw_NAME columns).
+  FEATURE_STEP = 'feature_step'.freeze
+  FEATURE_WEIGHTS = FeatureGroups::GROUPS.values.flatten.map { |name| "fw_#{name}" }.freeze
 
   # `database` is an ExperimentDatabase, normally opened read-only.
   def initialize(database)
@@ -43,17 +52,22 @@ class ExperimentStats
 
   # A Hash with the generation's figures; see the private methods for each
   # part. The last generation may still be playing, and a checkpoint is
-  # finished only once its benchmark is complete.
+  # finished only once its benchmark is complete. The genes are GENES,
+  # FEATURE_STEP, and the feature weights of the experiment's feature set.
   def generation(generation)
+    # Both settings are read first, so an experiment without them fails
+    # whatever the generation holds.
+    genes = GENES + [FEATURE_STEP] + feature_weights
+    board_size
     state = database.state(generation)
     benchmark = benchmark(generation)
     births = database.births(generation)
     {
       generation:,
-      finished: state['round'] >= Integer(settings.fetch('tournament_rounds')) && (benchmark.nil? || benchmark[:complete]),
+      finished: state['round'] >= Integer(setting('tournament_rounds')) && (benchmark.nil? || benchmark[:complete]),
       tournament: tournament(generation),
       population: population(generation),
-      genes: GENES.to_h { |gene| [gene, summary(births.filter_map { |birth| birth[gene.to_sym] })] },
+      genes: genes.to_h { |gene| [gene, summary(births.filter_map { |birth| birth[gene.to_sym] })] },
       shape: shape(births),
       activation: activation(births),
       structure: structure(births),
@@ -70,6 +84,26 @@ class ExperimentStats
   # Settings are stored as strings.
   def settings
     @settings ||= database.settings
+  end
+
+  def setting(key)
+    settings.fetch(key) { raise MissingSetting, "#{key} is missing" }
+  end
+
+  def board_size
+    Integer(setting('board_size'))
+  end
+
+  # The feature set as the runner stores it: `none` or the groups.
+  def feature_set
+    setting('features')
+  end
+
+  # The fw_NAME genes of the feature set's move features, in FEATURE_WEIGHTS'
+  # order.
+  def feature_weights
+    names = FeatureGroups.move_features(feature_set) or raise ArgumentError, "unknown features #{feature_set.inspect}"
+    names.map { |name| "fw_#{name}" }
   end
 
   # The scored games. A draw has neither winner nor failure; game_seconds is
@@ -151,29 +185,18 @@ class ExperimentStats
   end
 
   # The networks' shapes: the hidden layers, their width, and the total
-  # weights (nil without the board size), each summarized, and how many
-  # networks have each shape, as "LAYERSxWIDTH". Births from before
-  # migration 010 have no shape.
+  # weights (FeatureGroups.total_weights, feature inputs included), each
+  # summarized, and how many networks have each shape, as "LAYERSxWIDTH".
+  # Births from before migration 010 have no shape.
   def shape(births)
     shaped = births.select { |birth| birth[:layers] }
     shapes = shaped.map { |birth| birth.values_at(:layers, :width) }
     {
       layers: summary(shapes.map(&:first)),
       width: summary(shapes.map(&:last)),
-      weights: summary(shapes.filter_map { |layers, width| total_weights(layers, width) }),
+      weights: summary(shapes.map { |layers, width| FeatureGroups.total_weights(board_size, layers, width, feature_set) }),
       counts: shapes.map { |layers, width| "#{layers}x#{width}" }.tally.sort_by { |name, count| [-count, name] }.to_h
     }
-  end
-
-  # As GENANN lays them out: each neuron has a bias and a weight per neuron
-  # of the layer before; a board of N points has N² + 1 inputs and outputs.
-  def total_weights(layers, width)
-    return nil unless settings['board_size']
-
-    ends = (Integer(settings['board_size'])**2) + 1
-    return (ends + 1) * ends if layers.zero?
-
-    ((ends + 1) * width) + ((layers - 1) * (width + 1) * width) + ((width + 1) * ends)
   end
 
   # How many networks have each hidden and each output activation; nil
@@ -271,11 +294,11 @@ class ExperimentStats
   end
 
   def benchmark_games
-    Integer(settings.fetch('benchmark_games'))
+    Integer(setting('benchmark_games'))
   end
 
   def keep_every
-    Integer(settings.fetch('keep_every'))
+    Integer(setting('keep_every'))
   end
 
   # As in RunGeneration: the generations whose networks are kept.

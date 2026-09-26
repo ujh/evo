@@ -69,7 +69,7 @@ class StatsTest < Minitest::Test
                   %w[2 c.ann GnuGoLevel0 0/4 0-0 0-0 0 0], %w[2 c.ann Gen0Champion 2/4 0-1 0-1 0 0]], rows
   end
 
-  TITLES = /\A(Generations|Genes|Shapes|Breeding|Benchmark)/
+  TITLES = /\A(Generations|Genes|Feature weights|Shapes|Breeding|Benchmark)/
 
   # The table titled `title`: its title line up to the next table's.
   def section(out, title)
@@ -92,11 +92,50 @@ class StatsTest < Minitest::Test
     assert_includes genes.lines.first, 'generation 1'
     assert_equal %w[Gen Copy Changes Step Act Struct Layers Width Weights], cells(genes.lines.find { |l| l.include?('Copy') })
     rows = rows_of(genes)
-    assert_equal %w[0 0.01 1 0.5 0.02 0.02 1 10 1732], rows[0]
-    assert_equal %w[1 0.01 2.5 0.5 0.02 0.02 1 10 1732], rows[1]
+    assert_equal %w[0 0.01 1 0.5 0.02 0.02 1 10 6592], rows[0]
+    assert_equal %w[1 0.01 2.5 0.5 0.02 0.02 1 10 6592], rows[1]
     assert_equal %w[2 - - - - - - - -], rows[2]
-    assert_equal %w[min 0.005 1 0.4 0.02 0.01 1 10 1732], rows.find { |r| r.first == 'min' }
-    assert_equal %w[max 0.02 4 0.6 0.02 0.03 1 11 1897], rows.find { |r| r.first == 'max' }
+    assert_equal %w[min 0.005 1 0.4 0.02 0.01 1 10 6592], rows.find { |r| r.first == 'min' }
+    assert_equal %w[max 0.02 4 0.6 0.02 0.03 1 11 7243], rows.find { |r| r.first == 'max' }
+  end
+
+  # feature_step and a column per move feature of the experiment's set (the
+  # fixture's has no near_last), with the same medians and range.
+  def test_prints_the_feature_weights_of_each_generation
+    out, = stats('x')
+    features = section(out, 'Feature weights')
+    assert_includes features.lines.first, 'generation 1'
+    assert_equal %w[Gen Step Hane Cut Edge Capture SelfAtari SavesAtari],
+                 cells(features.lines.find { |l| l.include?('Step') })
+    rows = rows_of(features)
+    assert_equal %w[0 0.01 0.05 0.05 0.05 1 -1 0.8], rows[0]
+    assert_equal %w[1 0.01 0.05 0.05 0.05 1 -1 0.8], rows[1]
+    assert_equal %w[2 - - - - - - -], rows[2]
+    assert_equal %w[min 0.008 0.05 0.05 0.05 0.99 -1 0.8], rows.find { |r| r.first == 'min' }
+    assert_equal %w[max 0.012 0.06 0.05 0.05 1.02 -0.97 0.8], rows.find { |r| r.first == 'max' }
+  end
+
+  # Without features no network has a feature weight, and feature_step
+  # never changes, so there is no table.
+  def test_prints_no_feature_weights_without_features
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'))
+    database.save_settings(StatsFixture::SETTINGS.merge('features' => 'none'))
+    database.close
+    out, err, status = stats('x')
+    assert status.success?, err
+    refute_includes out, 'Feature weights'
+  end
+
+  def test_an_experiment_without_features_exits_1_with_the_missing_setting
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'))
+    database.save_settings(StatsFixture::SETTINGS.except('features'))
+    database.close
+    %w[x --csv].each do |mode|
+      out, err, status = stats(*[mode, 'x'].uniq)
+      assert_equal 1, status.exitstatus
+      assert_empty out
+      assert_equal "features is missing\n", err
+    end
   end
 
   def test_prints_the_shapes_and_activations_of_each_generation
@@ -165,7 +204,11 @@ class StatsTest < Minitest::Test
     assert_equal '0.005', row['genes.copy_chance.min']
     assert_equal '4.0', row['genes.weight_changes.max']
     assert_equal '11', row['shape.width.max']
-    assert_equal '1732', row['shape.weights.median']
+    assert_equal '6592', row['shape.weights.median']
+    assert_equal '0.008', row['genes.feature_step.min']
+    assert_equal '0.01', row['genes.feature_step.median']
+    assert_equal '1.02', row['genes.fw_capture.max']
+    assert_equal '-1.0', row['genes.fw_self_atari.min']
     assert_equal '1', row['activation.hidden.tanh']
     assert_equal '0', row['activation.hidden.relu']
     assert_equal '1', row['activation.output.relu']
@@ -180,6 +223,9 @@ class StatsTest < Minitest::Test
     out, = stats('--csv', 'x')
     rows = CSV.parse(out, headers: true)
     assert_nil rows[2]['genes.weight_step.median']
+    assert_nil rows[2]['genes.feature_step.median']
+    # The fixture's feature set has no near_last.
+    assert_nil rows[1]['genes.fw_near_last.median']
     assert_nil rows[2]['shape.layers.median']
     assert_nil rows[2]['activation.hidden.relu']
     assert_nil rows[0]['structure.none']
@@ -210,7 +256,8 @@ class StatsTest < Minitest::Test
   def genome_columns
     activations = %w[sigmoid sigmoid_cached threshold linear tanh relu]
     [
-      *%w[copy_chance weight_changes weight_step activation_rate structure_rate].flat_map do |gene|
+      *%w[copy_chance weight_changes weight_step activation_rate structure_rate feature_step fw_hane fw_cut fw_edge
+          fw_capture fw_self_atari fw_saves_atari fw_near_last].flat_map do |gene|
         %w[min median max].map { |key| "genes.#{gene}.#{key}" }
       end,
       *%w[layers width].flat_map { |part| %w[min median max].map { |key| "shape.#{part}.#{key}" } }, 

@@ -18,6 +18,7 @@ module RunGenerationHelpers
     'layer_size' => 10,
     'max_hidden_layers' => 4,
     'max_layer_size' => 200,
+    'features' => 'none',
     'cross_over_rate' => 0.5,
     'game_length' => 10,
     'max_moves' => 200,
@@ -34,6 +35,8 @@ module RunGenerationHelpers
     'initial_weight_step' => 0.5,
     'initial_activation_rate' => 0.02,
     'initial_structure_rate' => 0.02,
+    'initial_feature_noise' => 0.3,
+    'initial_feature_step' => 0.01,
     'concurrency' => 1
   }.freeze
 

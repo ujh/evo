@@ -9,27 +9,34 @@ require_relative '../ruby/setup_experiment'
 # benchmark is half played (of 4 games per opponent, AmiGo has all, Brown
 # and Gen0Champion 2, GnuGoLevel0 none), and generation 3 is still in its
 # first round. Generation 1 has children of two shapes and several
-# activations. ExperimentStats and the stats script are tested on it.
+# activations. The networks see the shapes and tactics groups, so they have
+# no near_last weight. ExperimentStats and the stats script are tested on
+# it.
 module StatsFixture
   PLAYERS = { 'a.ann' => {}, 'b.ann' => {}, 'c.ann' => {}, 'Brown1' => { 'external' => true } }.freeze
   # Generation 0's genes and activations: the initial values (c.ann's
   # output activation differs, so that generation 1's c.ann, which copied
   # it, is identical).
+  FEATURES = 'shapes,tactics'.freeze
   GENES = { act_hidden: 'sigmoid_cached', act_output: 'sigmoid_cached', copy_chance: 0.01, weight_changes: 1.0,
-            weight_step: 0.5, activation_rate: 0.02, structure_rate: 0.02 }.freeze
+            weight_step: 0.5, activation_rate: 0.02, structure_rate: 0.02, features: FEATURES, feature_step: 0.01,
+            fw_hane: 0.05, fw_cut: 0.05, fw_edge: 0.05, fw_capture: 1.0, fw_self_atari: -1.0, fw_saves_atari: 0.8 }.freeze
   GENERATION_1_GENES = {
     'a.ann' => GENES,
-    'b.ann' => GENES.merge(act_hidden: 'tanh', copy_chance: 0.02, weight_changes: 2.5, weight_step: 0.4, structure_rate: 0.03),
-    'c.ann' => GENES.merge(act_output: 'relu', copy_chance: 0.005, weight_changes: 4.0, weight_step: 0.6, structure_rate: 0.01)
+    'b.ann' => GENES.merge(act_hidden: 'tanh', copy_chance: 0.02, weight_changes: 2.5, weight_step: 0.4, structure_rate: 0.03,
+                           feature_step: 0.012, fw_capture: 0.99, fw_hane: 0.06),
+    'c.ann' => GENES.merge(act_output: 'relu', copy_chance: 0.005, weight_changes: 4.0, weight_step: 0.6, structure_rate: 0.01,
+                           feature_step: 0.008, fw_capture: 1.02, fw_self_atari: -0.97)
   }.freeze
+  SETTINGS = { 'tournament_rounds' => 2, 'keep_every' => 2, 'benchmark_games' => 4, 'seed' => 1, 'board_size' => 9,
+               'features' => FEATURES }.freeze
 
   # Writes the experiment database at `path`.
   def self.create(path)
     FileUtils.mkdir_p(File.dirname(path))
     writer = ExperimentDatabase.new(path)
     SetupExperiment.save_rules(writer)
-    writer.save_settings('tournament_rounds' => 2, 'keep_every' => 2, 'benchmark_games' => 4, 'seed' => 1,
-                         'board_size' => 9)
+    writer.save_settings(SETTINGS)
     populate(writer)
     writer.close
   end

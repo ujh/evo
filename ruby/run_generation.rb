@@ -348,7 +348,7 @@ class RunGeneration
     genes = settings.values_at(*INITIAL_GENES)
     command = "../initial-population #{settings['population_size']} #{settings['board_size']} " \
               "#{settings['hidden_layers']} #{settings['layer_size']} #{genes.join(' ')} " \
-              "#{experiment_features} #{INITIAL_FEATURE_NOISE} #{INITIAL_FEATURE_STEP} #{seed}"
+              "#{experiment_features} #{settings['initial_feature_noise']} #{settings['initial_feature_step']} #{seed}"
     # Stop before storing anything, so generation 0 never starts short of
     # networks, as breeding does when evolve fails.
     success, output = run_initial_population(command)
@@ -375,11 +375,6 @@ class RunGeneration
   INITIAL_GENES = %w[
     initial_copy_chance initial_weight_changes initial_weight_step initial_activation_rate initial_structure_rate
   ].freeze
-
-  # The noise on generation 0's feature weights and its feature_step, until
-  # the runner gets settings for them.
-  INITIAL_FEATURE_NOISE = 0.3
-  INITIAL_FEATURE_STEP = 0.01
 
   # Returns [success, stdout]; stdout has a genes line per network.
   def run_initial_population(command)
@@ -409,9 +404,9 @@ class RunGeneration
   end
 
   # The feature set every network of the experiment has, as the genes line
-  # writes it. The runner does not give networks features yet.
+  # writes it; the setting is stored that way.
   def experiment_features
-    'none'
+    settings['features']
   end
 
   # A genes line of initial-population or evolve (ann_print_genes_line in
