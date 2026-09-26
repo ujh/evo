@@ -42,4 +42,4 @@ int boot(int argc, char **argv);
 // or a quit, with the network in `ann`. boot runs it on stdin.
 void run_gtp(FILE *in);
 extern genann *ann;
-extern ann_features network_features; // read with it, unused yet
+extern ann_features network_features; // read with it; generate_move uses them

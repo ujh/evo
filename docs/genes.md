@@ -47,7 +47,9 @@ set back to it. The settings accept the same ranges.
   and komi (shapes, tactics, the last move, chain liberties), a gene
   `feature_step`, and one weight per move feature of its groups. For now
   every network has no groups, so it has no feature weights and its
-  `feature_step` stays at 0.01; nothing reads or breeds them yet. A child
+  `feature_step` stays at 0.01. The engine plays with them (a network with
+  groups gets their inputs, and each feature weight is added to a point's
+  score where that feature is 1), but nothing breeds them yet: a child
   takes its picked parent's features unchanged, whatever the operator.
   `initial-population` and `evolve` print them at the end of each
   network's genes line (`features=none feature_step=0.01`, and with groups

@@ -1,7 +1,8 @@
 /*
  * Tests of the Go rules the experiment depends on: Brown's board code
- * (captures, suicide, simple ko, pass) and the filter generate_move applies
- * to the network's choice. They pin down what the engine does today.
+ * (captures, suicide, simple ko, pass), the filter generate_move applies
+ * to the network's choice, and how the feature weights change that choice.
+ * They pin down what the engine does today.
  */
 
 #include <string.h>
@@ -446,6 +447,142 @@ void test_the_move_choice_follows_move_allowed() {
   genann_free(ann);
 }
 
+// A network without hidden layers whose every weight is 0, with linear
+// outputs, for a board of `size` with the groups: every point scores 0 and
+// pass `pass_score`, so its moves follow from the feature weights alone.
+static genann *zero_network(int size, unsigned groups, double pass_score) {
+  int points = size * size;
+  int inputs = ann_layout_inputs(groups, points);
+  genann *ann = genann_init(inputs, 0, 0, points + 1);
+  ann->activation_output = genann_act_linear;
+  for (int k = 0; k < ann->total_weights; k++) ann->weight[k] = 0.0;
+  ann->weight[points * (inputs + 1)] = -pass_score; // the bias input is -1
+  return ann;
+}
+
+// The tactics features with the weights given, in ANN_FEATURES' order.
+static ann_features tactics(double capture, double self_atari, double saves_atari) {
+  ann_features f = {.groups = ANN_GROUP_TACTICS, .feature_step = 0.01,
+                    .weights = {capture, self_atari, saves_atari}};
+  return f;
+}
+
+// The input buffer holds the largest layout Brown can play.
+void test_the_input_buffer_fits_every_layout() {
+  lok(GENERATE_MOVE_MAX_INPUTS == ann_layout_inputs(ANN_GROUPS_ALL, MAX_BOARD * MAX_BOARD));
+}
+
+// A network fits a board when its inputs are its feature set's layout for
+// the board, and its outputs the points plus pass.
+void test_ann_fits_board_with_features() {
+  genann *plain = zero_network(5, 0, 0.0);
+  genann *tactical = zero_network(5, ANN_GROUP_TACTICS, 0.0);
+  ann_features none = ann_default_features(0);
+  ann_features with = ann_default_features(ANN_GROUP_TACTICS);
+  ann_features shapes = ann_default_features(ANN_GROUP_SHAPES);
+  lok(ann_fits_board(plain, NULL, 5));
+  lok(ann_fits_board(plain, &none, 5));
+  lok(!ann_fits_board(plain, &with, 5));
+  lok(!ann_fits_board(plain, NULL, 9));
+  lok(ann_fits_board(tactical, &with, 5));
+  lok(ann_fits_board(tactical, &shapes, 5)); // shapes adds 3 planes too
+  lok(!ann_fits_board(tactical, NULL, 5));
+  lok(!ann_fits_board(tactical, &none, 5));
+  lok(!ann_fits_board(tactical, &with, 9));
+  genann_free(plain);
+  genann_free(tactical);
+}
+
+// Without features, generate_move plays what the network scores highest
+// among the allowed points, as find_and_set_best_move picks.
+void test_generate_move_without_features() {
+  const char *atari[] = {".....", ".....", "...X.", "..XO.", "...X."};
+  genann *ann = zero_network(5, 0, -1.0);
+  ann_features none = ann_default_features(0);
+  int i, j;
+  setup(atari);
+  generate_move(ann, NULL, &i, &j, BLACK);
+  lok(i == 0 && j == 0); // every point ties, so the first allowed one
+  generate_move(ann, &none, &i, &j, BLACK);
+  lok(i == 0 && j == 0);
+  genann_free(ann);
+}
+
+// A positive capture weight makes the capture the best point.
+void test_generate_move_captures_with_a_capture_weight() {
+  const char *atari[] = {".....", ".....", "...X.", "..XO.", "...X."};
+  genann *ann = zero_network(5, ANN_GROUP_TACTICS, -1.0);
+  ann_features f = tactics(1.0, 0.0, 0.0);
+  int i, j;
+  setup(atari);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == 3 && j == 4);
+  // White has nothing to capture and plays the first allowed point.
+  generate_move(ann, &f, &i, &j, WHITE);
+  lok(i == 0 && j == 0);
+  // A zero weight changes nothing.
+  f = tactics(0.0, 0.0, 0.0);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == 0 && j == 0);
+  genann_free(ann);
+}
+
+// A negative self_atari weight skips a self-atari the network would play.
+void test_generate_move_avoids_self_atari() {
+  const char *start[] = {".O...", ".....", ".....", ".....", "....."};
+  genann *ann = zero_network(5, ANN_GROUP_TACTICS, -1.0);
+  ann_features f = tactics(0.0, 0.0, 0.0);
+  int i, j;
+  setup(start);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == 0 && j == 0); // A5 is a self-atari
+  f = tactics(0.0, -10.0, 0.0);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == 0 && j == 2);
+  genann_free(ann);
+}
+
+// The weights of every feature at a point add up, and are compared with
+// the pass output, which they never change.
+void test_feature_weights_add_up_and_leave_pass_alone() {
+  // Black's A5 is in atari; C5 captures B5 and saves A5, A4 only saves it.
+  const char *start[] = {"XO...", ".X...", ".....", ".....", "....."};
+  genann *ann = zero_network(5, ANN_GROUP_TACTICS, 0.5);
+  int i, j;
+  setup(start);
+  ann_features f = tactics(0.3, 0.0, 0.3);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == 0 && j == 2);
+  // Alone, neither weight beats pass.
+  f = tactics(0.3, 0.0, 0.0);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == -1 && j == -1);
+  f = tactics(0.0, 0.0, 0.3);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == -1 && j == -1);
+  // A tie with pass still passes.
+  f = tactics(0.25, 0.0, 0.25);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == -1 && j == -1);
+  genann_free(ann);
+}
+
+// A network with every group reads its features' weights in ANN_FEATURES'
+// order: only the capture weight (the fourth) is set.
+void test_feature_weights_follow_the_feature_order() {
+  const char *atari[] = {".....", ".....", "...X.", "..XO.", "...X."};
+  genann *ann = zero_network(5, ANN_GROUPS_ALL, -1.0);
+  ann_features f = {.groups = ANN_GROUPS_ALL, .feature_step = 0.01,
+                    .weights = {0, 0, 0, 1.0, 0, 0, 0}};
+  int i, j;
+  setup(atari);
+  generate_move(ann, &f, &i, &j, BLACK);
+  lok(i == 3 && j == 4);
+  // The move features were trial moves only: the board is as before.
+  lok(board_is(atari));
+  genann_free(ann);
+}
+
 int main(void) {
   printf("Go rules test suite\n");
 
@@ -471,6 +608,13 @@ int main(void) {
   lrun("last_handicap", test_fixed_handicap_leaves_no_last_move);
   lrun("move_filter", test_the_move_filter);
   lrun("move_allowed", test_the_move_choice_follows_move_allowed);
+  lrun("input_buffer", test_the_input_buffer_fits_every_layout);
+  lrun("fits_features", test_ann_fits_board_with_features);
+  lrun("no_features", test_generate_move_without_features);
+  lrun("w_capture", test_generate_move_captures_with_a_capture_weight);
+  lrun("w_self_atari", test_generate_move_avoids_self_atari);
+  lrun("weights_add", test_feature_weights_add_up_and_leave_pass_alone);
+  lrun("weight_order", test_feature_weights_follow_the_feature_order);
 
   lresults();
   return lfails != 0;

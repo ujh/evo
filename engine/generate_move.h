@@ -39,12 +39,22 @@
 // nothing from the GTP code, so any program can link it with brown.o and
 // features.o.
 
-// Whether `ann` has one input per point plus komi and one output per point
-// plus pass for a board of `size`.
-int ann_fits_board(genann const *ann, int size);
-// The move `ann` plays for `color` on the current board. Callers must check
-// ann_fits_board(ann, board_size) first.
-void generate_move(genann const *ann, int *i, int *j, int color);
+// The most inputs a network can have: every feature group on a 23x23
+// board (lib/ann.h's layout: komi, the stones, 7 move feature planes, 3
+// liberty planes, the last_move plane, and opponent_passed).
+#define GENERATE_MOVE_MAX_INPUTS (2 + (1 + ANN_MAX_FEATURES + 3 + 1) * ANN_MAX_SIDE * ANN_MAX_SIDE)
+
+// Whether `ann` has the inputs of its feature set's layout (features NULL:
+// no groups, komi and the stones only) and one output per point plus pass
+// for a board of `size`.
+int ann_fits_board(genann const *ann, ann_features const *features, int size);
+// The move `ann`, with its features (NULL for none), plays for `color` on
+// the current board: the inputs of its groups (feature_inputs), the
+// network's scores, each point's score plus the weight of every move
+// feature of the groups that is 1 there (pass unchanged), and then
+// find_and_set_best_move. Callers must check ann_fits_board(ann, features,
+// board_size) first.
+void generate_move(genann const *ann, ann_features const *features, int *i, int *j, int color);
 // Picks the highest-scoring point in `prediction` (one score per point of
 // `ann`'s outputs, then pass) that move_allowed (features.h) accepts, or
 // pass.

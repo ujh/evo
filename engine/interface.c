@@ -85,7 +85,7 @@ static struct gtp_command commands[] = {
 };
 
 genann *ann = NULL;
-// The network's feature groups and weights, read with it (unused yet).
+// The network's feature groups and weights, read with it.
 ann_features network_features;
 
 void allocate_ann(char *ann_save_file) {
@@ -211,7 +211,7 @@ gtp_boardsize(char *s)
   if (sscanf(s, "%d", &boardsize) < 1)
     return gtp_failure("boardsize not an integer");
 
-  if (boardsize < MIN_BOARD || boardsize > MAX_BOARD || !ann_fits_board(ann, boardsize))
+  if (boardsize < MIN_BOARD || boardsize > MAX_BOARD || !ann_fits_board(ann, &network_features, boardsize))
     return gtp_failure("unacceptable size");
 
   board_size = boardsize;
@@ -247,7 +247,7 @@ place_free_handicap(int handicap)
   int i, j;
 
   for (k = 0; k < handicap; k++) {
-    generate_move(ann, &i, &j, BLACK);
+    generate_move(ann, &network_features, &i, &j, BLACK);
     play_move(i, j, BLACK);
   }
   /* Handicap stones are not moves. */
@@ -275,7 +275,7 @@ place_handicap(char *s, int fixed)
     return gtp_failure("invalid handicap");
 
   // Free handicap stones are the network's moves.
-  if (!fixed && !ann_fits_board(ann, board_size))
+  if (!fixed && !ann_fits_board(ann, &network_features, board_size))
     return gtp_failure("network does not fit the board");
 
   if (fixed)
@@ -373,10 +373,10 @@ gtp_genmove(char *s)
     return gtp_failure("invalid color");
 
   // Reached when no boardsize was sent: evo starts at size 6.
-  if (!ann_fits_board(ann, board_size))
+  if (!ann_fits_board(ann, &network_features, board_size))
     return gtp_failure("network does not fit the board");
 
-  generate_move(ann, &i, &j, color);
+  generate_move(ann, &network_features, &i, &j, color);
   play_move(i, j, color);
 
   gtp_start_response(GTP_SUCCESS);

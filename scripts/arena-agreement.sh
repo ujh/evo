@@ -2,8 +2,8 @@
 set -eu
 
 # Checks that the arena (engine/arena) plays and scores a game as GoGui
-# does. Seeded random networks play a fixed sample of pairings, with both
-# colors, once through the arena and once through gogui-twogtp with evo and
+# does. Seeded random networks, without feature groups and with all of
+# them, play a fixed sample of pairings, with both colors, once through the arena and once through gogui-twogtp with evo and
 # the GNU Go referee, at the same komi and move limit. The check fails when
 #   - the moves or the length of a game differ;
 #   - the arena's result differs from a Tromp-Taylor count, made here, of
@@ -38,8 +38,9 @@ trap 'kill $lane_pids 2>/dev/null; exit 1' HUP INT TERM
 komi=6.5
 # Seeded, so which games count as having no dead stones is the same every run.
 referee='gnugo --mode gtp --chinese-rules --seed 1'
-# The sample below yields 10 such games; fewer means the sample or the
-# networks changed so that the winner comparison no longer tests much.
+# The sample below yields 24 such games (10 without features, 14 with);
+# fewer means the sample or the networks changed so that the winner
+# comparison no longer tests much.
 min_compared=5
 
 failed=0
@@ -181,14 +182,14 @@ gnugo_answers() {
     ' >"$scratch/answers"
 }
 
-# check_game SIZE MAX_MOVES ID BLACK WHITE: compares the game twogtp played
-# with the arena's line for ID in $scratch/arena-SIZE.
+# check_game SAMPLE SIZE MAX_MOVES ID BLACK WHITE: compares the game twogtp
+# played with the arena's line for ID in $scratch/arena-SAMPLE.
 check_game() {
-  size=$1
-  max_moves=$2
-  id=$3
+  size=$2
+  max_moves=$3
+  id=$4
   games=$((games + 1))
-  line=$(grep "^$id	" "$scratch/arena-$size" || true)
+  line=$(grep "^$id	" "$scratch/arena-$1" || true)
   if [ -z "$line" ] || [ -n "$(field "$line" error)" ]; then
     fail "$id: the arena did not play it: $line"
     return
@@ -264,31 +265,34 @@ check_game() {
   fi
 }
 
-# sample SIZE MAX_MOVES COUNT SEED: COUNT networks with one hidden layer of
-# 20 neurons from SEED, every ordered pairing of two of them played in the
-# arena, and the games added to $scratch/games for twogtp.
+# sample SIZE MAX_MOVES COUNT SEED GROUPS: COUNT networks with one hidden
+# layer of 20 neurons and the feature GROUPS (none or all) from SEED, every
+# ordered pairing of two of them played in the arena, and the games added
+# to $scratch/games for twogtp.
 sample() {
   size=$1
-  population="$scratch/networks-$size"
+  name="${size}x$size-$5"
+  population="$scratch/networks-$name"
   mkdir "$population"
-  # Genes do not affect play, so every sample gets the defaults with
-  # weight_changes 1.
-  (cd "$population" && "$generator" "$3" "$size" 1 20 0.01 1 0.5 0.02 0.02 none 0.3 0.01 "$4" >/dev/null)
-  : >"$scratch/schedule-$size"
+  # The genes do not affect play, so every sample gets the defaults with
+  # weight_changes 1; the feature weights do, and are the starting values
+  # with noise.
+  (cd "$population" && "$generator" "$3" "$size" 1 20 0.01 1 0.5 0.02 0.02 "$5" 0.3 0.01 "$4" >/dev/null)
+  : >"$scratch/schedule-$name"
   for black in "$population"/*.ann; do
     for white in "$population"/*.ann; do
       if [ "$black" != "$white" ]; then
-        printf '%sx%s-%s-%s %s %s\n' "$size" "$size" "$(basename "$black" .ann)" \
-          "$(basename "$white" .ann)" "$black" "$white" >>"$scratch/schedule-$size"
+        printf '%s-%s-%s %s %s\n' "$name" "$(basename "$black" .ann)" \
+          "$(basename "$white" .ann)" "$black" "$white" >>"$scratch/schedule-$name"
       fi
     done
   done
-  if ! "$arena" "$size" "$komi" "$2" "$scratch/schedule-$size" >"$scratch/arena-$size" </dev/null; then
-    fail "the arena failed on the ${size}x$size sample"
+  if ! "$arena" "$size" "$komi" "$2" "$scratch/schedule-$name" >"$scratch/arena-$name" </dev/null; then
+    fail "the arena failed on the $name sample"
   fi
   while read -r id black white; do
-    printf '%s %s %s %s %s\n' "$size" "$2" "$id" "$black" "$white" >>"$scratch/games"
-  done <"$scratch/schedule-$size"
+    printf '%s %s %s %s %s %s\n' "$name" "$size" "$2" "$id" "$black" "$white" >>"$scratch/games"
+  done <"$scratch/schedule-$name"
 }
 
 # Plays every game in $scratch/games through twogtp, in $lanes processes
@@ -297,7 +301,7 @@ play_twogtp() {
   lane=0
   while [ "$lane" -lt "$lanes" ]; do
     awk -v lanes="$lanes" -v lane="$lane" 'NR % lanes == lane' "$scratch/games" |
-      while read -r size max_moves id black white; do
+      while read -r name size max_moves id black white; do
         gogui-twogtp -black "$evo $black" -white "$evo $white" -referee "$referee" \
           -games 1 -size "$size" -komi "$komi" -maxmoves "$max_moves" -auto -force \
           -sgffile "$scratch/$id" </dev/null >/dev/null 2>"$scratch/$id.err" || true
@@ -310,12 +314,14 @@ play_twogtp() {
 }
 
 : >"$scratch/games"
-sample 9 120 5 7
-sample 5 40 8 7
+sample 9 120 5 7 none
+sample 5 40 8 7 none
+sample 9 120 5 7 all
+sample 5 40 8 7 all
 lanes=4
 play_twogtp
-while read -r size max_moves id black white; do
-  check_game "$size" "$max_moves" "$id" "$black" "$white"
+while read -r name size max_moves id black white; do
+  check_game "$name" "$size" "$max_moves" "$id" "$black" "$white"
 done <"$scratch/games"
 
 printf 'Arena agreement: %d games, moves identical in %d, Tromp-Taylor recount identical in %d\n' \
