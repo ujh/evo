@@ -61,13 +61,55 @@ static int final_status[MAX_BOARD * MAX_BOARD];
 /* Point which would be an illegal ko recapture. */
 static int ko_i, ko_j;
 
+/* The last move: its kind (LAST_MOVE_*), point, and color. */
+static int last_kind = LAST_MOVE_NONE;
+static int last_i = -1, last_j = -1;
+static int last_color = EMPTY;
+
+
+void brown_save(brown_state *state) {
+  memcpy(state->board, board, sizeof(board));
+  memcpy(state->next_stone, next_stone, sizeof(next_stone));
+  state->ko_i = ko_i;
+  state->ko_j = ko_j;
+  state->last_kind = last_kind;
+  state->last_i = last_i;
+  state->last_j = last_j;
+  state->last_color = last_color;
+}
+
+void brown_restore(brown_state const *state) {
+  memcpy(board, state->board, sizeof(board));
+  memcpy(next_stone, state->next_stone, sizeof(next_stone));
+  ko_i = state->ko_i;
+  ko_j = state->ko_j;
+  last_kind = state->last_kind;
+  last_i = state->last_i;
+  last_j = state->last_j;
+  last_color = state->last_color;
+}
 
 void init_brown() {
   new_game();
 }
 
+void clear_last_move() {
+  last_kind = LAST_MOVE_NONE;
+  last_i = -1;
+  last_j = -1;
+  last_color = EMPTY;
+}
+
+int last_move(int *i, int *j, int *color) {
+  if (i) *i = last_i;
+  if (j) *j = last_j;
+  if (color) *color = last_color;
+  return last_kind;
+}
+
 void clear_board() {
   memset(board, 0, sizeof(board));
+  clear_last_move();
 }
 
 void new_game() {
@@ -252,6 +294,12 @@ void play_move(int i, int j, int color)
   ko_i = -1;
   ko_j = -1;
 
+  /* Record the last move. */
+  last_kind = pass_move(i, j) ? LAST_MOVE_PASS : LAST_MOVE_POINT;
+  last_i = i;
+  last_j = j;
+  last_color = color;
+
   /* Nothing more happens if the move was a pass. */
   if (pass_move(i, j))
     return;
@@ -329,6 +377,10 @@ void play_move(int i, int j, int color)
       ko_j = aj;
     }
   }
+}
+
+void play_pass(int color) {
+  play_move(-1, -1, color);
 }
 
 /* Set a final status value for an entire string. */
@@ -476,4 +528,7 @@ place_fixed_handicap(int handicap)
     play_move(low, mid, BLACK);    /* top edge */
     play_move(high, mid, BLACK);   /* bottom edge */
   }
+
+  /* Handicap stones are not moves. */
+  clear_last_move();
 }

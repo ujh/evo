@@ -35,5 +35,10 @@
 
 #include "ann.h"
 
+#include <stdio.h>
+
 int boot(int argc, char **argv);
+// Starts a game and answers the GTP commands read from `in` until it ends
+// or a quit, with the network in `ann`. boot runs it on stdin.
+void run_gtp(FILE *in);
 extern genann *ann;

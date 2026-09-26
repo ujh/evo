@@ -9,7 +9,7 @@ default: evo arena
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
-include $(OBJS:.o=.dep) score.dep arena.dep rules_test.dep score_test.dep
+include $(OBJS:.o=.dep) score.dep arena.dep rules_test.dep score_test.dep gtp_test.dep
 
 evo: $(OBJS) main.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
@@ -29,10 +29,16 @@ arenatest: evo arena
 # The Go rules: Brown's board code and the move filter. Linked without the
 # GTP code (gtp.o, interface.o), which also checks that a program other than
 # evo can play networks with brown.o and generate_move.o alone.
-test: brown.o generate_move.o rules_test.o ../lib/libann.a score_test
-	$(CC) $(CFLAGS) -o rules_test $(filter-out score_test,$^) $(LDLIBS)
+test: brown.o generate_move.o rules_test.o ../lib/libann.a score_test gtp_test
+	$(CC) $(CFLAGS) -o rules_test $(filter-out score_test gtp_test,$^) $(LDLIBS)
 	./rules_test
 	./score_test
+	./gtp_test
+
+# What evo's GTP commands leave in Brown's state (the last move), through
+# evo's own command table.
+gtp_test: $(OBJS) gtp_test.o ../lib/libann.a
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # The Tromp-Taylor count, over Brown's board alone.
 score_test: brown.o score.o score_test.o
@@ -43,4 +49,4 @@ score_test: brown.o score.o score_test.o
 
 clean:
 	$(RM) *.o *.dep
-	$(RM) evo arena rules_test score_test
+	$(RM) evo arena rules_test score_test gtp_test
