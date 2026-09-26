@@ -1162,6 +1162,43 @@ void test_mutate_draws_the_features_after_the_genes() {
   lok(mutated > 45);
 }
 
+// The feature draws by hand, from the raw generator: the copy check, one
+// normal per gene in ann_genes' order, the normal for feature_step, then one
+// uniform per feature weight, which moves by the child's new step.
+void test_mutate_feature_draws_by_hand() {
+  genann *parent = genann_init(3, 1, 4, 2);
+  ann_genes genes = middle_genes();
+  genes.copy_chance = ANN_COPY_CHANCE_MIN;
+  ann_features features = ann_default_features(ANN_GROUPS_ALL);
+  features.feature_step = 0.2;
+  const double tau = 0.5;
+  int wrong = 0, mutated = 0;
+  for (uint64_t seed = 0; seed < 200; seed++) {
+    ann_genes child_genes;
+    ann_features child;
+    mutation_outcome outcome;
+    pcg32_srandom(seed, 54u);
+    genann *net = mutate(parent, &genes, &features, tau, NULL, &child_genes, &child, &outcome);
+    genann_free(net);
+    if (outcome.copy) continue;
+    mutated++;
+    pcg32_srandom(seed, 54u);
+    GENANN_RANDOM();
+    for (int g = 0; g < 5; g++) standard_normal();
+    double step = fmin(fmax(features.feature_step * exp(tau * standard_normal()), ANN_FEATURE_STEP_MIN),
+                       ANN_FEATURE_STEP_MAX);
+    if (child.feature_step != step) wrong++;
+    for (int i = 0; i < ANN_MAX_FEATURES; i++) {
+      double moved = features.weights[i] + (2.0 * GENANN_RANDOM() - 1.0) * step;
+      moved = fmin(fmax(moved, ANN_FEATURE_WEIGHT_MIN), ANN_FEATURE_WEIGHT_MAX);
+      if (child.weights[i] != moved) wrong++;
+    }
+  }
+  lequal(wrong, 0);
+  lok(mutated > 190);
+  genann_free(parent);
+}
+
 // However far they step, feature_step stays in [1e-4, 1] and every feature
 // weight in [-10, 10].
 void test_mutate_features_clamps() {
@@ -1341,6 +1378,7 @@ int main(int argc, char **argv) {
   lrun("breed_shapes", test_breed_crosses_over_only_the_same_shape);
   lrun("mutate_feature_weights", test_mutate_moves_every_feature_weight);
   lrun("mutate_feature_order", test_mutate_draws_the_features_after_the_genes);
+  lrun("mutate_feature_draws", test_mutate_feature_draws_by_hand);
   lrun("mutate_feature_clamps", test_mutate_features_clamps);
   lrun("mutate_no_feature_draws", test_mutate_draws_no_features_without_move_features);
   lrun("parents_groups", test_parents_must_have_the_same_groups);

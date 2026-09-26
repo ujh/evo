@@ -138,6 +138,7 @@ evolvetest: evolve
 	# feature weight, though here no network weight changed: the differs
 	# counts cover only the network's weights.
 	./evolve 0 $(BOUNDS) parents/features/0001.ann parents/features/0002.ann feat-mutated.ann 3 > feat-mutated.out
+	tail -n 1 feat-mutated.out > feat-mutated.out.genes
 	set -- $$($(SUMMARY) feat-mutated.out) && test "$$*" = "mutation second none 0 5367 0"
 	cmp -n 4 feat-mutated.ann parents/features/0002.ann 74 74
 	for offset in 78 86 94 102 110 118 126 134; do \
@@ -146,6 +147,12 @@ evolvetest: evolve
 	cmp feat-mutated.ann parents/features/0002.ann 142 142
 	tail -n 1 feat-mutated.out | grep -q ' features=shapes,tactics,last_move,liberties feature_step=[0-9.e-]* fw_hane=[0-9.e-]* fw_cut=[0-9.e-]* fw_edge=[0-9.e-]* fw_capture=[0-9.e-]* fw_self_atari=-[0-9.e-]* fw_saves_atari=[0-9.e-]* fw_near_last=[0-9.e-]*$$'
 	! tail -n 1 feat-mutated.out | cmp -s - parents/features/second.genes
+	# Its genes line prints the child's features, as its file holds them: a
+	# crossover of the child with itself prints the genes line read back from
+	# the file.
+	./evolve 1 $(BOUNDS) feat-mutated.ann feat-mutated.ann feat-reread.ann 1 > feat-reread.out
+	set -- $$($(SUMMARY) feat-reread.out) && test "$$1" = crossover
+	tail -n 1 feat-reread.out | cmp - feat-mutated.out.genes
 	printf 'boardsize 9\ngenmove b\nquit\n' | ../engine/evo feat-mutated.ann | grep -q '^= [A-Z]'
 	# Removing the only hidden layer (seed 28) folds the outputs onto every
 	# input, the feature inputs included, and the engine plays the child.
@@ -165,7 +172,7 @@ evolvetest: evolve
 	rm -rf parents cross-a.ann cross-b.ann cross-c.ann cross-d.ann cross-e.ann cross-a.out cross-d.out cross-e.out \
 	  copy.ann copy.out mutated.ann mutated.out kept.ann kept.out deep.ann deep.out mixed.ann mixed.out \
 	  feat-cross.ann feat-cross.out feat-copy.ann feat-copy.out feat-mutated.ann feat-mutated.out \
-	  feat-flat.ann feat-flat.out feat-mixed.out
+	  feat-flat.ann feat-flat.out feat-mixed.out feat-mutated.out.genes feat-reread.ann feat-reread.out
 
 test: $(OBJS) test.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
