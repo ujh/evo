@@ -391,7 +391,7 @@ class SetupExperimentTest < Minitest::Test
     assert_includes help, 'a whole number of at least 0, default 4'
     assert_includes help, '--komi VALUE'
     assert_includes help, 'a multiple of 0.5 from -50 to 50, default 6.5'
-    assert_includes help, 'a number from 1 to 1000000000, default from the generation-0 shape'
+    assert_includes help, 'a number from 1 to 1000000000, default from the generation-0 shape and features'
     assert_includes help, 'Hidden layers of generation 0'
   end
 

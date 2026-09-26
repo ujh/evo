@@ -111,7 +111,7 @@ class SetupExperiment
     # the share, is the gene, so growing a network does not raise its load.
     'initial_weight_changes' => [
       'Weights changed per mutated child (initial gene)',
-      Derived.new('from the generation-0 shape', ->(settings) { default_weight_changes(settings).to_s }),
+      Derived.new('from the generation-0 shape and features', ->(settings) { default_weight_changes(settings).to_s }),
       number(1, 1_000_000_000)
     ],
     'initial_weight_step' => ['Largest change of a mutated weight (initial gene)', '0.5', number(0.0001, 10)],
