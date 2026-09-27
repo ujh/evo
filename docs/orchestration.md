@@ -5,7 +5,7 @@ Use this for any change bigger than one PR, or one that needs several design dec
 ## Roles
 
 - **Owner:** decides scope, trade-offs, and defaults, approves the plan, and says when to merge.
-- **Orchestrator** (the agent in the conversation): agrees the work with the owner, writes the plan and is its only editor, briefs every other agent, decides what the owner left open, keeps the learnings log, and reports. The plan then has one writer and says what the orchestrator knows.
+- **Orchestrator** (the agent in the conversation): agrees the work with the owner, writes the plan and is its only editor, briefs every other agent, decides what the owner left open, keeps the learnings log and the out-of-scope list, and reports. The plan then has one writer and says what the orchestrator knows.
 - **Step agent:** a fresh subagent that does one step, commits without pushing, and reports. It does not edit the plan.
 - **Reviewer:** a fresh subagent that has not seen the work. It reports findings under `docs/pull-requests.md` and never writes to a tree an agent is working in.
 
@@ -26,7 +26,8 @@ Write the plan to `plans/NAME.md` in the repository root. The directory is gitig
 - the declined findings, each with its reason; every reviewer gets this list, so it does not raise them again;
 - the design decisions you made;
 - the steps as a checklist, grouped by PR, in an order where the PRs can merge one after the other. Each step is small enough for one agent and one or two commits, and names the checks it needs beyond `mise run test` (a GCC build, a smoke run; see [Checks and their cost](#checks-and-their-cost)). A step of real runs and owner docs may be larger. The last code PR ends with a step of real runs, and the plan's last step folds the learnings log into the docs (both in step 5);
-- a learnings log: what worked, what went wrong, tool quirks, and what the owner asked to change about the process. Add to it as things happen, not from memory at the end.
+- a learnings log: what worked, what went wrong, tool quirks, and what the owner asked to change about the process. Add to it as things happen, not from memory at the end;
+- a list of out-of-scope items: improvements that lie outside the plan's work, of two kinds. One is code that is not ideal: a confusing name, a duplicated rule, a slow or flaky test, a missing check. The other is the tools and scripts agents work with (mise tasks, the `pr-*` scripts, the test and smoke-run commands, the reference docs): a step that took many commands and could be one script, output too long or too vague to read, a check with no command to run it, a doc that sent an agent the wrong way. Each item says who raised it, in which step, and where (a file and line, or a command). The learnings log is about how the run works and ends up in these docs; this list is about the repository and may end up in `PROJECT_NOTES.md` (step 6).
 
 Each PR updates the docs it makes stale (`docs/pull-requests.md` step 3). Do not park those edits in a final docs step, or the PRs before it merge with stale text.
 
@@ -42,7 +43,7 @@ Show the plan to the owner and wait for their approval before any code is writte
 
 Take the PRs in the plan's order, and finish each one before the next begins: its steps, its whole-branch review loop, then push, open, and `mise run pr-checks`. Only then branch the next PR from it and start that PR's first step. So a PR stacked on another is built on commits whose review is done, and a fix to the base never has to move a branch already built on it.
 
-**Steps.** Give each step to a fresh step agent with the [step brief](#step-brief). When it reports, tick the step in the plan with its commit ids and what later steps need to know (a new interface, a name, a number), record the decisions it made, and add to the learnings log.
+**Steps.** Give each step to a fresh step agent with the [step brief](#step-brief). When it reports, tick the step in the plan with its commit ids and what later steps need to know (a new interface, a name, a number), record the decisions it made, add to the learnings log, and copy its out-of-scope items into the plan's list. Do the same with the out-of-scope items of every reviewer's report, the plan review's included.
 
 **Per-commit review.** After each code commit, a fresh reviewer reviews that commit under `docs/pull-requests.md`, with the owner's decisions and the declined findings, so a defect is fixed before the PR's later steps build on it. Commits that change only docs get no review of their own, and neither does the commit of a PR with a single step: no later step builds on it before the PR's whole-branch review, which covers both. Fix blockers and important findings before the next step that depends on them:
 
@@ -64,6 +65,8 @@ Runs since the last whole-process review: 0
 
 Report once, when every PR, the learnings PR included, is open and green: what each PR does, what the reviews found and how it was settled, the decisions you made, what the real runs showed (including results that argue against the design), what the owner must know (for example that old experiments no longer load), and anything left open. Do not merge unless the owner says so; how to merge a stack is under [Worktrees and stacked PRs](#worktrees-and-stacked-prs).
 
+Before reporting, give the plan's out-of-scope list to a fresh subagent to triage. For each item it checks against `main` whether it still holds, whether a merged or open PR (these included) already settled it, and whether `PROJECT_NOTES.md` already has it; it drops those, merges duplicates, and drops one-offs that will not trip anyone again. For each item it keeps, it says in plain language what the problem is, where it is, and why fixing it would help: for a tool or script, what agents would no longer have to do by hand or work out again. Put that list in the report and ask the owner which items go into `PROJECT_NOTES.md`. Add those in a commit on the learnings PR, follow `docs/pull-requests.md` step 7 for it, and tell the owner when its checks pass again.
+
 ### 7. Clean up
 
 Once all of the plan's PRs have merged, delete the plan from `plans/`: it then holds nothing the repository's history and docs do not.
@@ -75,19 +78,21 @@ Stop and ask only:
 - before the plan, for every decision that is the owner's (step 1);
 - for approval of the plan, unless given in advance (step 4);
 - when any review (plan, commit, or branch) is still not clean after its third round, or a finding needs a decision only the owner can make, such as changing scope, approach, or something the plan says must not change (`docs/pull-requests.md`, the loop);
+- which triaged out-of-scope items go into `PROJECT_NOTES.md` (step 6);
 - for parallel work, and before merging.
 
 Everything else the orchestrator decides and explains in the report and the PR descriptions. Do not stop for sign-off between steps.
 
 ## Step brief
 
-Give the step agent the plan's path, the step, the owner's decisions and design decisions it touches, the checks the step names, and this file's path with the instruction to follow this section. Ask for a short report: commits, files, test count, every decision the plan did not settle, and what later steps need to know. The step agent:
+Give the step agent the plan's path, the step, the owner's decisions and design decisions it touches, the checks the step names, and this file's path with the instruction to follow this section. Ask for a short report: commits, files, test count, every decision the plan did not settle, what later steps need to know, and its out-of-scope items. Give every reviewer the same request for out-of-scope items, next to its findings. The step agent:
 
 - writes tests first and checks that they fail before the code exists;
 - runs `mise run test` before each commit, and checks `git status` so no stray file is left or committed, and `git status --ignored` after adding files, since a rule such as `*.out` can hide a fixture the tests need;
 - where the tests stub the programs a change spans (the Ruby tests stub the C programs), runs a short seeded experiment through the real runner, such as the smoke run in `docs/experiment-reference.md`: a mismatch between the C output and the Ruby parser passes every test;
 - runs the other checks its step names;
 - commits with the conventions in `CLAUDE.md` and does not push;
+- notes, without acting on it, anything outside its step that tripped it up or could be done better, in the code or in the tools and scripts it worked with (both kinds under [the plan](#2-write-the-plan)), and reports each as an out-of-scope item;
 - does not edit the plan: its report carries what the plan needs.
 
 ## Checks and their cost

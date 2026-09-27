@@ -58,6 +58,6 @@ Give the reviewer:
 - the branch or commit, the base, and the command for the diff
 - why the change was made, and what it is meant to do
 - the path to this file, and the instruction to apply its rules
-- in a planned run, the plan's owner decisions and declined findings, and for a whole-branch review the per-commit findings and what happened to each
+- in a planned run, the plan's owner decisions and declined findings, for a whole-branch review the per-commit findings and what happened to each, and the request to report out-of-scope items (`docs/orchestration.md`, step brief): problems outside the change, such as on lines it did not touch, that are not findings here
 - for later rounds, the earlier findings and what happened to each
 - the checks it should run (see "Checks and their cost" in `docs/orchestration.md`)
