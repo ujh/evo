@@ -1,6 +1,6 @@
 # Evo: open work
 
-This file lists only work still to do: defects, cleanup, proposed experiments, and open questions. Delete an item when a change finishes it. Facts a future agent needs go into `CLAUDE.md`.
+This file lists only work still to do: defects, cleanup, proposed experiments, and open questions. Delete an item when a change finishes it. Facts a future agent needs go into the relevant reference in `docs/`.
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
@@ -18,9 +18,9 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 ### 1. Fitness needs a clearer meaning
 
-The tournament has a useful idea: match roughly comparable players while including fixed external bots. However, different networks can face very different schedules, colors are randomized rather than paired, and repeat pairings are allowed. A tournament score measures success in that particular schedule; it is not a stable measure of strength across generations. The benchmark (see `CLAUDE.md`) measures strength instead.
+The tournament has a useful idea: match roughly comparable players while including fixed external bots. However, different networks can face very different schedules, colors are randomized rather than paired, and repeat pairings are allowed. A tournament score measures success in that particular schedule; it is not a stable measure of strength across generations. The benchmark (see `docs/experiment-reference.md`) measures strength instead.
 
-**Proposed experiment:** now that progress is measured apart from the tournament, test whether bots belong in the tournament at all. Compare an experiment with the default `opponents` panel against one with an empty `opponents` table, on the benchmark, at equal game budgets. If the bot-free run drifts or cycles (the usual coevolution pathologies), try a hall of fame of frozen past champions in the tournament instead; games between networks are cheap, since the arena plays them (see `CLAUDE.md`).
+**Proposed experiment:** now that progress is measured apart from the tournament, test whether bots belong in the tournament at all. Compare an experiment with the default `opponents` panel against one with an empty `opponents` table, on the benchmark, at equal game budgets. If the bot-free run drifts or cycles (the usual coevolution pathologies), try a hall of fame of frozen past champions in the tournament instead; games between networks are cheap, since the arena plays them (see `docs/experiment-reference.md`).
 
 ### 2. Selection pressure is a guess
 
@@ -122,7 +122,7 @@ The recommendation is to consider using the network's move scores to guide explo
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Games between two networks run in the arena and cost almost nothing. Every game with a bot still launches a new GoGui process, two players, and a GNU Go referee, and that overhead is now nearly all of a profiled generation's game time (see "Performance" in `CLAUDE.md`): a median of 0.27 s per game, against 0.005 s in the arena. Once GNU Go opponents return through the ladder, each of their games takes about 7 s.
+Games between two networks run in the arena and cost almost nothing. Every game with a bot still launches a new GoGui process, two players, and a GNU Go referee, and that overhead is now nearly all of a profiled generation's game time (see `docs/performance.md`): a median of 0.27 s per game, against 0.005 s in the arena. Once GNU Go opponents return through the ladder, each of their games takes about 7 s.
 
 The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. That adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
 
@@ -147,7 +147,7 @@ Old experiments need not keep working (owner, 26 Sep 2026). Find and remove the 
 
 ### Remove the `ranking` script
 
-The owner finds `ranking` of little use (26 Sep 2026). Remove the script and every mention of it (`CLAUDE.md`, `README.md`, docs, tests).
+The owner finds `ranking` of little use (26 Sep 2026). Remove the script and every mention of it (`README.md`, docs, tests).
 
 ### Replace `stats` with a graphical viewer
 

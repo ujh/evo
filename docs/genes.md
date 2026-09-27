@@ -85,7 +85,7 @@ see section 5.)
 ## 2. How `evolve` makes a child
 
 The runner picks two parents by tournament selection (draw
-`tournament_size` networks, keep the best; see `CLAUDE.md`) and calls
+`tournament_size` networks, keep the best; see `experiment-reference.md`) and calls
 `evolve`. Each child comes about by exactly one of three operators:
 
 ```
