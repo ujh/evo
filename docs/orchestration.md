@@ -54,7 +54,7 @@ Take the PRs in the plan's order, and finish each one before the next begins: it
 
 **Real runs.** Finish the last code PR with a step of checks on real runs, not only unit tests; they find what reviews do not, such as a design consequence no one predicted: a seeded run compared against `main` where behavior must not change, reproducibility (the same seed twice), and resume after an interrupt where the change touches the runner. Examples in the docs come from seeded runs, with the full command, so a reader can repeat them. Report a result that argues against the design; do not stop for it unless it means the goal cannot be met.
 
-**Learnings.** The plan's last step, in its own docs PR or at the end of the last PR, folds the plan's learnings log into this file and `docs/pull-requests.md`, and repository quirks into `CLAUDE.md`, which every agent reads: keep what generalizes as a rule with its reason, drop one-offs. Its PR goes through the same review and CI as the others, so it is in the report.
+**Learnings.** The plan's last step, in its own docs PR or at the end of the last PR, folds the plan's learnings log into this file and `docs/pull-requests.md`, and repository quirks into the relevant reference linked from `CLAUDE.md`: keep what generalizes as a rule with its reason, drop one-offs. Its PR goes through the same review and CI as the others, so it is in the report.
 
 **Whole-process review.** Every third run, the learnings step also has a fresh agent review the whole process as one system: this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions, restructuring where the parts no longer fit rather than patching lines, since learnings folded in one run at a time drift apart. Do it sooner when a run's learnings log holds more than a handful of process items. The learnings step adds 1 to the count below; when that makes it 3 (or sooner, as above), it does the review and sets the count to 0.
 
@@ -85,7 +85,7 @@ Give the step agent the plan's path, the step, the owner's decisions and design 
 
 - writes tests first and checks that they fail before the code exists;
 - runs `mise run test` before each commit, and checks `git status` so no stray file is left or committed, and `git status --ignored` after adding files, since a rule such as `*.out` can hide a fixture the tests need;
-- where the tests stub the programs a change spans (the Ruby tests stub the C programs), runs a short seeded experiment through the real runner, such as the smoke run in `CLAUDE.md`: a mismatch between the C output and the Ruby parser passes every test;
+- where the tests stub the programs a change spans (the Ruby tests stub the C programs), runs a short seeded experiment through the real runner, such as the smoke run in `docs/experiment-reference.md`: a mismatch between the C output and the Ruby parser passes every test;
 - runs the other checks its step names;
 - commits with the conventions in `CLAUDE.md` and does not push;
 - does not edit the plan: its report carries what the plan needs.

@@ -1,6 +1,8 @@
 # Opening a pull request
 
-Follow these steps in order for every PR. The PR title and body follow the conventions in `CLAUDE.md`. BASE below is the branch the PR targets: `main`, or for a PR stacked on another PR's branch, that branch (see `docs/orchestration.md`).
+Follow these steps in order for every PR. BASE below is the branch the PR targets: `main`, or for a PR stacked on another PR's branch, that branch (see `docs/orchestration.md`).
+
+This is a personal repo with no Jira key. Use a short, descriptive PR title without a ticket key. The body is one short paragraph that starts with why the change is needed, plus a line saying how it was verified.
 
 1. Bring the branch up to date with its base, because the repository only merges a PR that is. Run `git fetch origin`. Before the first push, and only while no other branch is built on this one, rebase onto `origin/BASE`. Otherwise merge `origin/BASE` into it instead: that needs no force push and leaves the base of a branch stacked on this one where it is. Review and CI then cover what will actually merge.
 2. Run `mise run test`, plus any smoke run the change calls for. Fix failures first. Once a code file changes, earlier results are stale, so run them again.
