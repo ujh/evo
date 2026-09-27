@@ -137,6 +137,8 @@ The first experiment should have a comfortable elapsed-time cap and checkpoint r
 
 The opponent ladder needs bots between AmiGo and GNU Go, and beyond GNU Go once networks get there. Candidates: michi, Pachi, Fuego, GNU Go at levels 0–10, and others. For each, find out whether it builds on macOS (clang) and Linux (GCC), speaks GTP well enough for `gogui-twogtp`, can be weakened by a playout limit or a level, and how strong each setting is on 9×9 (for example against GNU Go level 0 and each other, over enough games in both colours). Each one that qualifies goes into the external tools release (`scripts/external-tools.txt`) and the installer.
 
+**Next: a fast bot stronger than AmiGo for the normal rounds.** GNU Go is strong but slow in our settings (about 7 s per game), and the networks do not need an opponent that strong yet (owner, 27 Sep 2026). Look for a bot that is somewhat stronger than AmiGo but plays quickly, and add it to the default `opponents` panel.
+
 ## Code cleanup
 
 The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
