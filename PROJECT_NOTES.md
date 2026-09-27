@@ -159,10 +159,6 @@ The owner finds `ranking` of little use (26 Sep 2026). Remove the script and eve
 
 `stats`' text tables are not useful as they are (owner, 26 Sep 2026). Replace them with a proper app, for example a web app run locally, that reads the experiment database read-only and shows graphs: benchmark results per checkpoint, gene and feature-weight trends, shapes and activations over time, and where the bots rank, plus whatever else turns out to be interesting. Open questions: the technology (a small local Ruby web server with a charting library, or something else), what to show, and whether the CSV output stays.
 
-### `run`: generation timestamp never changes
-
-The timestamp `run` prints for each generation is always the first one (owner, 27 Sep 2026). It should show when each generation starts.
-
 ### `run`: compiling is probably no longer useful
 
 `run` compiles the executables, but experiments now use their own copied-over executables (owner, 27 Sep 2026), so the build step is probably wasted. Check that nothing still depends on it, then remove it.
