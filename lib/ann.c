@@ -163,6 +163,27 @@ static int read_f64(FILE *in, double *d) {
     return 1;
 }
 
+// Read little-endian weights directly on common hosts, or decode in blocks.
+// A large network has hundreds of thousands of weights, so one fread per
+// weight makes loading it needlessly expensive.
+static int read_weights(FILE *in, double *weights, int count) {
+    const uint16_t one = 1;
+    if (sizeof(double) == 8 && *(const unsigned char *)&one == 1)
+        return fread(weights, sizeof(double), count, in) == (size_t)count;
+
+    unsigned char bytes[4096 * 8];
+    for (int offset = 0; offset < count; offset += 4096) {
+        int batch = count - offset < 4096 ? count - offset : 4096;
+        if (fread(bytes, 8, batch, in) != (size_t)batch) return 0;
+        for (int i = 0; i < batch; ++i) {
+            uint64_t bits = 0;
+            for (int j = 7; j >= 0; --j) bits = bits << 8 | bytes[i * 8 + j];
+            memcpy(weights + offset + i, &bits, 8);
+        }
+    }
+    return 1;
+}
+
 static int write_u32(FILE *out, uint32_t v) {
     unsigned char b[4] = {v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff};
     return fwrite(b, 1, 4, out) == 4;
@@ -269,12 +290,10 @@ genann *ann_binary_read(FILE *in, ann_genes *genes, ann_features *features) {
     ann->activation_hidden = ANN_ACTIVATIONS[codes[0] - 1].function;
     ann->activation_output = ANN_ACTIVATIONS[codes[1] - 1].function;
 
-    for (int i = 0; i < ann->total_weights; ++i) {
-        if (!read_f64(in, ann->weight + i)) {
-            fprintf(stderr, "ann_binary_read: file too short for %d weights\n", ann->total_weights);
-            genann_free(ann);
-            return NULL;
-        }
+    if (!read_weights(in, ann->weight, ann->total_weights)) {
+        fprintf(stderr, "ann_binary_read: file too short for %d weights\n", ann->total_weights);
+        genann_free(ann);
+        return NULL;
     }
     if (fgetc(in) != EOF) {
         fprintf(stderr, "ann_binary_read: bytes after the last of %d weights\n", ann->total_weights);
