@@ -8,6 +8,8 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Next task: arena performance with big populations.** With populations large in both network size and count (such as the `even-bigger` experiment), much of the time between tournament rounds seems to go into loading the networks: every round starts new arena processes (one per chunk), and each loads its networks again. Not yet investigated (owner, 26 Sep 2026). Measure first where the time goes; one candidate remedy is to keep the arena running for all of a generation's tournament rounds, so each network is loaded once.
 
+**Next step: benchmark against more past champions.** A checkpoint's benchmark plays only two networks: generation 0's champion (`initial_champion`) and the previous checkpoint's (`previous_checkpoint`). That makes progress hard to see (owner, 27 Sep 2026): a win against the previous checkpoint says little about the run as a whole, and a loss can hide steady gains against older champions. Play the top network against more of the recent champions, or all of them, for example every earlier checkpoint's top network, so each checkpoint gets a row of results against the whole line of its ancestors. Open questions: how many champions (all, or the last N) given the benchmark's cost; whether games against past champions go to the arena (Tromp–Taylor) instead of GoGui, which would make them nearly free but scored differently from the rest of the benchmark; and whether only the checkpoints' champions count (their networks are the ones kept, see item 5) or each generation's top network should be kept for it.
+
 ## What most affects the experiment
 
 ### 1. Fitness needs a clearer meaning
