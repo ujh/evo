@@ -169,7 +169,7 @@ The timestamp `run` prints for each generation is always the first one (owner, 2
 
 ### Convert the C code to Rust?
 
-Consider porting Evo's own C code to Rust, keeping the libraries it uses (such as GENANN and `pcg-c`) as they are and linking them rather than rewriting them (owner, 27 Sep 2026). The Rust compiler gives better error messages, and LLM-assisted work may go more smoothly there. Open questions: how much code that is, whether the tests carry over, and what it does to the build and CI.
+Consider porting Evo's own C code to Rust, keeping the libraries it uses (such as GENANN and `pcg-c`) as they are and linking them rather than rewriting them (owner, 27 Sep 2026). The Rust compiler gives better error messages, and LLM-assisted work may go more smoothly there. The owner already wrote a Rust Go bot, [Iomrascálaí](https://github.com/ujh/iomrascalai) (GPL-3.0, last pushed January 2018, so pre-2018-edition Rust). Its board, rule set, scoring, GTP, and SGF modules may be reusable here (owner, 27 Sep 2026). Open questions: how much code that is, whether the tests carry over, and what it does to the build and CI.
 
 ### Neural network library
 
