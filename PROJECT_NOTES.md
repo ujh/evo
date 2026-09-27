@@ -8,6 +8,10 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Further arena speedup to investigate:** Loading is faster but still costs about 1.5 s for one 250-game chunk of `even-bigger` (see `docs/performance.md`). Measure full-round and generation time, then consider keeping arenas alive across a generation's rounds so each network is loaded once. Check memory use, since each arena process could eventually load much of the 4.46 GB population, and preserve interruption and resume behavior.
 
+**After the arena speedup: schedule a round's games more cleverly.** GTP games through GoGui are slow (see [Slow experiments](#slow-experiments-identify-the-cost-before-choosing-the-remedy)), so a round may finish sooner if they start at once, in their own thread, alongside the arena games, rather than after them (owner, 27 Sep 2026). Measure how a round's time splits between the two first.
+
+**Also profile the Ruby side of a tournament round.** Besides the games, the Ruby code that pairs networks, launches games, and records results may have bottlenecks of its own (owner, 27 Sep 2026). Measure it before changing anything.
+
 **Next step: benchmark against more past champions.** A checkpoint's benchmark plays only two networks: generation 0's champion (`initial_champion`) and the previous checkpoint's (`previous_checkpoint`). That makes progress hard to see (owner, 27 Sep 2026): a win against the previous checkpoint says little about the run as a whole, and a loss can hide steady gains against older champions. Play the top network against more of the earlier checkpoints' champions, or all of them, so each checkpoint gets a row of results against the whole line of its ancestors. Only checkpoint champions count, since theirs are the networks kept (owner, 27 Sep 2026). Open questions, to decide later:
 
 - How many champions: all, or the last N, given the benchmark's cost.
@@ -162,6 +166,10 @@ The timestamp `run` prints for each generation is always the first one (owner, 2
 ### `run`: compiling is probably no longer useful
 
 `run` compiles the executables, but experiments now use their own copied-over executables (owner, 27 Sep 2026), so the build step is probably wasted. Check that nothing still depends on it, then remove it.
+
+### Convert the C code to Rust?
+
+Consider porting Evo's own C code to Rust, keeping the libraries it uses (such as GENANN and `pcg-c`) as they are and linking them rather than rewriting them (owner, 27 Sep 2026). The Rust compiler gives better error messages, and LLM-assisted work may go more smoothly there. Open questions: how much code that is, whether the tests carry over, and what it does to the build and CI.
 
 ### Neural network library
 
