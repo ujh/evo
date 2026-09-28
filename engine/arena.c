@@ -1,7 +1,9 @@
 /*
- * The arena: plays games between two networks in one process and scores
- * them with the Tromp-Taylor count, without GTP, GoGui, or a referee. It
- * has two invocations with their own input and output, and a query:
+ * The arena: plays Go games and scores them with the Tromp-Taylor count on
+ * its own board, without GoGui or a referee. Networks play in its process;
+ * external GTP programs ("bots", --mixed only) are separate processes it
+ * drives itself through the bot controller (bot.c). It has two
+ * invocations with their own input and output, and a query:
  *
  *   arena SIZE KOMI MAX_MOVES SCHEDULE          (legacy, network-only)
  *   arena --mixed SIZE KOMI MAX_MOVES MAIN_TIME RESPONSE_DEADLINE GRACE MANIFEST
@@ -50,7 +52,12 @@
  * bot's genmove answer is waited for, in seconds. Each is a decimal
  * number of seconds, digits with an optional fraction ("600", "0.05"),
  * at most 1000000; MAIN_TIME and RESPONSE_DEADLINE are above 0, GRACE
- * may be 0.
+ * may be 0. RESPONSE_DEADLINE and GRACE are 10 s each for the runner:
+ * hang guards with a wide margin, since one missed deadline stops a run.
+ * scripts/bot-response-times.sh checks the margin: Brown, AmiGo, and GNU
+ * Go level 0 answered setup, play, and quit within 0.03 s at worst, over
+ * 300 games eight at a time on a busy machine. The grace only matters at
+ * the end of main time.
  *
  * MANIFEST is a text file of lines, each a kind and its fields separated
  * by single tabs, with no empty field and no control character (bytes
@@ -124,7 +131,7 @@
  *
  * Not yet: this arena refuses (exit 1, before the header) a manifest
  * whose games include a bot, so it writes none of resign, time, timeout,
- * illegal, crash, launch. The times use CLOCK_MONOTONIC and there is no
+ * illegal, crash, launch; bot.c is not linked in yet. The times use CLOCK_MONOTONIC and there is no
  * main-time check yet.
  */
 
