@@ -2,6 +2,9 @@
 require "bundler/setup"
 require_relative "ruby/all"
 
+# scripts/profile-workload.sh reads the runner's CPU time and GC totals from here.
+ProcessProfile.install(ENV["EVO_PROFILE"]) unless ENV.fetch("EVO_PROFILE", "").empty?
+
 experiment_name = ARGV[0]
 concurrency = Integer(ARGV[1] || 2, exception: false)
 one_generation = ARGV[2] == "one-generation"
