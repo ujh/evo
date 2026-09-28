@@ -477,11 +477,9 @@ fi
 # A time loss beats the other endings of the same move. With max_moves 0
 # black's overrunning move is also the last allowed one; with max_moves 1,
 # white's.
-status=0
-./arena --mixed 5 6.5 0 0.0004 10 10 "$tmp/time-manifest" >"$tmp/time-limit0" 2>&1 || status=$?
+arena_ok time-limit0 --mixed 5 6.5 0 0.0004 10 10 "$tmp/time-manifest"
 expect_line time-limit0 hp "hp${T}result=W+T${T}end=time${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=$heavy_first${T}ok"
-status=0
-./arena --mixed 5 6.5 1 0.0004 10 10 "$tmp/time-manifest" >"$tmp/time-limit1" 2>&1 || status=$?
+arena_ok time-limit1 --mixed 5 6.5 1 0.0004 10 10 "$tmp/time-manifest"
 expect_line time-limit1 ph "ph${T}result=B+T${T}end=time${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,$heavy_reply${T}ok"
 # heavy-pass.ann has heavy.ann's shape and speed, but every weight 0 except
 # the pass output's bias weight, so it always passes. As white against
@@ -510,9 +508,32 @@ expect_line time-limit1 ph "ph${T}result=B+T${T}end=time${T}length=2${T}time_bla
   head -c $((2000 * 8)) /dev/zero
 } >"$tmp/heavy-pass.ann"
 printf 'network\theavy\t%s\nnetwork\tpass\t%s\ngame\tpp\tpass\theavy\n' "$tmp/heavy-pass.ann" "$tmp/pass.ann" >"$tmp/pass-manifest"
-status=0
-./arena --mixed 5 6.5 10 0.0004 10 10 "$tmp/pass-manifest" >"$tmp/time-passes" 2>&1 || status=$?
+arena_ok time-passes --mixed 5 6.5 10 0.0004 10 10 "$tmp/pass-manifest"
 expect_line time-passes pp "pp${T}result=B+T${T}end=time${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,pass${T}ok"
+# Each side is charged only its own moves: in heavy.ann against itself,
+# the loser is past main time and the winner within it. Each side's whole
+# game takes about 30 ms here, so main times of 1 to 6 ms end it on time
+# even on a much faster machine. The main times step by 0.25 ms, well
+# under a move's 2 ms, so that a check against the two sides' sum (even
+# against twice the main time) ends some of these games with the wrong
+# loser or at the wrong move.
+printf 'network\theavy\t%s\ngame\thh\theavy\theavy\n' "$tmp/heavy.ann" >"$tmp/hh-manifest"
+for main in 0.001 0.00125 0.0015 0.00175 0.002 0.00225 0.0025 0.00275 0.003 0.00325 0.0035 0.00375 \
+  0.004 0.00425 0.0045 0.00475 0.005 0.00525 0.0055 0.00575 0.006; do
+  arena_ok time-hh --mixed 5 6.5 40 "$main" 10 10 "$tmp/hh-manifest"
+  if ! awk -F'\t' -v main="$main" '
+    $1 == "hh" {
+      split($2, r, "="); split($3, e, "="); split($5, b, "="); split($6, w, "=")
+      if (e[2] != "time") bad = 1
+      else if (r[2] == "W+T") { if (!(b[2] > main && w[2] <= main)) bad = 1 }
+      else if (r[2] == "B+T") { if (!(w[2] > main && b[2] <= main)) bad = 1 }
+      else bad = 1
+      n++
+    }
+    END { exit bad || n != 1 }' "$tmp/time-hh"; then
+    fail "time-hh, main time $main: expected a time loss past main time to a winner within it: $(cat "$tmp/time-hh")"
+  fi
+done
 
 # Bad arguments or a bad manifest stop the arena with exit status 1 and a
 # message, before the header and any game.
