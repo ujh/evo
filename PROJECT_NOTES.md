@@ -4,7 +4,7 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** the longer `bigrun` and `even-bigger` experiments show improvement against AmiGo but leave a large gap to GNU Go level 0. Every tournament game now runs in the arena; next, find and calibrate a fast intermediate opponent and test whether low mutation rates limit further progress. Improve checkpoint comparisons and repeat controlled runs with several seeds before attributing a gain to a setting. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** the longer `bigrun` and `even-bigger` experiments show improvement against AmiGo but leave a large gap to GNU Go level 0. Next, find and calibrate a fast intermediate opponent and test whether low mutation rates limit further progress. Improve checkpoint comparisons and repeat controlled runs with several seeds before attributing a gain to a setting. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
 **Setup is now the largest part of a large generation.** On the large workload `setup` (breeding or creating 1,000 networks, storing them, and exporting their 4.6 GB to `work/`) took 33–60 s of a 97–129 s generation, about as long as or longer than the 35–43 s tournament, and varied a lot between runs (`docs/performance.md`). Time breeding, storing, and exporting separately before choosing a remedy.
 
@@ -132,7 +132,7 @@ The recommendation is to consider using the network's move scores to guide explo
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Every tournament game now runs in the arena, games with a bot included, so no tournament game launches GoGui, a JVM, or a GNU Go referee any more. On the small fixed workload that cut the tournament from about 9 s to 1.0–1.3 s (`docs/performance.md`). The benchmark now takes about 28 of a small generation's 30 s: it still plays every game through `gogui-twogtp` with the GNU Go referee, most of its time in the games against GNU Go level 0. Moving its games into the arena needs openings, which the arena lacks (see the past-champions question above), and changes their scoring from the referee's to Tromp–Taylor. Once GNU Go opponents return to the tournament through the ladder, each of their games took about 7 s through GoGui; how much of that the arena saves is not measured yet.
+The benchmark takes about 28 of a small generation's 30 s: it still plays every game through `gogui-twogtp` with the GNU Go referee, most of its time in the games against GNU Go level 0. Moving its games into the arena needs openings, which the arena lacks (see the past-champions question above), and changes their scoring from the referee's to Tromp–Taylor. GNU Go opponents, once they return to the tournament through the ladder, took about 7 s a game through GoGui; what a GNU Go game costs in the arena is not measured yet.
 
 The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. That adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
 
