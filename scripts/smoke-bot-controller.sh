@@ -7,15 +7,16 @@ set -eu
 # only where known_command says so: Brown and AmiGo reject time commands),
 # genmove, play, and quit; bot-against-bot games relayed through the
 # controller finish; a seeded GNU Go game repeats exactly in new
-# processes; and SIGTERM with bots running kills them and gives status
-# 143 under sh -c and sh -c 'exec ...'. The C tests (engine/bottest.sh)
+# processes; SIGTERM with bots running kills them and gives status 143
+# under sh -c and sh -c 'exec ...'; and the arena plays a --mixed chunk
+# with networks and bots. The C tests (engine/bottest.sh)
 # cover the rest with a fake bot; this is where real bots run, locally
 # and in CI's smoke-matches job.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 driver="$root/engine/botdriver"
 evo="$root/engine/evo"
-for program in "$driver" "$evo"; do
+for program in "$driver" "$evo" "$root/engine/arena"; do
   if [ ! -x "$program" ]; then
     printf 'build %s first (mise run build)\n' "$program" >&2
     exit 1
@@ -122,6 +123,61 @@ signal_case() {
 signal_case sigterm ''
 signal_case sigterm-exec 'exec '
 
+# The arena plays a --mixed chunk with the real bots on its own board:
+# example.ann against Brown, AmiGo and GNU Go level 0 with either color,
+# and the bots against each other, each game with fresh bot processes and
+# GNU Go seeded per game. The chunk completes with its trailer, every game
+# played; the same chunk in a new arena gives the same games.
+mixed_chunk() {
+  {
+    printf 'network\tnet\t%s\nbot\tbrown\nbot\tamigo\nbot\tgnugo\n' "$root/engine/example.ann"
+    seed=100
+    for pair in net:brown brown:net net:amigo amigo:net net:gnugo gnugo:net brown:amigo gnugo:brown amigo:gnugo \
+      gnugo:gnugo; do
+      black=${pair%%:*} white=${pair#*:}
+      printf 'game\t%s-%s\t%s\t%s\n' "$black" "$white" "$black" "$white"
+      for color in black white; do
+        if [ "$color" = black ]; then player=$black; else player=$white; fi
+        seed=$((seed + 1))
+        case $player in
+          brown) printf 'command\t%s-%s\t%s\tbrown\n' "$black" "$white" "$color" ;;
+          amigo) printf 'command\t%s-%s\t%s\tamigogtp\n' "$black" "$white" "$color" ;;
+          gnugo) printf 'command\t%s-%s\t%s\tgnugo --level 0 --mode gtp --seed %s\n' "$black" "$white" "$color" "$seed" ;;
+        esac
+      done
+    done
+  } >"$scratch/mixed.manifest"
+  status=0
+  "$root/engine/arena" --mixed 9 6.5 200 600 10 10 "$scratch/mixed.manifest" >"$scratch/$1" 2>"$scratch/$1.err" ||
+    status=$?
+  if [ "$status" -ne 0 ] || [ "$(tail -1 "$scratch/$1")" != "done 10" ]; then
+    fail "mixed chunk $1: expected exit status 0 and 'done 10', got $status:
+$(cat "$scratch/$1" "$scratch/$1.err")"
+    return 1
+  fi
+  if ! sed '1d;$d' "$scratch/$1" | awk -F'\t' '
+    NF != 9 || $2 !~ /^result=([BW]\+([0-9]+(\.[0-9]+)?|R)|0)$/ || $3 !~ /^end=(passes|limit|resign)$/ ||
+      $8 !~ /^moves=((pass|[A-HJ-T][1-9])(,(pass|[A-HJ-T][1-9]))*)?$/ { bad = 1 }
+    { n++ }
+    END { exit bad || n != 10 }'; then
+    fail "mixed chunk $1: a game was not played out as expected:
+$(cat "$scratch/$1")"
+    return 1
+  fi
+}
+if mixed_chunk mixed && mixed_chunk mixed-again; then
+  for run in mixed mixed-again; do
+    sed -E 's/(time_black|time_white|duration)=[0-9.]+/\1=T/g' "$scratch/$run" >"$scratch/$run.stripped"
+  done
+  if ! cmp -s "$scratch/mixed.stripped" "$scratch/mixed-again.stripped"; then
+    fail "mixed chunk: the same chunk gave other games in a new arena:
+$(diff "$scratch/mixed.stripped" "$scratch/mixed-again.stripped" || true)"
+  fi
+  sed '1d;$d' "$scratch/mixed" | while IFS="$T" read -r id result end length rest; do
+    printf 'arena %s: %s, %s, %s\n' "$id" "${result#result=}" "${end#end=}" "${length#length=} moves"
+  done
+fi
+
 # The response-time script fails when a game fails: here no bot can
 # start, since the PATH holds none of them.
 status=0
@@ -134,4 +190,4 @@ if [ "$failed" -ne 0 ]; then
   printf 'Bot controller smoke check failed\n' >&2
   exit 1
 fi
-printf 'The bot controller drove Brown, AmiGoGtp, GNU Go, and Evo, and cleaned up after SIGTERM\n'
+printf 'The bot controller drove Brown, AmiGoGtp, GNU Go, and Evo, and cleaned up after SIGTERM; the arena played them\n'

@@ -27,10 +27,11 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    Brown, AmiGoGtp, GNU Go levels 0 and 10, and Evo each play. It fails if a
    program crashes or the GNU Go referee returns no score. It drives Brown,
    AmiGoGtp, GNU Go level 0, and Evo through the arena's own GTP controller
-   too, and fails if one of them does not answer or a game between them
-   does not finish. It also plays a
-   sample of games between random networks both in the arena (the C program
-   that plays network-against-network games) and through GoGui, and fails if
+   too, and fails if one of them does not answer or a game between them,
+   or between one of them and a network in the arena, does not finish. It
+   also plays a sample of games between random networks both in the arena
+   (the C program that plays and scores games on its own board) and
+   through GoGui, and fails if
    the moves differ or the arena's score differs from a Tromp–Taylor count of
    GoGui's game.
 

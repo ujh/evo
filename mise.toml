@@ -39,7 +39,7 @@ description = "Run tests and check the programs needed for experiments"
 run = [{ task = "test" }, { task = "doctor" }, { task = "smoke" }]
 
 [tasks.smoke]
-description = "Play one refereed GoGui match with each external opponent and Evo, drive the same bots through the arena's GTP controller, and check that the arena plays and scores games as GoGui and GNU Go do"
+description = "Play one refereed GoGui match with each external opponent and Evo, drive the same bots through the arena's GTP controller and play them in the arena, and check that the arena plays and scores games as GoGui and GNU Go do"
 run = ["sh scripts/smoke-external-tools.sh", "sh scripts/smoke-bot-controller.sh", "sh scripts/arena-agreement.sh"]
 
 [tasks.clean]

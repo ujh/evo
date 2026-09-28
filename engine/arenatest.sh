@@ -598,11 +598,467 @@ bad_manifest 'blank command' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}white${
 bad_manifest 'command, empty' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}white${T}\n" 'line 4'
 bad_manifest 'bot without a command' "$n$b""game${T}g${T}n${T}b\n" 'game g'
 bad_manifest 'bot without a command, later game' "$n$b""game${T}g${T}b${T}n\ncommand${T}g${T}black${T}brown\ngame${T}h${T}n${T}b\n" 'game h'
-# Bots are parsed but cannot play yet.
-bad_manifest 'bot game' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}white${T}gnugo --mode gtp --seed 7\n" 'not supported yet'
 # A NUL byte is refused too.
 printf "$n""game${T}g${T}n${T}n\000\n" >"$tmp/bad-manifest"
 refuses 'manifest: NUL byte' --mixed 5 6.5 10 600 10 10 "$tmp/bad-manifest"
+
+# Games with bots, against fakebot, a scripted fake GTP program (see
+# fakebot.c), so no real bot is needed (scripts/smoke-bot-controller.sh
+# plays the real ones). By default fakebot passes to every genmove.
+
+# watch NAME PID: stops PID if it still runs after 60 s (no game here
+# takes 10), first with SIGTERM, which the arena answers by killing its
+# bots, then with SIGKILL; a hang then fails the test instead of stopping
+# it.
+watch() {
+  (
+    n=0
+    while kill -0 "$2" 2>/dev/null; do
+      n=$((n + 1))
+      if [ "$n" -gt 300 ]; then
+        : >"$tmp/$1.hung"
+        kill -TERM "$2"
+        sleep 2
+        kill -9 "$2"
+        exit
+      fi
+      sleep 0.2
+    done
+  ) >/dev/null 2>&1 &
+}
+
+# hung NAME: when the watcher had to stop NAME's arena, fails and stops
+# the tests at once, since what hung one would hang the rest.
+hung() {
+  if [ -e "$tmp/$1.hung" ]; then
+    printf '%s: hung, stopped after 60 s\n' "$1" >&2
+    exit 1
+  fi
+}
+
+# bots NAME MAX_MOVES MAIN_TIME RESPONSE_DEADLINE GRACE: runs the arena on
+# the manifest $tmp/NAME.manifest, 5x5 with komi 6.5, under a watcher; output in
+# $tmp/NAME, stderr in $tmp/NAME.err, exit status in $status, and the
+# whole seconds it took in $took.
+bots() {
+  name=$1
+  began=$(date +%s)
+  ./arena --mixed 5 6.5 "$2" "$3" "$4" "$5" "$tmp/$name.manifest" >"$tmp/$name" 2>"$tmp/$name.err" &
+  job=$!
+  watch "$name" "$job"
+  status=0
+  { wait "$job" || status=$?; } 2>/dev/null
+  took=$(($(date +%s) - began))
+  hung "$name"
+}
+
+# order NAME WANT: the output's first fields, joined by '|', are WANT.
+order() {
+  got=$(cut -f1 "$tmp/$1" | tr '\n' '|')
+  if [ "$got" != "$2" ]; then
+    fail "$1: expected $2, got $got: $(cat "$tmp/$1" "$tmp/$1.err")"
+  fi
+}
+
+# exits NAME STATUS: the arena exited with STATUS.
+exits() {
+  if [ "$status" -ne "$2" ]; then
+    fail "$1: expected exit status $2, got $status: $(cat "$tmp/$1.err")"
+  fi
+}
+
+# log NAME FILE LINE...: the bot's log (fakebot --log) is the lines; a
+# line SETUP stands for the setup commands of a 5x5 game with komi 6.5,
+# IDs 1 to 4.
+log() {
+  name=$1 file=$2
+  shift 2
+  want=$(for line in "$@"; do
+    if [ "$line" = SETUP ]; then
+      printf '%s\n' '1 known_command time_settings' '2 boardsize 5' '3 clear_board' '4 komi 6.5'
+    else
+      printf '%s\n' "$line"
+    fi
+  done)
+  if [ "$(cat "$file" 2>/dev/null)" != "$want" ]; then
+    fail "$name: the bot read
+$(cat "$file" 2>/dev/null)
+expected
+$want"
+  fi
+}
+
+# gone NAME PIDFILE: the process in PIDFILE (fakebot --pid) no longer runs.
+gone() {
+  if [ ! -s "$2" ]; then
+    fail "$1: no pid file $2"
+    return
+  fi
+  pid=$(cut -d' ' -f1 "$2")
+  if kill -0 "$pid" 2>/dev/null; then
+    fail "$1: bot $pid still runs"
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+}
+
+# field NAME ID KEY: the value of KEY in game ID's record.
+field() {
+  grep "^$2	" "$tmp/$1" | tr '\t' '\n' | sed -n "s/^$3=//p"
+}
+
+# within NAME ID KEY MIN MAX: KEY of game ID's record is within [MIN, MAX].
+within() {
+  v=$(field "$1" "$2" "$3")
+  if ! awk -v v="$v" -v lo="$4" -v hi="$5" 'BEGIN { exit !(v != "" && v >= lo && v <= hi) }'; then
+    fail "$1, game $2: $3 is '$v', expected $4 to $5"
+  fi
+}
+
+# A bot plays either color against a network, and against another bot,
+# on the arena's board. Its moves are read ignoring case and written as
+# the arena writes a network's; its games are the network games it
+# replaces: fakebot passing plays as pass.ann does (see the games lp, pl
+# and pp above). A bot is told only the other player's moves, each just
+# before its own genmove, never its own; the game's last move is never
+# sent, and quit follows the game.
+{
+  printf 'network\tplay\t%s\nnetwork\tpass\t%s\nbot\tfake\n' "$tmp/play.ann" "$tmp/pass.ann"
+  printf 'game\tlp\tplay\tfake\ncommand\tlp\twhite\t./fakebot --log %s genmove=ok:PASS\n' "$tmp/lp.log"
+  printf 'game\tpl\tfake\tplay\ncommand\tpl\tblack\t./fakebot --log %s\n' "$tmp/pl.log"
+  printf 'game\tpp\tfake\tfake\n'
+  printf 'command\tpp\tblack\t./fakebot --log %s\ncommand\tpp\twhite\t./fakebot --log %s genmove=ok:Pass\n' \
+    "$tmp/pp-b.log" "$tmp/pp-w.log"
+} >"$tmp/with-bots.manifest"
+bots with-bots 10 600 10 10
+exits with-bots 0
+order with-bots "arena protocol 3 ready|lp|pl|pp|done 3|"
+for id in lp pl pp; do
+  want=$(strip_times <"$tmp/main" | grep "^$id	")
+  expect_line with-bots "$id" "$want"
+done
+log lp "$tmp/lp.log" SETUP '5 play b A5' '6 genmove w' '7 play b B5' '8 genmove w' '9 play b C5' '10 genmove w' \
+  '11 play b D5' '12 genmove w' '13 play b E5' '14 genmove w' '15 quit'
+log pl "$tmp/pl.log" SETUP '5 genmove b' '6 play w A5' '7 genmove b' '8 play w B5' '9 genmove b' \
+  '10 play w C5' '11 genmove b' '12 play w D5' '13 genmove b' '14 play w E5' '15 genmove b' '16 quit'
+log pp "$tmp/pp-b.log" SETUP '5 genmove b' '6 quit'
+log pp "$tmp/pp-w.log" SETUP '5 play b pass' '6 genmove w' '7 quit'
+
+# max_moves + 1 moves between two bots, with lowercase vertices written in
+# uppercase; the same bot player plays both colors, each color its own
+# process.
+{
+  printf 'bot\tfake\ngame\tlimit\tfake\tfake\n'
+  printf 'command\tlimit\tblack\t./fakebot --log %s genmove#1=ok:c3 genmove#2=ok:d4\n' "$tmp/limit-b.log"
+  printf 'command\tlimit\twhite\t./fakebot --log %s\n' "$tmp/limit-w.log"
+} >"$tmp/limit.manifest"
+bots limit 2 600 10 10
+exits limit 0
+expect_line limit limit "limit${T}result=B+18.5${T}end=limit${T}length=3${T}time_black=T${T}time_white=T${T}duration=T${T}moves=C3,pass,D4${T}ok"
+log limit "$tmp/limit-b.log" SETUP '5 genmove b' '6 play w pass' '7 genmove b' '8 quit'
+log limit "$tmp/limit-w.log" SETUP '5 play b C3' '6 genmove w' '7 quit'
+
+# A bot's resignation is its opponent's win, also before any move; the
+# games after it are played. Its genmove time is charged to its side.
+{
+  printf 'network\tplay\t%s\nnetwork\tpass\t%s\nbot\tfake\n' "$tmp/play.ann" "$tmp/pass.ann"
+  printf 'game\tw-resigns\tplay\tfake\ncommand\tw-resigns\twhite\t./fakebot genmove#1=sleep:0.2 genmove#2=ok:Resign\n'
+  printf 'game\tb-resigns\tfake\tpass\ncommand\tb-resigns\tblack\t./fakebot genmove=ok:resign\n'
+  printf 'game\tpp\tpass\tpass\n'
+} >"$tmp/resign.manifest"
+bots resign 10 600 10 10
+exits resign 0
+order resign "arena protocol 3 ready|w-resigns|b-resigns|pp|done 3|"
+expect_line resign w-resigns "w-resigns${T}result=B+R${T}end=resign${T}length=3${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5,pass,B5${T}ok"
+expect_line resign b-resigns "b-resigns${T}result=W+R${T}end=resign${T}length=0${T}time_black=T${T}time_white=T${T}duration=T${T}moves=${T}ok"
+within resign w-resigns time_white 0.2 5
+within resign w-resigns time_black 0 0.1
+within resign w-resigns duration 0.2 5
+
+# Failures: each writes its record, with the moves and times before it,
+# and stops the arena with exit status 2, with no later game and no
+# trailer. $tmp/NAME.bare has the output with each message M.
+# failure NAME MAX_MOVES MAIN_TIME RESPONSE_DEADLINE GRACE
+# COLOR COMMAND: play.ann against the bot COMMAND, the bot playing COLOR,
+# then a game that must not be played.
+failure() {
+  name=$1 color=$6 command=$7
+  {
+    printf 'network\tplay\t%s\nnetwork\tpass\t%s\nbot\tfake\n' "$tmp/play.ann" "$tmp/pass.ann"
+    if [ "$color" = white ]; then
+      printf 'game\tg\tplay\tfake\n'
+    else
+      printf 'game\tg\tfake\tplay\n'
+    fi
+    printf 'command\tg\t%s\t%s\ngame\tlater\tpass\tpass\n' "$color" "$command"
+  } >"$tmp/$name.manifest"
+  bots "$name" "$2" "$3" "$4" "$5"
+  exits "$name" 2
+  order "$name" "arena protocol 3 ready|g|"
+  sed "s/${T}message=[^${T}]*${T}/${T}message=M${T}/" "$tmp/$name" >"$tmp/$name.bare"
+}
+# message NAME PATTERN: the failure record's message matches PATTERN.
+message() {
+  m=$(field "$1" g message)
+  if ! printf '%s\n' "$m" | grep -Eq "$2"; then
+    fail "$1: expected a message matching '$2', got '$m'"
+  fi
+}
+
+# An occupied point, a point off the board, or no vertex at all is an
+# illegal move.
+failure occupied 10 600 10 10 white "./fakebot genmove=ok:a5"
+expect_line occupied g "g${T}end=illegal${T}error=white${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5${T}message=genmove answered A5, which is not a legal move on the board${T}ok"
+failure off-board 10 600 10 10 black "./fakebot genmove#2=ok:F1"
+expect_line off-board g "g${T}end=illegal${T}error=black${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,A5${T}message=genmove answered 'F1', which is not a move on a 5x5 board${T}ok"
+failure no-vertex 10 600 10 10 white './fakebot "genmove=ok:A1 B2"'
+expect_line no-vertex g "g${T}end=illegal${T}error=white${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5${T}message=genmove answered 'A1 B2', which is not a move on a 5x5 board${T}ok"
+# Simple ko: taking back at once is illegal. Black's C3 captures B3;
+# white takes back at B3.
+{
+  printf 'bot\tfake\ngame\tg\tfake\tfake\n'
+  printf 'command\tg\tblack\t./fakebot genmove#1=ok:B4 genmove#2=ok:A3 genmove#3=ok:B2 genmove#5=ok:C3\n'
+  printf 'command\tg\twhite\t./fakebot genmove#1=ok:C4 genmove#2=ok:D3 genmove#3=ok:C2 genmove#4=ok:B3 genmove#5=ok:B3\n'
+} >"$tmp/ko.manifest"
+bots ko 20 600 10 10
+exits ko 2
+expect_line ko g "g${T}end=illegal${T}error=white${T}length=9${T}time_black=T${T}time_white=T${T}duration=T${T}moves=B4,C4,A3,D3,B2,C2,pass,B3,C3${T}message=genmove answered B3, which is not a legal move on the board${T}ok"
+
+# A bot that misses its genmove deadline (its remaining main time plus
+# the grace) times out; its side's time includes the wait. Main time 0.3 s
+# and grace 0.3 s: the second genmove waits about 0.6 s.
+failure timeout 10 0.3 10 0.3 white "./fakebot --pid $tmp/timeout.pid --ignore-signals --stay genmove#2=hang"
+expect_line timeout.bare g "g${T}end=timeout${T}error=white${T}length=3${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5,pass,B5${T}message=M${T}ok"
+message timeout '^genmove: no answer to genmove within 0\.(59[0-9]|600) s$'
+within timeout g time_white 0.59 1.5
+within timeout g time_black 0 0.1
+gone timeout "$tmp/timeout.pid"
+# An answer within the grace that takes the bot past main time is a
+# timeout too, not a time loss.
+failure overrun 10 0.3 10 1 black "./fakebot genmove#2=sleep:0.4"
+expect_line overrun.bare g "g${T}end=timeout${T}error=black${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,A5${T}message=M${T}ok"
+message overrun '^genmove: answered after 0\.[4-9][0-9]{2} s of genmove time in all, past the main time of 0\.300 s$'
+within overrun g time_black 0.4 1.5
+
+# A bot that dies, answers a GTP error, or answers what is not GTP,
+# crashes, whether on genmove or on play.
+failure segv 10 600 10 10 white "./fakebot genmove=crash"
+expect_line segv g "g${T}end=crash${T}error=white${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5${T}message=genmove: killed by signal 11${T}ok"
+failure play-exit 10 600 10 10 white "./fakebot play#2=exit:4"
+expect_line play-exit g "g${T}end=crash${T}error=white${T}length=3${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5,pass,B5${T}message=play: exited with status 4${T}ok"
+failure gtp-error 10 600 10 10 black "./fakebot genmove=err:out\tof\\nstones"
+expect_line gtp-error g "g${T}end=crash${T}error=black${T}length=0${T}time_black=T${T}time_white=T${T}duration=T${T}moves=${T}message=genmove answered an error: out of stones${T}ok"
+failure wrong-id 10 600 10 10 white './fakebot "genmove=raw:=99 A1\n\n"'
+expect_line wrong-id g "g${T}end=crash${T}error=white${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5${T}message=genmove: answered with ID 99 to command 6${T}ok"
+failure play-timeout 10 600 0.2 10 white "./fakebot play=hang"
+expect_line play-timeout g "g${T}end=timeout${T}error=white${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5${T}message=play: no answer to play within 0.200 s${T}ok"
+within play-timeout g time_white 0 0.1
+
+# Any failure before the bot's first play or genmove is a launch failure:
+# it cannot start, or a setup command fails or misses its deadline.
+failure no-program 10 600 10 10 white "./no-such-program --mode gtp"
+expect_line no-program g "g${T}end=launch${T}error=white${T}length=0${T}time_black=T${T}time_white=T${T}duration=T${T}moves=${T}message=cannot start ./no-such-program: No such file or directory${T}ok"
+failure setup-error 10 600 10 10 black './fakebot "boardsize=err:unacceptable size"'
+expect_line setup-error g "g${T}end=launch${T}error=black${T}length=0${T}time_black=T${T}time_white=T${T}duration=T${T}moves=${T}message=boardsize: unacceptable size${T}ok"
+failure setup-hang 10 600 0.2 10 white "./fakebot komi=hang"
+expect_line setup-hang g "g${T}end=launch${T}error=white${T}length=0${T}time_black=T${T}time_white=T${T}duration=T${T}moves=${T}message=komi: no answer to komi within 0.200 s${T}ok"
+within setup-hang g time_white 0 0
+
+# A network that cannot be played loses a game against a bot without the
+# bot being started; the later games are played.
+{
+  printf 'network\tmissing\t%s\nnetwork\tpass\t%s\nbot\tfake\n' "$tmp/missing.ann" "$tmp/pass.ann"
+  printf 'game\tmissing\tmissing\tfake\ncommand\tmissing\twhite\t./fakebot --pid %s\n' "$tmp/missing-bot.pid"
+  printf 'game\tpp\tpass\tfake\ncommand\tpp\twhite\t./fakebot\n'
+} >"$tmp/network-error.manifest"
+bots network-error 10 600 10 10
+exits network-error 0
+order network-error "arena protocol 3 ready|missing|pp|done 2|"
+expect_line network-error missing "missing${T}end=network_error${T}error=black${T}message=cannot open $tmp/missing.ann${T}ok"
+if [ -e "$tmp/missing-bot.pid" ]; then
+  fail "network-error: the bot of a game whose network cannot be played was started"
+fi
+
+# Every game starts its bots anew, from its own command line, so a
+# per-game seed reaches the bot; their stderr is the arena's.
+{
+  printf 'network\tpass\t%s\nbot\tfake\n' "$tmp/pass.ann"
+  printf 'game\tg1\tpass\tfake\ncommand\tg1\twhite\t./fakebot --stderr seed-11 --pid %s --log %s\n' "$tmp/g1.pid" "$tmp/g1.log"
+  printf 'game\tg2\tfake\tpass\ncommand\tg2\tblack\t./fakebot --stderr seed-22 --pid %s --log %s\n' "$tmp/g2.pid" "$tmp/g2.log"
+  printf 'game\tg3\tpass\tfake\ncommand\tg3\twhite\tfakebot --stderr seed-33 --pid %s --log %s\n' "$tmp/g3.pid" "$tmp/g3.log"
+} >"$tmp/fresh.manifest"
+bots fresh 10 600 10 10
+exits fresh 0
+order fresh "arena protocol 3 ready|g1|g2|g3|done 3|"
+if [ "$(grep '^seed-' "$tmp/fresh.err" | tr '\n' ' ')" != "seed-11 seed-22 seed-33 " ]; then
+  fail "fresh: expected each game's seed on the arena's stderr in order, got: $(cat "$tmp/fresh.err")"
+fi
+if [ "$(cut -d' ' -f1 "$tmp/g1.pid")" = "$(cut -d' ' -f1 "$tmp/g3.pid")" ]; then
+  fail "fresh: games g1 and g3 had the same bot process"
+fi
+log fresh "$tmp/g1.log" SETUP '5 play b pass' '6 genmove w' '7 quit'
+log fresh "$tmp/g2.log" SETUP '5 genmove b' '6 quit'
+log fresh "$tmp/g3.log" SETUP '5 play b pass' '6 genmove w' '7 quit'
+gone fresh "$tmp/g1.pid"
+gone fresh "$tmp/g2.pid"
+gone fresh "$tmp/g3.pid"
+
+# A bot that hangs mid-chunk: its game's failure record is written after
+# the records before it, a one-sided network_error among them; the arena
+# exits 2 at once, without waiting on the other bot, which does not
+# answer quit, and without the later games; and no bot is left.
+{
+  printf 'network\tpass\t%s\nnetwork\tmissing\t%s\nbot\tfake\n' "$tmp/pass.ann" "$tmp/missing.ann"
+  printf 'game\tpp\tpass\tpass\ngame\tmissing\tpass\tmissing\ngame\thang\tfake\tfake\n'
+  printf 'command\thang\tblack\t./fakebot --pid %s --ignore-signals --stay genmove=hang\n' "$tmp/hang-b.pid"
+  printf 'command\thang\twhite\t./fakebot --pid %s --ignore-signals --stay quit=hang\n' "$tmp/hang-w.pid"
+  printf 'game\tlater\tpass\tfake\ncommand\tlater\twhite\t./fakebot --pid %s\n' "$tmp/hang-later.pid"
+} >"$tmp/hang.manifest"
+bots hang 10 0.5 10 0.5
+exits hang 2
+order hang "arena protocol 3 ready|pp|missing|hang|"
+expect_line hang pp "pp${T}result=W+6.5${T}end=passes${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,pass${T}ok"
+expect_line hang missing "missing${T}end=network_error${T}error=white${T}message=cannot open $tmp/missing.ann${T}ok"
+expect_line hang hang "hang${T}end=timeout${T}error=black${T}length=0${T}time_black=T${T}time_white=T${T}duration=T${T}moves=${T}message=genmove: no answer to genmove within 1.000 s${T}ok"
+if [ "$took" -gt 5 ]; then
+  fail "hang: the arena took $took s to stop, not about 1 s"
+fi
+gone hang "$tmp/hang-b.pid"
+gone hang "$tmp/hang-w.pid"
+if [ -e "$tmp/hang-later.pid" ]; then
+  fail "hang: the game after the failure started its bot"
+fi
+
+# The header comes before any network is loaded: with a network read from
+# a FIFO, the arena writes the header and then waits to load it.
+mkfifo "$tmp/network.fifo"
+printf 'network\tfifo\t%s\ngame\tpp\tfifo\tfifo\n' "$tmp/network.fifo" >"$tmp/fifo-manifest"
+./arena --mixed 5 6.5 10 600 10 10 "$tmp/fifo-manifest" >"$tmp/fifo" 2>"$tmp/fifo.err" &
+job=$!
+watch fifo "$job"
+n=0
+until [ -s "$tmp/fifo" ] || [ "$n" -gt 100 ]; do
+  n=$((n + 1))
+  sleep 0.1
+done
+if [ "$(cat "$tmp/fifo")" != "arena protocol 3 ready" ]; then
+  fail "fifo: expected only the header while the network is unread, got: $(cat "$tmp/fifo")"
+fi
+cat "$tmp/pass.ann" >"$tmp/network.fifo"
+status=0
+{ wait "$job" || status=$?; } 2>/dev/null
+hung fifo
+exits fifo 0
+expect_line fifo pp "pp${T}result=W+6.5${T}end=passes${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,pass${T}ok"
+
+# wait_for FILE PATTERN: waits up to 10 s for a line matching PATTERN.
+wait_for() {
+  n=0
+  until grep -q "$2" "$1" 2>/dev/null; do
+    n=$((n + 1))
+    if [ "$n" -gt 100 ]; then
+      fail "no '$2' in $1"
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
+# SIGINT and SIGTERM while a bot is thinking: the arena kills the bot and
+# dies by the signal, with the records before and none for the game it
+# played. A background job starts with SIGINT ignored; fakebot --exec
+# restores its default action, as a terminal's Ctrl-C finds it.
+interrupt() {
+  name=$1 signal=$2 want=$3
+  {
+    printf 'network\tpass\t%s\nbot\tfake\ngame\tpp\tpass\tpass\n' "$tmp/pass.ann"
+    printf 'game\tg\tpass\tfake\ncommand\tg\twhite\t./fakebot --pid %s --log %s --ignore-signals --stay genmove=hang\n' \
+      "$tmp/$name.pid" "$tmp/$name.log"
+  } >"$tmp/$name.manifest"
+  ./fakebot --exec ./arena --mixed 5 6.5 10 600 10 10 "$tmp/$name.manifest" >"$tmp/$name" 2>"$tmp/$name.err" &
+  job=$!
+  watch "$name" "$job"
+  wait_for "$tmp/$name.log" genmove || { kill -9 "$job"; return; }
+  kill -"$signal" "$job"
+  status=0
+  { wait "$job" || status=$?; } 2>/dev/null
+  hung "$name"
+  exits "$name" "$want"
+  order "$name" "arena protocol 3 ready|pp|"
+  gone "$name" "$tmp/$name.pid"
+}
+interrupt sigint INT 130
+interrupt sigterm TERM 143
+
+# After a SIGKILL the arena cannot clean up: a bot that exits at stdin EOF,
+# as Brown, AmiGo and GNU Go do, ends by itself, but one that ignores EOF
+# is left running (in its own process group). This pins what the docs say.
+{
+  printf 'bot\tfake\ngame\tg\tfake\tfake\n'
+  printf 'command\tg\tblack\t./fakebot --pid %s --log %s --stay genmove=hang\n' "$tmp/killed-b.pid" "$tmp/killed.log"
+  printf 'command\tg\twhite\t./fakebot --pid %s\n' "$tmp/killed-w.pid"
+} >"$tmp/killed.manifest"
+./arena --mixed 5 6.5 10 600 10 10 "$tmp/killed.manifest" >"$tmp/killed" 2>"$tmp/killed.err" &
+job=$!
+watch killed "$job"
+if wait_for "$tmp/killed.log" genmove; then
+  kill -9 "$job"
+  { wait "$job" || :; } 2>/dev/null
+  n=0
+  while kill -0 "$(cut -d' ' -f1 "$tmp/killed-w.pid")" 2>/dev/null && [ "$n" -lt 50 ]; do
+    n=$((n + 1))
+    sleep 0.1
+  done
+  gone killed "$tmp/killed-w.pid"
+  orphan=$(cut -d' ' -f1 "$tmp/killed-b.pid")
+  if kill -0 "$orphan" 2>/dev/null; then
+    kill -9 "$orphan"
+  else
+    fail "killed: the bot that ignores EOF is gone after the arena's SIGKILL; update the docs"
+  fi
+else
+  kill -9 "$job"
+fi
+
+# A failed write to stdout is the arena's error (exit 1 with a message),
+# not a SIGPIPE, which the arena ignores while bots run; its bot is
+# killed. The reader stops after the header, before the first record.
+{
+  printf 'network\tpass\t%s\nbot\tfake\n' "$tmp/pass.ann"
+  printf 'game\tg\tpass\tfake\ncommand\tg\twhite\t./fakebot --pid %s --stay genmove=sleep:0.3\n' "$tmp/closed.pid"
+} >"$tmp/closed.manifest"
+{
+  status=0
+  ./arena --mixed 5 6.5 10 600 10 10 "$tmp/closed.manifest" 2>"$tmp/closed.err" || status=$?
+  printf '%s\n' "$status" >"$tmp/closed.status"
+} | head -1 >/dev/null
+if [ "$(cat "$tmp/closed.status")" != 1 ] || ! grep -q 'cannot write' "$tmp/closed.err"; then
+  fail "closed: expected exit status 1 and 'cannot write', got $(cat "$tmp/closed.status"): $(cat "$tmp/closed.err")"
+fi
+gone closed "$tmp/closed.pid"
+# The same in a chunk without bots, since SIGPIPE is ignored from the
+# start: here the network comes from a FIFO, fed once the reader is gone.
+rm -f "$tmp/network.fifo" "$tmp/closed-net.status"
+mkfifo "$tmp/network.fifo"
+{
+  status=0
+  ./arena --mixed 5 6.5 10 600 10 10 "$tmp/fifo-manifest" 2>"$tmp/closed-net.err" || status=$?
+  printf '%s\n' "$status" >"$tmp/closed-net.status"
+} | head -1 >"$tmp/closed-net.head" &
+reader=$!
+n=0
+while kill -0 "$reader" 2>/dev/null && [ "$n" -lt 100 ]; do
+  n=$((n + 1))
+  sleep 0.1
+done
+cat "$tmp/pass.ann" >"$tmp/network.fifo"
+n=0
+until [ -s "$tmp/closed-net.status" ] || [ "$n" -gt 100 ]; do
+  n=$((n + 1))
+  sleep 0.1
+done
+if [ "$(cat "$tmp/closed-net.status" 2>/dev/null)" != 1 ] || ! grep -q 'cannot write' "$tmp/closed-net.err"; then
+  fail "closed-net: expected exit status 1 and 'cannot write', got $(cat "$tmp/closed-net.status" 2>/dev/null): $(cat "$tmp/closed-net.err")"
+fi
 
 if [ "$failed" -ne 0 ]; then
   exit 1

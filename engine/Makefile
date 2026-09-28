@@ -20,7 +20,7 @@ enginetest: evo
 
 # Plays Go games, networks in its process, scored by the Tromp-Taylor
 # count. Linked without evo's GTP code (gtp.o, interface.o); the bot
-# controller (bot.o) gives it the game clock.
+# controller (bot.o) drives its bots and gives it the game clock.
 arena: brown.o features.o generate_move.o score.o bot.o arena.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
@@ -37,8 +37,9 @@ fakebot: fakebot.o
 bottest: botdriver fakebot
 	sh bottest.sh
 
-# Needs ../initial-population/initial-population for its random networks.
-arenatest: evo arena
+# Needs ../initial-population/initial-population for its random networks,
+# and fakebot for its games with bots.
+arenatest: evo arena fakebot
 	sh arenatest.sh
 
 # The Go rules: Brown's board code and the move filter. Linked without the
