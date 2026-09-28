@@ -137,13 +137,39 @@ class ExperimentDatabase
       @db[:players].multi_insert(players.map do |name, player|
         { generation:, name:, command: player.fetch('command', ''), external: player['external'] ? true : false }
       end)
-      @rankings.multi_insert(state.fetch('ranking', []).each_with_index.map do |entry, i|
-        { generation:, rank: i + 1, name: entry['name'], score: entry['score'],
-          external: players.dig(entry['name'], 'external') ? true : false }
-      end)
+      insert_ranking(generation, state.fetch('ranking', []), players)
       @db[:pending_games].multi_insert(state.fetch('games', []).each_with_index.map do |game, i|
-        { generation:, position: i, black: game['black'] || game[:black], white: game['white'] || game[:white] }
+        { generation:, position: i, black: game['black'], white: game['white'] }
       end)
+    end
+  end
+
+  # What one scored game changes in the saved state, for the runner to call
+  # in the transaction that also stores the game's row. The rest of the
+  # state (round, players, the other pending games) stays as it is.
+
+  # Removes a finished game from the pending games; a bye's has no white.
+  def remove_pending_game(generation, black, white)
+    @db[:pending_games].where(generation:, black:, white:).delete
+  end
+
+  # Gives the player at rank `from` its new score and moves it up to rank
+  # `to`, shifting the players from `to` to just above `from` down one, so
+  # the ranks stay 1 to n. Win, draw, and bye points are never negative, so
+  # a score only rises and a player never moves down.
+  def raise_in_ranking(generation, name, score, from:, to:)
+    raise ArgumentError, "#{name} would move down from rank #{from} to #{to}" if to > from
+
+    @rankings.where(generation:, rank: to...from).update(rank: Sequel[:rank] + 1)
+    @rankings.where(generation:, name:).update(rank: to, score:)
+  end
+
+  # Replaces the generation's ranking with `ranking`, in order, as
+  # save_state writes it; `players` says who is external.
+  def save_ranking(generation, ranking, players)
+    @db.transaction do
+      @rankings.where(generation:).delete
+      insert_ranking(generation, ranking, players)
     end
   end
 
@@ -215,6 +241,13 @@ class ExperimentDatabase
   end
 
   private
+
+  def insert_ranking(generation, ranking, players)
+    @rankings.multi_insert(ranking.each_with_index.map do |entry, i|
+      { generation:, rank: i + 1, name: entry['name'], score: entry['score'],
+        external: players.dig(entry['name'], 'external') ? true : false }
+    end)
+  end
 
   def read_state(generation)
     row = @db[:generations].where(generation:).first

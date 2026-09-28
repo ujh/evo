@@ -52,3 +52,34 @@
     - Arena load: one arena over the generation's 1,000 networks (4.59 GB of files), each loaded once at `max_moves` 0, took about 2.3 s, of which its 500 one-move games 0.16 s, and held 4.3 GiB; the 50 small networks took 0.02 s.
     - Limits: one run of each; RSS sampled every second, so short peaks can be missed, and the summed figure counts shared pages in every process; the small run started at a load average of 2.6.
     - So a change to the runner's Ruby side is justified for large populations: on the large workload the runner spent about 57 s of an 82–87 s tournament outside waiting for jobs, about 5.7 s a round or 11 ms a game, and allocated about 240 million objects a generation, while its arena games took 219–254 s of worker time spread over 8 workers. On the small workload Ruby took about 1.3 s of a 9.7 s tournament, and the GoGui games with bots (62–64 s of worker time for 117 games) and the benchmark (about 30 s) dominate.
+    - Why, from a micro-benchmark before the change (28 Sep 2026, same machine; not a workload run): after every game the runner rebuilt the ranking, `save_state` deleted and re-inserted every `players`, `rankings`, and `pending_games` row, and the state was reloaded, so a round cost about the population squared: about 10.4 ms and 48.5 thousand objects a game with 1,015 players, 1.3 ms with 65.
+  - After saving only what a game changed (PR 1b; 28 Sep 2026, git `cfaa866`, same machine, commands, and concurrency; one run each; other work paused, load average 1.75 just before the small run started). A game now saves, in one transaction with its `games` row, the removal of its pending game and its ranking change; the state stays in memory (`docs/experiment-reference.md`). Same columns and units as above.
+
+    | | S0 | S1 | L0 | L1 |
+    | --- | --- | --- | --- | --- |
+    | wall (`/usr/bin/time`) | 40.5 | 39.3 | 96.8 | 129.7 |
+    | timings `total` | 40.2 | 39.0 | 96.5 | 126.6 |
+    | `setup` | 1.3 | 0.9 | 33.4 | 53.9 |
+    | `tournament` (10 rounds) | 9.1 | 8.9 | 39.9 | 43.2 |
+    | a round | 0.74–1.51 | 0.78–1.08 | 3.62–5.06 | 4.05–5.12 |
+    | `ruby` | 0.74 | 0.78 | 14.7 | 13.6 |
+    | `ruby` per round | 0.07–0.09 | 0.06–0.10 | 1.31–1.81 | 1.27–1.65 |
+    | `worker` | 62.0 | 60.5 | 304.2 | 334.6 |
+    | `benchmark` | 29.9 | 29.2 | 23.2 | 29.3 |
+    | tournament games (none failed) | 320 | 320 | 5,070 | 5,070 |
+    | GoGui games with a bot: count, summed `duration` | 117, 57.2 | 117, 57.2 | 138, 91.1 | 138, 87.0 |
+    | arena games: count, summed `duration` | 203, 4.9 | 203, 3.3 | 4,932, 213.1 | 4,932, 247.6 |
+    | benchmark games (none failed): count, summed `duration` | 60, 207.0 | 80, 199.2 | 60, 164.6 | 80, 213.5 |
+    | runner CPU, user + sys | 0.46 + 0.76 | 0.51 + 0.95 | 20.5 + 7.4 | 20.6 + 14.4 |
+    | runner allocated objects | 0.93 M | 0.99 M | 88.5 M | 90.2 M |
+    | runner GC runs (major), GC time | 37 (6), 0.04 | 44 (8), 0.06 | 2,311 (17), 1.59 | 2,738 (18), 1.64 |
+    | peak RSS, process tree summed (1 s samples), MiB | 1,062 | 1,050 | 4,250 | 4,113 |
+    | peak RSS, runner (1 s samples), MiB | 125 | 118 | 218 | 224 |
+    | largest single process (`/usr/bin/time`), MiB | 125 | 118 | 550 | 551 |
+    | arena load of all networks, three runs: wall; max RSS | 0.02; 43 MiB | 0.02; 43 MiB | 2.26–2.29; 4,408 MiB | 2.24; 4,407–4,408 MiB |
+
+    - Large workload: the tournament went from 82–87 s to 40–43 s, its Ruby time from about 57 s to 14–15 s (about 2.7–2.9 ms a game, pairing included), the runner's allocations from about 241 million objects to about 89 million, and a generation's `total` from 146 and 169 s to 97 and 127 s. The stored networks, disk use, and memory are unchanged. L1's re-entry into generation 0 took about 2 s.
+    - Small workload: Ruby went from about 1.3 s to about 0.75 s; the rest is unchanged within run-to-run noise, since the GoGui games with bots and the benchmark dominate.
+    - What remains per game is O(population) work in Ruby and SQLite, not O(population²): `RunGeneration#update_data` still re-sorts the whole ranking, `in_order?` checks the old ranking's order, `ranking_moves` copies and searches it, and the rank shift in `ExperimentDatabase#raise_in_ranking` scans the generation's `rankings` rows, which have no index on `rank`. The first game of each round also rewrites all of the generation's `rankings` rows, and each round's pairing still saves the whole state.
+    - On the large workload, `setup` (breeding or creating the population, storing it, and exporting its 4.6 GB of networks to `work/`) is now the largest single step of a generation: 33 s in generation 0 and 54 s in generation 1 (breeding), against 4–5 s for a round and 40–43 s for all 10 rounds.
+    - Limits as above: one run of each; the small run started at a load average of 1.75.
