@@ -181,7 +181,7 @@ class FakePool
   end
 end
 
-# Stands in for the monotonic clock of GenerationTimings: time moves only
+# Stands in for AwakeClock, the clock of GenerationTimings: time moves only
 # when a test advances it.
 class FakeClock
   def initialize

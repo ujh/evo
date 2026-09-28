@@ -252,9 +252,10 @@ On 9×9 with a hidden layer of 50:
 | Per move | about 3 µs | about 37 µs |
 
 The features multiply the arena's move time by about ten, but a game still
-takes a few milliseconds, against about 0.3 s for any game through GoGui
-with a bot. The storage grows with the weights: a kept checkpoint of 20
-such networks takes about 8.5 MB instead of 1.3 MB. On 19×19 a network
+takes a few milliseconds, against about 0.3 s for a game with a bot through
+GoGui, as the tournament played those before #84 (the arena plays them now).
+The storage grows with the weights: a kept checkpoint of 20 such networks
+takes about 8.5 MB instead of 1.3 MB. On 19×19 a network
 with all groups has 4,334 inputs, and 1×50 is 235,212 weights (1.9 MB).
 
 With this many inputs, removing a network's only hidden layer makes it
@@ -330,7 +331,7 @@ cannot be told apart from one run. After that the weights barely move, and
 
 Cost in the same runs: a generation took 4.2–4.8 s with features and
 4.0–4.6 s without, a checkpoint with its benchmark 17.5–21.2 s and
-20.2–21.8 s; the whole run 2.5 min either way, since the games with bots
-through GoGui take nearly all the time. The database ended at 52 MB with
-features and 8.8 MB without: each kept generation's 20 networks take about
-8.5 MB instead of 1.3 MB.
+20.2–21.8 s; the whole run 2.5 min either way, since the games with bots,
+then played through GoGui, took nearly all the time. The database ended at
+52 MB with features and 8.8 MB without: each kept generation's 20 networks
+take about 8.5 MB instead of 1.3 MB.
