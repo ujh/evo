@@ -413,6 +413,68 @@ if [ "$got" != "arena protocol 3 ready|pp|both|" ]; then
 fi
 expect_line both both "both${T}end=network_error${T}error=both${T}message=$tmp/garbage.ann holds no network; example.ann does not fit a 5x5 board${T}ok"
 
+# With a generous main time, every network game of --mixed is the legacy
+# game: the seeded networks' games from the many schedule, same moves and
+# results.
+: >"$tmp/many-manifest"
+for n in 0001 0002 0003; do
+  printf 'network\t%s\t%s\n' "$n" "$population/$n.ann" >>"$tmp/many-manifest"
+done
+printf 'network\tplay\t%s\n' "$tmp/play.ann" >>"$tmp/many-manifest"
+while read -r id black white; do
+  printf 'game\t%s\t%s\t%s\n' "$id" "$(basename "$black" .ann)" "$(basename "$white" .ann)" >>"$tmp/many-manifest"
+done <"$tmp/many-schedule"
+status=0
+./arena --mixed 5 6.5 40 600 10 10 "$tmp/many-manifest" >"$tmp/many-mixed" 2>"$tmp/many-mixed.err" || status=$?
+if [ "$status" -ne 0 ]; then
+  fail "many, --mixed: expected exit status 0, got $status: $(cat "$tmp/many-mixed.err")"
+fi
+if [ "$(sed 1d "$tmp/many-mixed" | strip_times)" != "$(cat "$tmp/many.stripped")" ]; then
+  fail "many, --mixed: the records differ from the legacy lines:
+$(sed 1d "$tmp/many-mixed" | strip_times | diff "$tmp/many.stripped" - || true)"
+fi
+
+# Main time. heavy.ann, a 5x5 network with two hidden layers of 2000
+# neurons, takes about 2 ms a move; pass.ann about a microsecond. With a
+# main time of 0.0004 s, heavy.ann overruns it on its first move and
+# pass.ann never does, with a wide margin both ways.
+(cd "$tmp" && "$generator" 1 5 2 2000 0.01 1 0.5 0.02 0.02 none 0.3 0.01 42 >/dev/null && mv 0001.ann heavy.ann)
+printf 'hp %s %s\nph %s %s\n' "$tmp/heavy.ann" "$tmp/pass.ann" "$tmp/pass.ann" "$tmp/heavy.ann" >"$tmp/heavy-schedule"
+# The legacy invocation has no time limit: the heavy games are played out.
+arena_ok heavy 5 6.5 10 "$tmp/heavy-schedule"
+for id in hp ph; do
+  if ! grep -Eq "^$id${T}result=[^${T}]*${T}end=(passes|limit)${T}" "$tmp/heavy"; then
+    fail "heavy, legacy: game $id was not played out: $(cat "$tmp/heavy")"
+  fi
+done
+heavy_moves=$(sed -n 's/^hp	.*	moves=\([^	]*\)	ok$/\1/p' "$tmp/heavy")
+heavy_first=${heavy_moves%%,*}
+heavy_reply=$(sed -n 's/^ph	.*	moves=pass,\([^,	]*\).*	ok$/\1/p' "$tmp/heavy")
+{
+  printf 'network\theavy\t%s\nnetwork\tpass\t%s\n' "$tmp/heavy.ann" "$tmp/pass.ann"
+  printf 'game\thp\theavy\tpass\ngame\tph\tpass\theavy\ngame\tpp\tpass\tpass\n'
+} >"$tmp/time-manifest"
+status=0
+./arena --mixed 5 6.5 10 0.0004 10 10 "$tmp/time-manifest" >"$tmp/time" 2>"$tmp/time.err" || status=$?
+# A time loss is a played game: the arena goes on to the later games.
+if [ "$status" -ne 0 ] || [ "$(cut -f1 "$tmp/time" | tr '\n' '|')" != "arena protocol 3 ready|hp|ph|pp|done 3|" ]; then
+  fail "time: expected exit status 0, hp, ph, pp and 'done 3', got $status: $(cat "$tmp/time" "$tmp/time.err")"
+fi
+# Black overruns on its first move: white wins on time, and the move that
+# overran is in the moves and the length.
+expect_line time hp "hp${T}result=W+T${T}end=time${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=$heavy_first${T}ok"
+# White overruns on its first move, after black's pass.
+expect_line time ph "ph${T}result=B+T${T}end=time${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,$heavy_reply${T}ok"
+expect_line time pp "pp${T}result=W+6.5${T}end=passes${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,pass${T}ok"
+# The overrunning move is charged: the loser's time is past main time, the
+# winner's is not.
+if ! awk -F'\t' '
+  $1 == "hp" { split($5, b, "="); split($6, w, "="); if (!(b[2] > 0.0004 && w[2] <= 0.0004)) bad = 1; n++ }
+  $1 == "ph" { split($5, b, "="); split($6, w, "="); if (!(w[2] > 0.0004 && b[2] <= 0.0004)) bad = 1; n++ }
+  END { exit bad || n != 2 }' "$tmp/time"; then
+  fail "time: expected the loser's time past 0.0004 and the winner's within it: $(cat "$tmp/time")"
+fi
+
 # Bad arguments or a bad manifest stop the arena with exit status 1 and a
 # message, before the header and any game.
 refuses '--mixed without arguments' --mixed

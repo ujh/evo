@@ -36,9 +36,9 @@
  * or, when a network cannot be played (missing, unreadable, does not fit
  * the board), without playing:
  *   ID error=black|white|both message=... ok
- * then "done N" after the last game. Times are monotonic-clock seconds
- * with six decimals: time_black and time_white sum each side's move
- * choices, duration is the whole game. Bad arguments or an unreadable or
+ * then "done N" after the last game. Times are seconds with six
+ * decimals: time_black and time_white sum each side's move choices,
+ * duration is the whole game. Bad arguments or an unreadable or
  * malformed schedule print a message on stderr and exit 1 before any game.
  *
  * The --mixed invocation
@@ -129,10 +129,20 @@
  * the header), or an error such as a failed write. The arena's own
  * failures never exit 130 or 143, which the runner reads as an interrupt.
  *
+ * A network's main time is checked after each of its moves, in every
+ * game, network-network games included: once the side's move choices
+ * together take more than MAIN_TIME, that move is played and recorded
+ * and the game ends B+T or W+T. A time loss is a played game, so the
+ * arena goes on with the later games.
+ *
+ * Both invocations time with bot_now() (bot.h), a clock that does not
+ * count system sleep (CLOCK_UPTIME_RAW on macOS, whose CLOCK_MONOTONIC
+ * counts it; CLOCK_MONOTONIC elsewhere), so a laptop that sleeps during a
+ * move does not charge the sleep to it.
+ *
  * Not yet: this arena refuses (exit 1, before the header) a manifest
- * whose games include a bot, so it writes none of resign, time, timeout,
- * illegal, crash, launch; bot.c is not linked in yet. The times use CLOCK_MONOTONIC and there is no
- * main-time check yet.
+ * whose games include a bot, so it writes none of resign, timeout,
+ * illegal, crash, launch.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -143,9 +153,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "ann.h"
+#include "bot.h"
 #include "brown.h"
 #include "generate_move.h"
 #include "score.h"
@@ -165,8 +175,8 @@ typedef struct {
   char *command[2]; // each bot side's command; NULL for a network
 } game;
 
-// The --mixed invocation's time arguments, in seconds. Not used yet: bots
-// are refused, and the main-time check comes with the clock.
+// The --mixed invocation's time arguments, in seconds. The response
+// deadline and the grace are not used yet: bots are refused.
 static double main_time, response_deadline, genmove_grace;
 
 // A network file, loaded once however many games it plays.
@@ -474,12 +484,6 @@ static game *read_manifest(const char *path, int *count) {
   return games;
 }
 
-static double now(void) {
-  struct timespec t;
-  clock_gettime(CLOCK_MONOTONIC, &t);
-  return t.tv_sec + t.tv_nsec / 1e9;
-}
-
 // Appends a move in GTP vertex notation (columns skip I, row 1 at the
 // bottom), as evo answers genmove, or "pass".
 static void append_move(char **moves, size_t *used, size_t *capacity, int i, int j) {
@@ -496,15 +500,20 @@ static void append_move(char **moves, size_t *used, size_t *capacity, int i, int
   *used += sprintf(*moves + *used, "%s%s", *used ? "," : "", vertex);
 }
 
-static void play_game(const game *g, network const *black, network const *white, long max_moves) {
+// Plays one game and writes its line. A side whose move choices together
+// take more than `limit` seconds loses on time after that move; pass
+// INFINITY for no limit.
+static void play_game(const game *g, network const *black, network const *white, long max_moves,
+                      double limit) {
   static char *moves = NULL;
   static size_t capacity = 0;
   size_t used = 0;
-  double spent[2] = {0, 0};  // black, white
-  double start = now();
+  double spent[2] = {0, 0};  // indexed by SIDE_BLACK, SIDE_WHITE
+  double start = bot_now();
   long length = 0;
   int passes = 0;
   int color = BLACK;
+  int overrun = EMPTY; // the color that ran out of main time, if one did
 
   if (moves == NULL) {
     capacity = 256;
@@ -514,26 +523,40 @@ static void play_game(const game *g, network const *black, network const *white,
   new_game();
   // twogtp's loop: stop after two passes in a row, else refuse the move
   // once more than max_moves moves were played.
+  // A move that runs out of main time is played and recorded, then ends
+  // the game.
   while (passes < 2 && length <= max_moves) {
     int i, j;
     network const *mover = color == BLACK ? black : white;
-    double before = now();
+    int side = color == BLACK ? SIDE_BLACK : SIDE_WHITE;
+    double before = bot_now();
     generate_move(mover->ann, &mover->features, &i, &j, color);
-    spent[color == BLACK ? 0 : 1] += now() - before;
+    spent[side] += bot_now() - before;
     play_move(i, j, color);
     passes = (i == -1 && j == -1) ? passes + 1 : 0;
     append_move(&moves, &used, &capacity, i, j);
     length++;
+    if (spent[side] > limit) {
+      overrun = color;
+      break;
+    }
     color = OTHER_COLOR(color);
   }
 
   // The largest margin is the board plus |komi|; komi is only bounded by
   // what a float holds, so leave room for any.
   char result[64];
-  format_score(tromp_taylor_score(komi), result, sizeof(result));
-  double duration = now() - start;
+  const char *end;
+  if (overrun != EMPTY) {
+    snprintf(result, sizeof(result), "%s", overrun == BLACK ? "W+T" : "B+T");
+    end = "time";
+  } else {
+    format_score(tromp_taylor_score(komi), result, sizeof(result));
+    end = passes >= 2 ? "passes" : "limit";
+  }
+  double duration = bot_now() - start;
   printf("%s\tresult=%s\tend=%s\tlength=%ld\ttime_black=%.6f\ttime_white=%.6f\tduration=%.6f\tmoves=%s\tok\n",
-         g->id, result, passes >= 2 ? "passes" : "limit", length, spent[0], spent[1], duration, moves);
+         g->id, result, end, length, spent[SIDE_BLACK], spent[SIDE_WHITE], duration, moves);
 }
 
 static void flush_results(void) {
@@ -584,7 +607,7 @@ static int legacy_main(char **argv) {
     network *black = load(games[k].black);
     network *white = load(games[k].white);
     if (black->ann && white->ann) {
-      play_game(&games[k], black, white, max_moves);
+      play_game(&games[k], black, white, max_moves, INFINITY);
     } else if (black->ann == NULL && white->ann == NULL) {
       printf("%s\terror=both\tmessage=%s; %s\tok\n", games[k].id, black->problem, white->problem);
     } else {
@@ -626,7 +649,7 @@ static int mixed_main(char **argv) {
     network *black = load(games[k].black);
     network *white = load(games[k].white);
     if (black->ann && white->ann) {
-      play_game(&games[k], black, white, max_moves);
+      play_game(&games[k], black, white, max_moves, main_time);
     } else if (black->ann == NULL && white->ann == NULL) {
       // Neither side can play: a failed game, which stops the arena.
       printf("%s\tend=network_error\terror=both\tmessage=%s; %s\tok\n", games[k].id, black->problem, white->problem);

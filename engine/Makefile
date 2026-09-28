@@ -18,9 +18,10 @@ evo: $(OBJS) main.o ../lib/libann.a
 enginetest: evo
 	sh enginetest.sh
 
-# Plays network-against-network games in one process, scored by the
-# Tromp-Taylor count. Linked without the GTP code (gtp.o, interface.o).
-arena: brown.o features.o generate_move.o score.o arena.o ../lib/libann.a
+# Plays Go games, networks in its process, scored by the Tromp-Taylor
+# count. Linked without evo's GTP code (gtp.o, interface.o); the bot
+# controller (bot.o) gives it the game clock.
+arena: brown.o features.o generate_move.o score.o bot.o arena.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # Drives external GTP programs through the bot controller (bot.c), for
