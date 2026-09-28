@@ -173,11 +173,21 @@ class ExperimentDatabase
     end
   end
 
+  # How a stored game ended; see migration 012. A game the arena could not
+  # finish (timeout, illegal, crash, launch) is never stored.
+  END_REASONS = %w[passes limit resign time network_error].freeze
+
   # A replayed game replaces its row. The scorer is required, so a row always
-  # says who decided it.
+  # says who decided it, and so is an arena game's end reason, so it always
+  # says how the game ended; a GoGui game has none.
   def record(**game)
     unless SCORERS.include?(game[:scorer])
       raise ArgumentError, "unknown scorer #{game[:scorer].inspect}, expected one of #{SCORERS.join(', ')}"
+    end
+    end_reason = game[:end_reason]
+    unless end_reason.nil? ? game[:scorer] == 'gnugo' : END_REASONS.include?(end_reason)
+      raise ArgumentError, "a game scored by #{game[:scorer]} cannot end by #{end_reason.inspect}, " \
+                           "expected one of #{END_REASONS.join(', ')}"
     end
 
     @games.insert_conflict(:replace).insert(game.slice(*COLUMNS))

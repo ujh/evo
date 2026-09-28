@@ -412,8 +412,8 @@ class SetupExperimentTest < Minitest::Test
       assert_equal [{ name: 'Brown', command: 'brown', copies: 5 }, { name: 'AmiGo', command: 'amigogtp', copies: 10 }],
                    database.opponents
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
-      # Rules 2: networks play each other in the arena, scored by Tromp-Taylor.
-      assert_equal '2', database.scoring['rules']
+      # Rules 3: every game in the arena, scored by Tromp-Taylor.
+      assert_equal '3', database.scoring['rules']
       assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
   end
@@ -476,6 +476,19 @@ class SetupExperimentTest < Minitest::Test
       error = assert_raises(RuntimeError) { capture_io { run_setup } }
       assert_includes error.message, 'older'
       refute File.exist?('experiments/x/evo')
+    end
+  end
+
+  # An experiment begun before every tournament game went through the arena
+  # continues only with the code it began with.
+  def test_an_experiment_scored_by_rules_2_does_not_run
+    in_tmpdir do
+      fake_checkout
+      database = ExperimentDatabase.new('experiments/x/experiment.sqlite3')
+      database.save_scoring(database.scoring.merge('rules' => '2'))
+      database.close
+      error = assert_raises(RuntimeError) { capture_io { run_setup } }
+      assert_includes error.message, 'rules "2", but the code scores by "3"'
     end
   end
 

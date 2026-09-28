@@ -91,9 +91,18 @@ def arena_played(id, result: 'B+3.5', finish: 'passes', moves: %w[C3 D4 pass pas
    "time_white=#{times[1]}", "duration=#{times[2]}", "moves=#{moves.join(',')}", 'ok'].join("\t")
 end
 
-# The arena's line for a game where a network cannot play.
-def arena_errored(id, side: 'black', message: 'x.ann does not fit a 9x9 board')
-  [id, "error=#{side}", "message=#{message}", 'ok'].join("\t")
+# The arena's record for a game where a network cannot be loaded (side
+# 'both': neither, which is a failure).
+def arena_network_error(id, side: 'black', message: 'x.ann does not fit a 9x9 board')
+  [id, 'end=network_error', "error=#{side}", "message=#{message}", 'ok'].join("\t")
+end
+
+# The arena's failure record for a game a bot could not finish.
+def arena_failed(id, finish: 'timeout', side: 'white', moves: %w[D4 pass], time_black: 0.01, time_white: 10.2,
+                 duration: 10.25, message: 'genmove: no answer to genmove within 10.000 s')
+  times = [time_black, time_white, duration].map { |t| format('%.6f', t) }
+  [id, "end=#{finish}", "error=#{side}", "length=#{moves.size}", "time_black=#{times[0]}", "time_white=#{times[1]}",
+   "duration=#{times[2]}", "moves=#{moves.join(',')}", "message=#{message}", 'ok'].join("\t")
 end
 
 # A real Process::Status of a shell that exited with `code`, as WorkerPool
@@ -110,11 +119,13 @@ def signal_status(name)
 end
 
 # Stands in for WorkerPool: "runs" a job and hands the jobs back in the
-# order they were queued. A GoGui game is "run" by calling the block, which
-# writes its result file. An arena chunk (one with a schedule) is "run" by
-# writing its stdout: `arena` gives each scheduled game's line from its ID
-# and game (black wins by default; nil leaves the line out), then the
-# trailer; `arena_output` may rewrite that whole text (nil writes no file),
+# order they were queued. A GoGui game (the benchmark's) is "run" by
+# calling the block, which writes its result file. An arena chunk (one with
+# a manifest) is "run" by writing its stdout as `arena --mixed` does: the
+# header, then `arena` gives each game's record from its ID and game (black
+# wins by default; nil leaves the record out), then the trailer, which
+# counts the records; `arena_output` may rewrite that whole text (nil
+# writes no file),
 # as an arena that died would leave it; `arena_stderr` is written to its
 # stderr. `status` is every job's exit status, or a lambda giving it from
 # the job's identifier; by default the job succeeded. With a `clock` (a
@@ -145,9 +156,9 @@ class FakePool
   # Every job "takes" 1.5 seconds unless told otherwise.
   def next_finished
     identifier = @queued.shift
-    if identifier.respond_to?(:schedule)
+    if identifier.respond_to?(:manifest)
       lines = identifier.games.filter_map { |id, game| @arena.call(id, game) }
-      output = @arena_output.call((lines + ["done #{lines.size}"]).map { |l| "#{l}\n" }.join)
+      output = @arena_output.call(([ArenaResult::HEADER] + lines + ["done #{lines.size}"]).map { |l| "#{l}\n" }.join)
       File.write(identifier.out, output) if output
       File.write(identifier.err, @arena_stderr)
     else

@@ -3,7 +3,6 @@ require 'open3'
 require_relative 'arena_result'
 require_relative 'checkpoint_benchmark'
 require_relative 'feature_groups'
-require_relative 'game_result'
 require_relative 'generation_timings'
 require_relative 'seeds'
 require_relative 'worker_pool'
@@ -126,113 +125,175 @@ class RunGeneration
     settings.fetch('seed')
   end
 
-  # Byes are scored at once. Games between two networks go to the arena in
-  # at most `concurrency` chunks, one pool job each; games with a bot go to
-  # gogui-twogtp, one job each. Both kinds share the pool, and each job is
-  # scored when it finishes.
+  # Byes are scored at once. Every other game is played in the arena
+  # (`arena --mixed`), in at most `concurrency` chunks, one pool job each,
+  # and each chunk's games are scored when it finishes.
   def play_round
     byes, games = data['games'].partition { |game| game['white'].nil? }
     # The odd player out sits the round out and gets the bye points.
     byes.each { |game| save_game(game, { 'winner' => nil }) }
-    arena, gogui = games.partition { |game| arena_game?(game) }
-    jobs = arena_chunks(arena).each { |chunk| pool.submit(prepare_chunk(chunk), chunk) }
-    gogui.each do |game|
-      game_data = prepare_game(game)
-      pool.submit(game_data['command'], game_data['identifier'])
-    end
+    # Every manifest is written before the first chunk starts, so one the
+    # arena could not read stops the round before any game.
+    chunks = arena_chunks(games).to_h { |chunk| [chunk, prepare_chunk(chunk)] }
+    chunks.each { |chunk, command| pool.submit(command, chunk) }
 
-    (jobs.size + gogui.size).times do
-      finished, duration, status = timings.wait { pool.next_finished }
+    chunks.size.times do
+      chunk, duration, status = timings.wait { pool.next_finished }
       timings.job(duration)
-      # Ctrl-C also stops the running games. Leave them unscored so that
-      # resuming plays them again instead of counting a killed game. The
-      # game can be back before the trap has set the flag; its status tells.
+      # Ctrl-C also stops the running chunks. Leave their games unscored so
+      # that resuming plays them again instead of counting a killed game.
+      # A chunk can be back before the trap has set the flag; its status tells.
       exit if $stop_now
-      exit_interrupted(finished) if WorkerPool.interrupted?(status)
-      if finished.is_a?(ArenaChunk)
-        finish_chunk(finished, duration)
-      else
-        finish_game(finished, duration)
+      if WorkerPool.interrupted?(status)
+        WorkerPool.exit_interrupted("arena chunk #{chunk.name} (#{chunk.games.keys.join(', ')})",
+                                    'its games stay pending')
       end
+      finish_chunk(chunk, duration, status)
     end
   end
 
-  def exit_interrupted(job)
-    if job.is_a?(ArenaChunk)
-      WorkerPool.exit_interrupted("arena chunk #{job.name} (#{job.games.keys.join(', ')})", 'its games stay pending')
-    else
-      WorkerPool.exit_interrupted("game #{prefix_from(job)}", 'it stays pending')
-    end
-  end
-
-  def finish_game(game, duration)
-    result = GameResult.read(prefix_from(game))
-    scored = score_game(game, result)
-    timings.game(scored['failure'])
-    save_game(game, scored) { store_game(game, result, scored, duration) }
-  end
-
-  # One arena run: `games` maps each game's ID in the schedule to the game.
+  # One arena run: `games` maps each game's ID in the manifest to the game.
   # The files are named after the chunk.
   ArenaChunk = Struct.new(:name, :games) do
-    def schedule = "#{name}.txt"
+    def manifest = "#{name}.txt"
     def out = "#{name}.out"
     def err = "#{name}.err"
-    def files = [schedule, out, err]
+    def files = [manifest, out, err]
   end
 
-  def arena_game?(game)
-    !external?(game['black']) && !external?(game['white'])
-  end
-
-  # Deals the games out in turn, so chunks differ by at most one game. A
-  # game's ID is its file prefix, which has no whitespace and, since each
-  # player plays once a round, is distinct within the round.
+  # Deals the games out in turn, so chunks differ by at most one game; the
+  # games with a bot are dealt first, so chunks also differ by at most one
+  # of those, wherever the bots stand in the ranking, and the slow games run
+  # side by side. A game's ID is its file prefix, which has no whitespace
+  # and, since each player plays once a round, is distinct within the round.
   def arena_chunks(games)
     count = [settings['concurrency'], games.size].min
-    games.each_with_index.group_by { |_, i| i % count }.values.each_with_index.map do |dealt, k|
+    with_bot, without = games.partition { |game| external?(game['black']) || external?(game['white']) }
+    (with_bot + without).each_with_index.group_by { |_, i| i % count }.values.each_with_index.map do |dealt, k|
       ArenaChunk.new("arena-#{k}", dealt.to_h { |game, _| [prefix_from(game), game] })
     end
   end
 
+  # How long the arena waits for a bot's answer to any command but genmove,
+  # and past a bot's main time for its genmove answer, in seconds. Both are
+  # hang guards with a wide margin, since one missed deadline stops the run;
+  # engine/arena.c's header comment has the measured answer times.
+  RESPONSE_DEADLINE = 10
+  GENMOVE_GRACE = 10
+
+  # Writes the chunk's manifest and returns the arena command that plays it.
+  # Each side has game_length minutes of main time.
   def prepare_chunk(chunk)
-    File.write(chunk.schedule, chunk.games.map { |id, game| "#{id} #{game['black']} #{game['white']}\n" }.join)
-    "../arena #{settings['board_size']} #{settings.fetch('komi')} #{settings['max_moves']} " \
-      "#{chunk.schedule} > #{chunk.out} 2> #{chunk.err}"
+    File.write(chunk.manifest, manifest(chunk))
+    "../arena --mixed #{settings['board_size']} #{settings.fetch('komi')} #{settings['max_moves']} " \
+      "#{settings['game_length'] * 60} #{RESPONSE_DEADLINE} #{GENMOVE_GRACE} " \
+      "#{chunk.manifest} > #{chunk.out} 2> #{chunk.err}"
   end
 
-  # Scores and stores every game of the chunk, with a result or, when the
-  # arena gave none, a failure, then deletes the chunk's files. A crash
-  # before the files are deleted replays the games not yet scored.
-  def finish_chunk(chunk, duration)
+  # The chunk's players, a network by its file in work/ and a bot by its
+  # name, then each game, followed by the command of each of its bots.
+  def manifest(chunk)
+    players = chunk.games.values.flat_map { |game| game.values_at('black', 'white') }.uniq
+    lines = players.map { |player| external?(player) ? ['bot', player] : ['network', player, player] }
+    chunk.games.each do |id, game|
+      lines << ['game', id, game['black'], game['white']]
+      seed = gnugo_seed(game)
+      %w[black white].each do |color|
+        player = game[color]
+        lines << ['command', id, color, Seeds.with_gnugo_seed(data['players'][player]['command'], seed)] if external?(player)
+      end
+    end
+    lines.map { |fields| "#{manifest_fields(fields).join("\t")}\n" }.join
+  end
+
+  # A manifest line's fields are separated by tabs, and the arena refuses
+  # an empty field or one with a control character (a tab or newline
+  # included), so the runner does too, before any game starts.
+  def manifest_fields(fields)
+    fields.each do |field|
+      next unless field.empty? || field.match?(/[\x00-\x1f\x7f]/)
+
+      raise ArgumentError, "the arena's manifest cannot hold #{field.inspect}: " \
+                           'a field must not be empty or hold a tab or another control character'
+    end
+  end
+
+  # GNU Go picks moves at random unless it gets a seed; one per game makes
+  # every game repeatable.
+  def gnugo_seed(game)
+    Seeds.gnugo(experiment_seed, 'game', generation.to_i, data['round'], game['black'], game['white'])
+  end
+
+  # Raised when an arena chunk did not finish every game: a game the arena
+  # could not finish (a failure record) is never scored, and neither is one
+  # without a record. The chunk's other games are stored; the rest stay
+  # pending, so a resume replays them.
+  ArenaStopped = Class.new(StandardError)
+
+  # Scores and stores every game of the chunk the arena finished, then
+  # deletes the chunk's files; stops the run (ArenaStopped) if any game has
+  # no result. A crash before the files are deleted replays the games not
+  # yet scored.
+  def finish_chunk(chunk, duration, status)
     # A dying arena may leave bytes that are not text; they match no line.
     # UTF-8 whatever the locale, which under LANG=C would be US-ASCII.
-    output = File.exist?(chunk.out) ? File.read(chunk.out, encoding: 'UTF-8').scrub : ''
-    results = ArenaResult.chunk(output, chunk.games.keys).results
-    stderr = File.exist?(chunk.err) ? File.read(chunk.err, encoding: 'UTF-8').scrub : ''
-    # The chunk's time beyond its games' (starting the arena, loading the
-    # networks) is shared out equally, so the rows add up to the worker's time.
-    played = results.values.sum { |result| result.duration || 0 }
-    share = [duration - played, 0].max / chunk.games.size
-    chunk.games.each do |id, game|
-      result = results.fetch(id)
+    output = read_utf8(chunk.out)
+    parsed = ArenaResult.mixed_chunk(output, chunk.games.keys)
+    stored = parsed.results.select { |_, result| result.failure.nil? }
+    # The chunk's time beyond its records' (starting the arena, loading the
+    # networks, and the games that failed) is shared out equally among the
+    # stored games, so the rows add up to the worker's time.
+    played = parsed.results.values.sum { |result| result.duration || 0 }
+    share = stored.empty? ? 0 : [duration - played, 0].max / stored.size
+    stored.each do |id, result|
+      game = chunk.games.fetch(id)
       scored = score_game(game, result)
-      timings.game(scored['failure'])
-      save_game(game, scored) { store_arena_game(game, result, scored, (result.duration || 0) + share, stderr) }
+      timings.game(nil)
+      save_game(game, scored) { store_arena_game(game, result, scored, (result.duration || 0) + share) }
     end
+    stop_for(chunk, parsed, status) unless parsed.complete? && parsed.failures.empty? && status&.success?
     FileUtils.rm_f(chunk.files)
   end
 
-  def store_arena_game(game, result, scored, duration, stderr)
+  def read_utf8(path)
+    File.exist?(path) ? File.read(path, encoding: 'UTF-8').scrub : ''
+  end
+
+  # Stops the run for a chunk whose games did not all finish, naming each
+  # game left pending and why, with the chunk's stderr. Its files stay in
+  # work/ until the resume empties it.
+  def stop_for(chunk, parsed, status)
+    reasons = []
+    reasons << 'wrote no header' unless parsed.header?
+    reasons << 'did not finish its output' unless parsed.complete? || !parsed.header?
+    reasons << 'could not finish a game' if parsed.failures.any?
+    reasons << "exited with #{status || 'no status'}" unless status&.success?
+    withheld = parsed.results.reject { |_, result| result.failure.nil? }.map do |id, result|
+      if result.failed?
+        "  #{id}: #{result.end_reason} (#{result.error_side}): #{result.error_message}"
+      else
+        "  #{id}: no record"
+      end
+    end
+    stderr = read_utf8(chunk.err)
+    raise ArenaStopped, "Arena chunk #{chunk.name} of generation #{generation}, round #{data['round'] + 1} " \
+                        "#{reasons.join(', ')}. #{withheld.size} of its #{chunk.games.size} games stay pending:\n" \
+                        "#{withheld.join("\n")}\n" \
+                        "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}\n" \
+                        'The games it finished are stored; resume after fixing the cause.'
+  end
+
+  # A stored game never failed, and the chunk's stderr, shared by all its
+  # games, is not stored with any of them; a stop prints it.
+  def store_arena_game(game, result, scored, duration)
     store.record(
       generation: generation.to_i, round: data['round'], black: game['black'], white: game['white'],
-      black_external: false, white_external: false,
-      winner: scored['winner'], failure: scored['failure'], length: result.length,
+      black_external: external?(game['black']), white_external: external?(game['white']),
+      winner: scored['winner'], failure: nil, length: result.length, end_reason: result.end_reason,
       referee_result: result.referee, error_message: result.error_message, duration:,
-      # To a tenth, as twogtp gives the times of GoGui games.
+      # To a tenth, as twogtp gave the times of GoGui games.
       time_black: result.time_black&.round(1), time_white: result.time_white&.round(1), scorer: 'tromp_taylor',
-      stderr: scored['failure'] && !stderr.empty? ? stderr : nil,
-      sgf: keep_sgf? ? result.sgf(size: settings['board_size'], komi: settings.fetch('komi')) : nil
+      stderr: nil, sgf: keep_sgf? ? result.sgf(size: settings['board_size'], komi: settings.fetch('komi')) : nil
     )
   end
 
@@ -270,8 +331,6 @@ class RunGeneration
       'games' => data['games'].reject { |g| g == game },
       'ranking' => new_ranking
     )
-    # The failure itself is in the game's row in the database.
-    warn "\n#{prefix_from(game)}: #{result['failure']}" if result['failure']
   end
 
   def ranking_key(entry)
@@ -316,10 +375,9 @@ class RunGeneration
 
   # Points by player for one game, from the experiment's scoring: a win
   # counts the same against a network or a bot, the odd player out gets the
-  # bye points, both players of a draw get the draw points, and a failed game
-  # gives none.
+  # bye points, and both players of a draw get the draw points. A game
+  # without a result is never scored.
   def points_for(game, result)
-    return {} if result['failure']
     return { result['winner'] => scoring['win'] } if result['winner']
     return { game['black'] => scoring['bye'] } if game['white'].nil?
 
@@ -342,53 +400,13 @@ class RunGeneration
     print "\rPlaying ... Game: #{current_game_in_round}/#{total_games_in_round} Round: #{current_round}/#{total_rounds} Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]".ljust(70)
   end
 
-  def prepare_game(game)
-    # GNU Go, as a player and as the referee, picks moves at random unless it
-    # gets a seed; one per game makes every game repeatable.
-    seed = Seeds.gnugo(experiment_seed, 'game', generation.to_i, data['round'], game['black'], game['white'])
-    black = Seeds.with_gnugo_seed(data['players'][game['black']]['command'], seed)
-    white = Seeds.with_gnugo_seed(data['players'][game['white']]['command'], seed)
-    size = settings['board_size']
-    maxmoves = settings['max_moves']
-    prefix = prefix_from(game)
-    time = settings['game_length']
-    cmd = %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "#{GameResult::REFEREE} --seed #{seed}" ) +
-          %(-size #{size} -komi #{settings.fetch('komi')} -auto -games 1 -sgffile #{prefix} -time #{time} ) +
-          %(-force -maxmoves #{maxmoves} 2> #{prefix}.err)
-
-    { 'command' => cmd, 'identifier' => game }
-  end
-
-  # `result` is a GameResult or an ArenaResult; both answer alike.
+  # The winner of a game the arena finished; none for a draw. A bot that
+  # resigned and a network out of main time or that could not be loaded
+  # have lost.
   def score_game(game, result)
-    return { 'winner' => nil, 'failure' => result.failure } if result.failure
     return { 'winner' => nil } unless result.winner
 
-    winner, loser = result.winner == :black ? [game['black'], game['white']] : [game['white'], game['black']]
-    # A bot crashing says nothing about the network that played it.
-    return { 'winner' => nil, 'failure' => "#{loser} crashed" } if result.crashed? && data['players'][loser]['external']
-
-    { 'winner' => winner }
-  end
-
-  # Writes the game to the experiment database, then deletes the files gogui-twogtp
-  # left, so an experiment does not pile up three files per game. The SGF is
-  # kept for every keep_every-th generation only. A crash before save_game
-  # commits replays the game.
-  def store_game(game, result, scored, duration)
-    prefix = prefix_from(game)
-    sgf_file = "#{prefix}-0.sgf"
-    err_file = "#{prefix}.err"
-    store.record(
-      generation: generation.to_i, round: data['round'], black: game['black'], white: game['white'],
-      black_external: external?(game['black']), white_external: external?(game['white']),
-      winner: scored['winner'], failure: scored['failure'], length: result.length,
-      referee_result: result.referee, error_message: result.error_message,
-      duration:, time_black: result.time_black, time_white: result.time_white, scorer: 'gnugo',
-      stderr: File.exist?(err_file) ? File.read(err_file) : nil,
-      sgf: keep_sgf? && File.exist?(sgf_file) ? File.read(sgf_file) : nil
-    )
-    FileUtils.rm_f(["#{prefix}.dat", sgf_file, err_file])
+    { 'winner' => result.winner == :black ? game['black'] : game['white'] }
   end
 
   def keep_sgf?
@@ -662,12 +680,16 @@ class RunGeneration
     @rng ||= Random.new(Seeds.derive(experiment_seed, 'selection', generation.to_i))
   end
 
-  # The version of the scoring logic below and in GameResult and ArenaResult:
-  # what counts as a win, a draw, or a failure. 2: games between networks
-  # are played in the arena and scored by Tromp-Taylor. Bump it when that changes, so an experiment
+  # The version of the scoring logic below and in ArenaResult: what counts
+  # as a win or a draw, and what stops the run. 3: every tournament game is
+  # played in the arena and scored by Tromp-Taylor; a bot that resigns
+  # loses, a network out of main time loses, and a game the arena could not
+  # finish stops the run instead of being scored. (2: games with a bot went
+  # through gogui-twogtp and its GNU Go referee, and failed games were
+  # stored without points.) Bump it when that changes, so an experiment
   # begun under other rules refuses to run. The points themselves are in
   # the experiment's scoring.
-  SCORING_RULES = '2'.freeze
+  SCORING_RULES = '3'.freeze
 
   def setup_tournament
     data = {

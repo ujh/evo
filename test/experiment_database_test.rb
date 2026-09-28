@@ -120,6 +120,24 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # An arena row says how the game ended, as every row says who scored it,
+  # and a game that failed is never stored: its reason is refused whoever
+  # scored it. A GoGui row has none.
+  def test_an_arena_game_needs_the_end_of_a_game_that_counts
+    with_store do |store|
+      assert_raises(ArgumentError) { store.record(**GAME, scorer: 'tromp_taylor', end_reason: nil) }
+      assert_raises(ArgumentError) { store.record(**GAME.except(:end_reason), scorer: 'tromp_taylor') }
+      %w[timeout illegal crash launch other].each do |end_reason|
+        %w[tromp_taylor gnugo].each do |scorer|
+          assert_raises(ArgumentError, end_reason) { store.record(**GAME, scorer:, end_reason:) }
+        end
+      end
+      assert_empty store.games(3)
+      store.record(**GAME, end_reason: nil)
+      assert_equal [nil], store.games(3).map { |row| row[:end_reason] }
+    end
+  end
+
   # Games recorded before migration 012 have no end reason.
   def test_migration_leaves_earlier_games_without_an_end_reason
     Dir.mktmpdir do |dir|

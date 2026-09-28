@@ -147,9 +147,10 @@ class SetupExperiment
   # Early networks are far too weak for GNU Go, at any level, and its games
   # set most of a generation's wall time, so it stays out of the tournament
   # until networks beat these (see the opponent ladder in PROJECT_NOTES.md).
-  # GNU Go still referees the games with a bot; games between two networks
-  # are scored by the arena. scripts/smoke-external-tools.sh plays each
-  # opponent and each benchmark bot; add new ones there.
+  # The arena plays and scores every tournament game, the bots' too; the
+  # benchmark's games still go through gogui-twogtp and a GNU Go referee.
+  # scripts/smoke-external-tools.sh plays each opponent and each benchmark
+  # bot; add new ones there.
   DEFAULT_OPPONENTS = [
     { name: 'Brown', command: 'brown', copies: 5 },
     { name: 'AmiGo', command: 'amigogtp', copies: 10 }
