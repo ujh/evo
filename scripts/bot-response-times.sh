@@ -14,7 +14,8 @@ set -eu
 # and time_settings together, the first of them including the bot's
 # start, so an upper bound for any one of them), play, genmove, and quit,
 # and exits 1 if any setup, play, or quit time is within a factor of 10
-# of DEADLINE (default 10 s, the value the runner passes). Run it under
+# of DEADLINE (default 10 s, the value the runner passes), or at once if
+# any game failed. Run it under
 # the machine's normal load: it checks a margin, not a recorded number.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -52,7 +53,8 @@ lane() {
         out="$scratch/game-$k"
         if ! "$driver" game 9 6.5 200 600 "$deadline" "$(command_of "$black" "$k")" "$(command_of "$white" "$k")" \
           >"$out" 2>"$out.err"; then
-          printf '%s-%s game %d failed: %s\n' "$black" "$white" "$k" "$(grep '^fail' "$out" || cat "$out.err")" >&2
+          printf '%s-%s game %d: %s\n' "$black" "$white" "$k" "$(grep '^fail' "$out" || cat "$out.err")" \
+            >"$out.failed"
         fi
         awk -F '\t' -v black="$black" -v white="$white" '
           $1 == "black" || $1 == "white" { print ($1 == "black" ? black : white) "\t" $2 "\t" $3 "\t" $4 }
@@ -76,6 +78,14 @@ status=0
 for pid in $pids; do
   wait "$pid" || status=1
 done
+# A failed game (a bot that cannot start, a failed call, an invalid move)
+# fails the check: its times say nothing about the margin.
+failures=$(cat "$scratch"/game-*.failed 2>/dev/null | wc -l | tr -d ' ')
+if [ "$failures" -ne 0 ]; then
+  printf '%d of %d games failed:\n' "$failures" $((games * 6))
+  sed 's/^/  /' "$scratch"/game-*.failed
+  exit 1
+fi
 
 printf '%d games (%d per pairing, %d at a time) in %d s; load average: %s\n' $((games * 6)) "$games" "$lanes" \
   $(($(date +%s) - start)) "$(uptime | sed 's/.*load average[s]*: //')"
