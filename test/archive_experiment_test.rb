@@ -153,6 +153,102 @@ class ArchiveExperimentTest < Minitest::Test
                   'net-2-a.ann as black', 'net-2-a.ann as white'], File.readlines(arena_log, chomp: true)
   end
 
+  # An archive whose copy goes wrong after it is built: `fault` gets the
+  # connection (the copy as main, the original as src) and spoils the copy,
+  # which the checks must catch.
+  class FaultyArchive < ArchiveExperiment
+    def initialize(dir, fault)
+      super(dir, out: StringIO.new)
+      @fault = fault
+    end
+
+    private
+
+    def build(db, original)
+      super
+      @fault.call(db)
+    end
+  end
+
+  # Archiving refuses with `message`, and leaves the original as it was
+  # and no copy behind.
+  def assert_refused_untouched(message, &)
+    before = sha(database_path)
+    error = assert_raises(ArchiveExperiment::Refused, &)
+    assert_includes error.message, message
+    assert_equal before, sha(database_path)
+    assert File.exist?(File.join(@dir, 'work/parents/0.ann'))
+    refute File.exist?(File.join(@dir, ArchiveExperiment::COPY))
+    refute File.exist?(arena_log), 'the arena ran before the copy was checked'
+  end
+
+  def archive_with_fault(&fault)
+    FaultyArchive.new(@dir, fault).call(confirm: ->(_) { true })
+  end
+
+  def test_a_copy_that_fails_its_integrity_check_is_refused
+    assert_refused_untouched('integrity check') do
+      archive_with_fault do |db|
+        # An index whose stored SQL no longer matches its entries.
+        db.execute('CREATE TABLE main.spoiled (a, b)')
+        db.execute('CREATE INDEX main.spoiled_a ON spoiled (a)')
+        db.execute('INSERT INTO main.spoiled VALUES (1, 2)')
+        version = db.get_first_value('PRAGMA main.schema_version')
+        db.execute('PRAGMA writable_schema = 1')
+        db.execute("UPDATE main.sqlite_master SET sql = 'CREATE INDEX spoiled_a ON spoiled (b)' WHERE name = 'spoiled_a'")
+        db.execute("PRAGMA main.schema_version = #{version + 1}")
+        db.execute('PRAGMA writable_schema = 0')
+      end
+    end
+  end
+
+  def test_a_copy_with_another_schema_is_refused
+    assert_refused_untouched('another schema') do
+      archive_with_fault { |db| db.execute('CREATE INDEX main.games_by_winner ON games (winner)') }
+    end
+  end
+
+  def test_a_copy_missing_rows_is_refused
+    assert_refused_untouched("the copy's games has 4 rows, the original's 5") do
+      archive_with_fault { |db| db.execute('DELETE FROM main.games WHERE rowid = (SELECT min(rowid) FROM main.games)') }
+    end
+  end
+
+  def test_a_copy_with_other_settings_is_refused
+    assert_refused_untouched("the copy's settings differs") do
+      archive_with_fault { |db| db.execute("UPDATE main.settings SET value = '3' WHERE key = 'keep_every'") }
+    end
+  end
+
+  def test_a_copy_whose_network_differs_from_the_stored_one_is_refused
+    assert_refused_untouched('1 of them as stored, for 2 champions') do
+      archive_with_fault { |db| db.execute("UPDATE main.networks SET weights = x'00' WHERE generation = 0") }
+    end
+  end
+
+  def test_a_copy_with_a_network_that_is_no_champion_is_refused
+    assert_refused_untouched('the copy has 3 networks') do
+      archive_with_fault { |db| db.execute("INSERT INTO main.networks SELECT * FROM src.networks WHERE generation = 1 AND name = 'a.ann'") }
+    end
+  end
+
+  def test_a_champion_without_a_stored_network_is_refused
+    read_write { |db| db[:networks].where(generation: 2, name: 'a.ann').delete }
+    assert_refused_untouched("generation 2's champion a.ann has no stored network") { archive }
+  end
+
+  def test_a_kept_generation_without_a_ranked_network_is_refused
+    read_write { |db| db[:rankings].where(generation: 2, external: false).delete }
+    assert_refused_untouched('generation 2 has no ranked network') { archive }
+  end
+
+  def read_write
+    db = Sequel.sqlite(database_path)
+    yield db
+  ensure
+    db&.disconnect
+  end
+
   def test_a_champion_that_cannot_be_loaded_leaves_the_original_as_it_was
     install_arena(@dir, :cannot_load)
     before = sha(database_path)
