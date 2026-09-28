@@ -1496,19 +1496,56 @@ class GenerationTimingsReportTest < Minitest::Test
     end
   end
 
+  # Exporting the networks takes 0.5 s of setup, and pairing the next round
+  # 0.25 s of the round's Ruby time.
+  def slow_bookkeeping(gen)
+    clock = @clock
+    database.define_singleton_method(:export_networks) do |*args|
+      clock.advance(0.5)
+      super(*args)
+    end
+    gen.define_singleton_method(:setup_next_round) do
+      clock.advance(0.25)
+      super()
+    end
+    gen
+  end
+
   def test_a_resumed_generation_prints_what_this_session_ran_as_partial
     in_experiment do
       setup_eight('setup_complete' => true)
-      gen = with_clock(build_generation(settings: { 'concurrency' => 2 }))
+      gen = slow_bookkeeping(with_clock(build_generation(settings: { 'concurrency' => 2 })))
       gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
       out, = capture_io { gen.call }
       lines = out.lines.map(&:chomp)
-      assert_equal ['Generation 1 took 3.00 s: setup 0.00 s, tournament 3.00 s, no benchmark.',
-                    'Tournament: 1 round, 4 games, none failed; workers 3.00 s, Ruby 0.00 s outside waiting for them.',
+      assert_equal ['Generation 1 took 3.75 s: setup 0.50 s, tournament 3.25 s, no benchmark.',
+                    'Tournament: 1 round, 4 games, none failed; workers 3.00 s, Ruby 0.25 s outside waiting for them.',
                     'Resumed: the times cover only what this session ran.',
-                    'timings generation=1 partial=1 setup=0.000 round_1=3.000 worker_round_1=3.000 ' \
-                    'ruby_round_1=0.000 games_round_1=4 failures_round_1=0 tournament=3.000 worker=3.000 ' \
-                    'ruby=0.000 games=4 failures=0 total=3.000'], lines.last(4)
+                    'timings generation=1 partial=1 setup=0.500 round_1=3.250 worker_round_1=3.000 ' \
+                    'ruby_round_1=0.250 games_round_1=4 failures_round_1=0 tournament=3.250 worker=3.000 ' \
+                    'ruby=0.250 games=4 failures=0 total=3.750'], lines.last(4)
+    end
+  end
+
+  def test_a_generation_stopped_mid_round_prints_no_timings
+    in_experiment do
+      setup_eight('setup_complete' => true)
+      gen = with_clock(build_generation(settings: { 'concurrency' => 2 }))
+      gen.instance_variable_set(:@pool, FakePool.new(clock: @clock, status: signal_status('INT')))
+      out, = capture_io { assert_raises(SystemExit) { gen.call } }
+      refute_includes out, 'timings'
+      refute_includes out, 'took'
+    end
+  end
+
+  def test_a_generation_this_session_had_nothing_left_to_do_prints_no_timings
+    in_experiment do
+      setup_eight('setup_complete' => true, 'round' => 1, 'games' => [])
+      gen = with_clock(build_generation)
+      gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
+      out, = capture_io { assert_equal :already_done, gen.call }
+      refute_includes out, 'timings'
+      refute_includes out, 'took'
     end
   end
 

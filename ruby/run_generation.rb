@@ -39,7 +39,10 @@ class RunGeneration
         benchmarked ? nil : played
       end
     end
-    timings.report
+    # A generation this session had nothing left to do in (a one-generation
+    # run re-enters the last finished one) prints nothing, so the timing
+    # lines are those of generations that ran.
+    timings.report unless result == :already_done
     result
   end
 
