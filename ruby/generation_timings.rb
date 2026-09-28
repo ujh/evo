@@ -11,8 +11,7 @@
 #   benchmark=S total=S
 # A round's time runs from the first game it queues to its next round's
 # pairing. Its worker time is the summed wall time of its pool jobs (arena
-# chunks and GoGui games), so above the round's time when jobs run in
-# parallel. Its Ruby time is the round's time the runner spent not waiting
+# chunks), so above the round's time when jobs run in parallel. Its Ruby time is the round's time the runner spent not waiting
 # for a job: pairing, queueing, reading results, scoring, and storing.
 class GenerationTimings
   MONOTONIC = -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }

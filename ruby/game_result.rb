@@ -13,8 +13,8 @@ class GameResult
   ERR = 11
   ERR_MSG = 12
   MOVE_LIMIT = 'move limit exceeded'.freeze
-  # The referee whose score RES_R holds, in the tournament and the
-  # benchmark. It scores by area (Chinese rules), as the arena does; twogtp
+  # The referee whose score RES_R holds in the benchmark (and held in the
+  # tournament's games with a bot before scoring rules 3). It scores by area (Chinese rules), as the arena does; twogtp
   # sends it the experiment's komi. Callers append its --seed.
   REFEREE = 'gnugo --mode gtp --chinese-rules'.freeze
 
