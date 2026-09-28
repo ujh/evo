@@ -1,0 +1,7 @@
+arena protocol 3 ready
+played	result=W+5.5	end=limit	length=31	time_black=0.000009	time_white=0.000008	duration=0.000026	moves=D4,F6,A8,G5,F9,A5,H1,E4,C6,J5,J1,D5,J3,H8,B2,D9,J2,E7,E8,B1,H9,C5,H5,D7,E3,G3,C8,A3,B4,E2,D2	ok
+resign0	result=W+R	end=resign	length=0	time_black=0.000005	time_white=0.000000	duration=0.001407	moves=	ok
+resign1	result=B+R	end=resign	length=1	time_black=0.000007	time_white=0.000008	duration=0.001759	moves=D4	ok
+botpass	result=W+87.5	end=limit	length=31	time_black=0.000131	time_white=0.000017	duration=0.002059	moves=pass,D4,pass,F6,pass,A8,pass,G5,pass,F9,pass,A5,pass,H1,pass,E4,pass,J5,pass,D5,pass,C6,pass,H8,pass,J3,pass,D9,pass,B2,pass	ok
+noload	end=network_error	error=white	message=cannot open /tmp/evo/missing.ann	ok
+done 5

@@ -1,0 +1,2 @@
+arena protocol 3 ready
+g	end=crash	error=white	length=5	time_black=0.000010	time_white=0.000156	duration=0.001609	moves=D4,pass,F6,pass,A8	message=genmove: killed by signal 11	ok

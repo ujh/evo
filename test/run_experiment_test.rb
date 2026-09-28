@@ -43,6 +43,24 @@ class RunExperimentTest < Minitest::Test
     assert_equal ['0'], generations_run(ExperimentDatabase.new(':memory:'), {})
   end
 
+  # A stop prints its report and exits 1, not 130 and with no backtrace,
+  # and still waits for the pool's threads.
+  def test_an_arena_stop_exits_1_with_its_report
+    stopped = nil
+    generation = lambda do |_generation, _settings, pool, _store|
+      stopped = pool
+      raise RunGeneration::ArenaStopped, "Arena chunk arena-0 stopped.\nThe run stopped; resume after fixing the cause."
+    end
+    err = nil
+    with_generation(generation) do
+      _, err = capture_io do
+        assert_equal 1, assert_raises(SystemExit) { RunExperiment.call(SETTINGS, ExperimentDatabase.new(':memory:')) }.status
+      end
+    end
+    assert_equal "\nArena chunk arena-0 stopped.\nThe run stopped; resume after fixing the cause.\n", err
+    assert stopped.stopped?
+  end
+
   def test_ctrl_c_starts_no_queued_game
     previous = trap('INT', 'DEFAULT')
     Dir.mktmpdir do |dir|

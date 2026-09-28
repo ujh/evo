@@ -1,0 +1,2 @@
+arena protocol 3 ready
+g	end=launch	error=black	length=0	time_black=0.000000	time_white=0.000000	duration=0.000493	moves=	message=cannot start /tmp/evo/nosuchbot: No such file or directory	ok

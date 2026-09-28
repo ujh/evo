@@ -343,7 +343,7 @@ module CompareArenaScoring
       lines.map { |l| "#{l}\n" }.join
     end
 
-    # Every game through twogtp, as RunGeneration#prepare_game runs it,
+    # Every game through twogtp, as the tournament ran it before rules 3,
     # then compared with the arena's record.
     def play_twogtp(networks, games, arena)
       dir = File.join(@scratch, 'twogtp')

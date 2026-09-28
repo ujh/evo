@@ -1,8 +1,12 @@
+require_relative 'awake_clock'
+
 # Runs shell commands on a fixed number of threads. The commands play games
 # (one gogui-twogtp game, or a chunk of games in the arena), so the threads
-# spend their time in `system`, which releases the interpreter lock; plain
-# threads run them just as much in parallel as Ractors would, without their
-# deadlocks.
+# spend their time waiting for their command's process (`Process.wait2`),
+# which releases the interpreter lock; plain threads run them just as much
+# in parallel as Ractors would, without their deadlocks. Each command runs
+# in `sh -c`, in the runner's process group, so a Ctrl-C in the terminal
+# reaches every job.
 class WorkerPool
   def initialize(size)
     raise ArgumentError, "a worker pool needs at least 1 thread, got #{size}" if size < 1
@@ -10,6 +14,11 @@ class WorkerPool
     @jobs = Queue.new
     @finished = Queue.new
     @halted = false
+    # The pid of each thread's running command, and whether terminate has
+    # been called; both only under @lock.
+    @lock = Mutex.new
+    @pids = {}
+    @terminating = false
     @threads = Array.new(size) { Thread.new { work } }
   end
 
@@ -20,7 +29,8 @@ class WorkerPool
   end
 
   # Blocks until a command finishes and returns its identifier, the
-  # wall-clock seconds it ran, and its Process::Status.
+  # seconds it ran (on AwakeClock, so not counting system sleep), and its
+  # Process::Status.
   def next_finished
     @finished.pop
   end
@@ -56,6 +66,21 @@ class WorkerPool
     @halted = true
   end
 
+  # Keeps queued commands from starting, as halt does, and sends SIGTERM to
+  # the running ones; returns how many it signalled. Only for commands that
+  # `exec` their program, so the signal reaches it and not a shell that
+  # would leave it running. A thread that starts its command after this
+  # kills it at once, and a command already reaped is never signalled (its
+  # pid could be another process's by now). Not from a signal trap: it
+  # takes a lock.
+  def terminate
+    halt
+    @lock.synchronize do
+      @terminating = true
+      @pids.values.count { |pid| signal(pid) }
+    end
+  end
+
   # Drops queued commands and waits for the running ones to exit.
   def stop
     @jobs.clear
@@ -74,10 +99,36 @@ class WorkerPool
       break if @halted
 
       command, identifier = job
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      system(command)
-      # $? belongs to this thread.
-      @finished << [identifier, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, $?]
+      started = AwakeClock.now
+      pid = start(command)
+      @lock.synchronize do
+        @pids[Thread.current] = pid
+        signal(pid) if @terminating
+      end
+      status = reap(pid)
+      @lock.synchronize { @pids.delete(Thread.current) }
+      @finished << [identifier, AwakeClock.now - started, status]
     end
+  end
+
+  # Starts the command as `system` would a command with shell syntax, also
+  # when it has none, so a program that cannot run exits 127 instead of
+  # raising in the thread.
+  def start(command)
+    Process.spawn('/bin/sh', '-c', command)
+  end
+
+  # Waits for the command to exit and returns its Process::Status.
+  def reap(pid)
+    Process.wait2(pid).last
+  end
+
+  # Sends SIGTERM; false when the process is gone, in the moment between a
+  # thread reaping its command and clearing its pid.
+  def signal(pid)
+    Process.kill('TERM', pid)
+    true
+  rescue Errno::ESRCH
+    false
   end
 end

@@ -101,7 +101,8 @@ class SetupExperiment
     # Half of a benchmark's games are played with each color.
     'benchmark_games' => ['Benchmark games per opponent', '20', even(2)],
     'benchmark_opening_moves' => ['Stones in each benchmark opening (0 for none)', '4', integer(0)],
-    # Given to both players and the referee of every game. A multiple of
+    # The arena's for every tournament game, sent to each bot, and given to
+    # both players and the referee of every benchmark game. A multiple of
     # 0.5, so an area-scored margin is never zero unless the game is a
     # draw, and never prints as W+0.0.
     'komi' => ['Komi', '6.5', half(-50, 50)],
@@ -147,9 +148,10 @@ class SetupExperiment
   # Early networks are far too weak for GNU Go, at any level, and its games
   # set most of a generation's wall time, so it stays out of the tournament
   # until networks beat these (see the opponent ladder in PROJECT_NOTES.md).
-  # GNU Go still referees the games with a bot; games between two networks
-  # are scored by the arena. scripts/smoke-external-tools.sh plays each
-  # opponent and each benchmark bot; add new ones there.
+  # The arena plays and scores every tournament game, the bots' too; the
+  # benchmark's games still go through gogui-twogtp and a GNU Go referee.
+  # scripts/smoke-external-tools.sh plays each opponent and each benchmark
+  # bot; add new ones there.
   DEFAULT_OPPONENTS = [
     { name: 'Brown', command: 'brown', copies: 5 },
     { name: 'AmiGo', command: 'amigogtp', copies: 10 }

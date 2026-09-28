@@ -6,7 +6,7 @@ class ExperimentDatabaseTest < Minitest::Test
   GAME = {
     generation: 3, round: 1, black: '0.ann', white: 'Brown1', black_external: false, white_external: true,
     winner: '0.ann', failure: nil, length: 93, referee_result: 'B+R', error_message: '', stderr: '', sgf: '(;SZ[9])',
-    duration: 2.25, time_black: 0.5, time_white: 1.25, scorer: 'gnugo'
+    duration: 2.25, time_black: 0.5, time_white: 1.25, scorer: 'gnugo', end_reason: 'resign'
   }.freeze
 
   BENCHMARK_GAME = {
@@ -68,7 +68,7 @@ class ExperimentDatabaseTest < Minitest::Test
       path = File.join(dir, 'experiment.sqlite3')
       db = Sequel.sqlite(path)
       Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 4)
-      old_game = GAME.except(:duration, :time_black, :time_white, :scorer)
+      old_game = GAME.except(:duration, :time_black, :time_white, :scorer, :end_reason)
       db[:games].insert(old_game)
       db.disconnect
       reader = ExperimentDatabase.new(path, readonly: true)
@@ -102,11 +102,69 @@ class ExperimentDatabaseTest < Minitest::Test
       path = File.join(dir, 'experiment.sqlite3')
       db = Sequel.sqlite(path)
       Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 8)
-      db[:games].insert(GAME.except(:scorer))
+      db[:games].insert(GAME.except(:scorer, :end_reason))
       db.disconnect
       store = ExperimentDatabase.new(path)
-      assert_equal [GAME], store.games(3)
+      assert_equal [GAME.merge(end_reason: nil)], store.games(3)
       store.close
+    end
+  end
+
+  # Migration 012: how an arena game ended, for games recorded from then on.
+  def test_records_every_stored_end_reason
+    with_store do |store|
+      %w[passes limit resign time network_error].each_with_index do |end_reason, round|
+        store.record(**GAME, round:, end_reason:)
+      end
+      assert_equal %w[passes limit resign time network_error], store.games(3).map { |row| row[:end_reason] }
+    end
+  end
+
+  # An arena row says how the game ended, as every row says who scored it,
+  # and a game that failed is never stored: its reason is refused whoever
+  # scored it. A GoGui row has none.
+  def test_an_arena_game_needs_the_end_of_a_game_that_counts
+    with_store do |store|
+      assert_raises(ArgumentError) { store.record(**GAME, scorer: 'tromp_taylor', end_reason: nil) }
+      assert_raises(ArgumentError) { store.record(**GAME.except(:end_reason), scorer: 'tromp_taylor') }
+      %w[timeout illegal crash launch other].each do |end_reason|
+        %w[tromp_taylor gnugo].each do |scorer|
+          assert_raises(ArgumentError, end_reason) { store.record(**GAME, scorer:, end_reason:) }
+        end
+      end
+      assert_empty store.games(3)
+      store.record(**GAME, end_reason: nil)
+      assert_equal [nil], store.games(3).map { |row| row[:end_reason] }
+    end
+  end
+
+  # Games recorded before migration 012 have no end reason.
+  def test_migration_leaves_earlier_games_without_an_end_reason
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 11)
+      db[:games].insert(GAME.except(:end_reason))
+      db.disconnect
+      store = ExperimentDatabase.new(path)
+      assert_equal [GAME.merge(end_reason: nil)], store.games(3)
+      store.record(**GAME, round: 2)
+      assert_equal [nil, 'resign'], store.games(3).map { |row| row[:end_reason] }
+      store.close
+    end
+  end
+
+  def test_a_read_only_store_reads_games_from_before_the_end_reason
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 11)
+      old_game = GAME.except(:end_reason)
+      db[:games].insert(old_game)
+      db.disconnect
+      reader = ExperimentDatabase.new(path, readonly: true)
+      assert_equal [old_game], reader.games(3)
+      reader.close
     end
   end
 
