@@ -117,13 +117,15 @@ end
 # trailer; `arena_output` may rewrite that whole text (nil writes no file),
 # as an arena that died would leave it; `arena_stderr` is written to its
 # stderr. `status` is every job's exit status, or a lambda giving it from
-# the job's identifier; by default the job succeeded.
+# the job's identifier; by default the job succeeded. With a `clock` (a
+# FakeClock), waiting for a job advances it by the job's duration.
 class FakePool
   attr_reader :commands, :identifiers
 
   def initialize(arena: ->(id, _game) { arena_played(id) }, arena_output: ->(text) { text }, arena_stderr: '',
-                 duration: 1.5, status: exit_status(0), &run)
+                 duration: 1.5, status: exit_status(0), clock: nil, &run)
     @run = run
+    @clock = clock
     @arena = arena
     @arena_output = arena_output
     @arena_stderr = arena_stderr
@@ -151,6 +153,21 @@ class FakePool
     else
       @run&.call(identifier)
     end
+    @clock&.advance(@duration)
     [identifier, @duration, @status.respond_to?(:call) ? @status.call(identifier) : @status]
+  end
+end
+
+# Stands in for the monotonic clock of GenerationTimings: time moves only
+# when a test advances it.
+class FakeClock
+  def initialize
+    @now = 0.0
+  end
+
+  def call = @now
+
+  def advance(seconds)
+    @now += seconds
   end
 end

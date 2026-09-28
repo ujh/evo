@@ -175,10 +175,6 @@ The owner finds `ranking` of little use (26 Sep 2026). Remove the script and eve
 
 `run` compiles the executables, but experiments now use their own copied-over executables (owner, 27 Sep 2026), so the build step is probably wasted. Check that nothing still depends on it, then remove it.
 
-### `run`: print timings
-
-`run` should print how long each generation took, and how long each of its parts took: generating the population, the tournament, and the benchmark (owner, 27 Sep 2026). This also gives the measurements the arena, scheduling, and Ruby profiling items above ask for.
-
 ### Convert the C code to Rust?
 
 Consider porting Evo's own C code to Rust, keeping the libraries it uses (such as GENANN and `pcg-c`) as they are and linking them rather than rewriting them (owner, 27 Sep 2026). The Rust compiler gives better error messages, and LLM-assisted work may go more smoothly there. The owner already wrote a Rust Go bot, [Iomrascálaí](https://github.com/ujh/iomrascalai) (GPL-3.0, last pushed January 2018, so pre-2018-edition Rust). Its board, rule set, scoring, GTP, and SGF modules may be reusable here (owner, 27 Sep 2026). Open questions: how much code that is, whether the tests carry over, and what it does to the build and CI.

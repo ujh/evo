@@ -1447,3 +1447,95 @@ class GenerationBenchmarkTest < Minitest::Test
     assert_equal [:already_done, []], run_generation(0, round: 1, settings: { 'keep_every' => 0 })
   end
 end
+
+# The timings printed at the end of a generation (GenerationTimings formats
+# them; its own tests pin the format).
+class GenerationTimingsReportTest < Minitest::Test
+  include RunGenerationHelpers
+
+  EIGHT = %w[a.ann b.ann c.ann d.ann e.ann f.ann g.ann h.ann].freeze
+
+  def setup
+    @clock = FakeClock.new
+  end
+
+  def with_clock(gen)
+    gen.instance_variable_set(:@clock, @clock)
+    gen
+  end
+
+  def setup_eight(generation: 1, **state)
+    write_data({ 'round' => 0, 'players' => EIGHT.to_h { |name| [name, { 'command' => "../evo #{name}" }] },
+                 'games' => EIGHT.each_slice(2).map { |black, white| { 'black' => black, 'white' => white } },
+                 'ranking' => EIGHT.map { |name| { 'name' => name, 'score' => 0 } } }.merge(state), generation:)
+  end
+
+  # Replaces CheckpointBenchmark.call with `stub` for the duration of the block.
+  def with_benchmark(stub)
+    original = CheckpointBenchmark.method(:call)
+    CheckpointBenchmark.define_singleton_method(:call, stub)
+    yield
+  ensure
+    CheckpointBenchmark.singleton_class.send(:remove_method, :call)
+    CheckpointBenchmark.define_singleton_method(:call, original)
+  end
+
+  def test_each_round_is_timed_with_its_worker_time_games_and_failures
+    in_experiment do
+      setup_eight
+      # Two chunks a round, 1.5 s each; the arena gives no line for axbR0.
+      pool = FakePool.new(arena: ->(id, _game) { id == 'axbR0' ? nil : arena_played(id) }, clock: @clock)
+      gen = with_clock(build_generation(settings: { 'tournament_rounds' => 2, 'concurrency' => 2 }))
+      gen.instance_variable_set(:@pool, pool)
+      capture_io { gen.send(:play_games) }
+      assert_equal 'timings generation=1 partial=0 ' \
+                   'round_1=3.000 worker_round_1=3.000 ruby_round_1=0.000 games_round_1=4 failures_round_1=1 ' \
+                   'round_2=3.000 worker_round_2=3.000 ruby_round_2=0.000 games_round_2=4 failures_round_2=0 ' \
+                   'tournament=6.000 worker=6.000 ruby=0.000 games=8 failures=1',
+                   gen.send(:timings).line
+    end
+  end
+
+  def test_a_resumed_generation_prints_what_this_session_ran_as_partial
+    in_experiment do
+      setup_eight('setup_complete' => true)
+      gen = with_clock(build_generation(settings: { 'concurrency' => 2 }))
+      gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
+      out, = capture_io { gen.call }
+      lines = out.lines.map(&:chomp)
+      assert_equal ['Generation 1 took 3.00 s: setup 0.00 s, tournament 3.00 s, no benchmark.',
+                    'Tournament: 1 round, 4 games, none failed; workers 3.00 s, Ruby 0.00 s outside waiting for them.',
+                    'Resumed: the times cover only what this session ran.',
+                    'timings generation=1 partial=1 setup=0.000 round_1=3.000 worker_round_1=3.000 ' \
+                    'ruby_round_1=0.000 games_round_1=4 failures_round_1=0 tournament=3.000 worker=3.000 ' \
+                    'ruby=0.000 games=4 failures=0 total=3.000'], lines.last(4)
+    end
+  end
+
+  def test_a_new_generation_times_its_setup_and_its_benchmark
+    in_experiment(generation: '0') do
+      gen = with_clock(build_generation(generation: '0', settings: { 'keep_every' => 1, 'population_size' => 2 }))
+      clock = @clock
+      gen.define_singleton_method(:run_initial_population) do |_command|
+        %w[0001.ann 0002.ann].each { |name| File.write(name, name) }
+        clock.advance(2.0)
+        genes = 'genes layers=1 width=10 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 ' \
+                "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=none feature_step=0.01\n"
+        [true, genes * 2]
+      end
+      # The 2 networks and the 15 bots: 8 GoGui games of 1.5 s and a bye.
+      gen.instance_variable_set(:@pool, FakePool.new(clock: @clock) do |game|
+        copy_dat('black_wins', "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R0")
+      end)
+      out, = with_benchmark(lambda { |*_args|
+        clock.advance(5.0)
+        true
+      }) { capture_io { gen.call } }
+      assert_includes out.lines.map(&:chomp),
+                      'timings generation=0 partial=0 setup=2.000 round_1=12.000 worker_round_1=12.000 ' \
+                      'ruby_round_1=0.000 games_round_1=8 failures_round_1=0 tournament=12.000 worker=12.000 ' \
+                      'ruby=0.000 games=8 failures=0 benchmark=5.000 total=19.000'
+      refute_includes out, 'Resumed'
+    end
+  end
+end
