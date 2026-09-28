@@ -2,6 +2,7 @@ require 'minitest/autorun'
 require 'fileutils'
 require 'json'
 require 'stringio'
+require 'timeout'
 require 'tmpdir'
 require_relative '../ruby/setup_experiment'
 require_relative '../ruby/run_generation'
@@ -669,17 +670,33 @@ class SetupExperimentTest < Minitest::Test
              "lock = ExperimentLock.acquire(#{experiment_dir.inspect}) or abort 'not locked'; " \
              'puts :locked; $stdout.flush; $stdin.read'
     IO.popen(ENV_VARS, ['ruby', '-e', script], 'r+') do |io|
-      assert_equal "locked\n", io.gets
-      yield
-      io.close_write
+      # Closing stdin ends the child even when an assertion fails, so the
+      # block's end does not wait on it forever.
+      begin
+        assert_equal "locked\n", Timeout.timeout(LOCK_TIMEOUT) { io.gets }
+        yield
+      ensure
+        io.close_write
+      end
     end
+  end
+
+  # A broken lock must fail these tests, not hang them: a runner that
+  # ignored a held lock would go on to prompt for settings.
+  LOCK_TIMEOUT = 30
+
+  def bounded(&)
+    $stdin = StringIO.new('')
+    Timeout.timeout(LOCK_TIMEOUT, &)
+  ensure
+    $stdin = STDIN
   end
 
   def test_the_runner_holds_the_lock_while_it_runs
     in_tmpdir do
       fake_checkout
       held = nil
-      capture_io { SetupExperiment.call('experiments/x') { held = ExperimentLock.acquire('.') } }
+      bounded { capture_io { SetupExperiment.call('experiments/x') { held = ExperimentLock.acquire('.') } } }
       assert_nil held, 'a second lock while the runner runs'
       lock = ExperimentLock.acquire('experiments/x')
       assert lock, 'the lock is released once the runner ends'
@@ -694,7 +711,9 @@ class SetupExperimentTest < Minitest::Test
     in_tmpdir do
       FileUtils.mkdir_p('experiments/y')
       holding_the_lock_elsewhere('experiments/y') do
-        error = assert_raises(SetupExperiment::Refused) { capture_io { SetupExperiment.call('experiments/y') { flunk } } }
+        error = assert_raises(SetupExperiment::Refused) do
+          bounded { capture_io { SetupExperiment.call('experiments/y') { flunk } } }
+        end
         assert_includes error.message, 'experiments/y'
         assert_includes error.message, ExperimentLock::FILE
       end
