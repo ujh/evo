@@ -1,0 +1,2 @@
+arena protocol 3 ready
+g	end=network_error	error=both	message=cannot open /tmp/evo/missing.ann; cannot open /tmp/evo/missing.ann	ok

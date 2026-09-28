@@ -1,0 +1,3 @@
+arena protocol 3 ready
+first	result=W+5.5	end=limit	length=31	time_black=0.000010	time_white=0.000008	duration=0.000026	moves=D4,F6,A8,G5,F9,A5,H1,E4,C6,J5,J1,D5,J3,H8,B2,D9,J2,E7,E8,B1,H9,C5,H5,D7,E3,G3,C8,A3,B4,E2,D2	ok
+g	end=timeout	error=white	length=3	time_black=0.000005	time_white=0.203209	duration=0.204628	moves=D4,pass,F6	message=genmove: no answer to genmove within 0.200 s	ok

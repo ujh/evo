@@ -1,0 +1,2 @@
+arena protocol 3 ready
+g	end=illegal	error=black	length=2	time_black=0.000018	time_white=0.000010	duration=0.004063	moves=pass,D4	message=genmove answered 'Z9', which is not a move on a 9x9 board	ok
