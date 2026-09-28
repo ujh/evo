@@ -356,17 +356,18 @@ class RunGeneration
     "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R#{data['round']}"
   end
 
-  # The generation's tournament state, from the experiment database; {} before
-  # the generation starts.
+  # The generation's tournament state: loaded from the experiment database
+  # once, then kept in memory as it is saved; {} before the generation
+  # starts. It is always what ExperimentDatabase#state would load.
   def data
     @data ||= store.state(generation.to_i) || {}
   end
 
   # Replaces the state in one transaction, so a crash leaves the old state or
-  # the new one, never half of it.
+  # the new one, never half of it, and keeps it as the state in memory.
   def save_data(hash, retire_networks_of: nil)
     store.save_state(generation.to_i, hash, retire_networks_of:)
-    @data = nil
+    @data = hash
     exit if $stop_now
   end
 
@@ -631,7 +632,7 @@ class RunGeneration
       break if players.empty?
 
       players << nil if players.length == 1
-      games << { black: players.first, white: players.last }
+      games << { 'black' => players.first, 'white' => players.last }
     end
     games
   end

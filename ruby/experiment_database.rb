@@ -142,7 +142,7 @@ class ExperimentDatabase
           external: players.dig(entry['name'], 'external') ? true : false }
       end)
       @db[:pending_games].multi_insert(state.fetch('games', []).each_with_index.map do |game, i|
-        { generation:, position: i, black: game['black'] || game[:black], white: game['white'] || game[:white] }
+        { generation:, position: i, black: game['black'], white: game['white'] }
       end)
     end
   end

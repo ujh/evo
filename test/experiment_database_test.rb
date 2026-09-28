@@ -209,13 +209,6 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
-  def test_the_state_accepts_symbol_keys_for_games
-    with_store do |store|
-      store.save_state(2, STATE.merge('games' => [{ black: '0.ann', white: nil }]))
-      assert_equal [{ 'black' => '0.ann', 'white' => nil }], store.state(2)['games']
-    end
-  end
-
   def test_the_standings_are_the_ranking
     with_store do |store|
       store.save_state(2, STATE)

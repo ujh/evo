@@ -232,6 +232,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
         previous_networks: database.network_names(0),
         networks: database.network_names(1),
         data: database.state(1),
+        memory: gen.send(:data),
         births: store.births(1)
       }
     end
@@ -264,6 +265,8 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_empty state[:previous_networks]
     assert state[:data]['setup_complete']
     assert_equal 0, state[:data]['round']
+    # The runner goes on with the state it saved, not a reload.
+    assert_equal state[:data], state[:memory]
   end
 
   def test_all_zero_scores_still_breed_from_real_parents
@@ -584,15 +587,17 @@ class GamesFromRankingTest < Minitest::Test
     build_generation.send(:games_from_ranking, ranking(names))
   end
 
-  def test_pairs_neighbours_in_ranking_order_with_symbol_keys
+  # String keys, as ExperimentDatabase#state loads them: the runner keeps
+  # the state it saved, and play_round and update_data read string keys.
+  def test_pairs_neighbours_in_ranking_order_with_string_keys
     result = games(%w[a.ann b.ann c.ann d.ann])
     assert_equal 2, result.size
-    assert(result.all? { |game| game.keys == %i[black white] })
+    assert(result.all? { |game| game.keys == %w[black white] })
     assert_equal [%w[a.ann b.ann], %w[c.ann d.ann]], result.map { |game| game.values.sort }
   end
 
   def test_odd_player_out_sits_the_round_out
-    assert_equal [{ black: 'c.ann', white: nil }], games(%w[a.ann b.ann c.ann]).drop(1)
+    assert_equal [{ 'black' => 'c.ann', 'white' => nil }], games(%w[a.ann b.ann c.ann]).drop(1)
   end
 
   # Bots play in the ranking like networks, so their place in it can be compared.
@@ -611,13 +616,6 @@ class GamesFromRankingTest < Minitest::Test
     end
   end
 
-  def test_game_keys_become_strings_after_saving
-    in_experiment do
-      gen = build_generation
-      gen.send(:save_data, { 'games' => games(%w[a.ann b.ann]) })
-      assert_equal %w[black white], gen.send(:data)['games'].first.keys
-    end
-  end
 
   # The opponents come from the experiment's database, not from the code, so
   # an experiment keeps its panel when the defaults change.
@@ -664,7 +662,7 @@ class GamesFromRankingTest < Minitest::Test
       # 4 networks, 5 Brown, and 10 AmiGo.
       assert_equal 19, tournament['players'].size
       assert_equal 10, tournament['games'].size
-      assert_equal 1, tournament['games'].count { |game| game[:white].nil? }
+      assert_equal 1, tournament['games'].count { |game| game['white'].nil? }
       assert_equal '../evo 0001.ann', tournament['players']['0001.ann']['command']
     end
   end
@@ -1144,6 +1142,8 @@ class ReproducibleRoundsTest < Minitest::Test
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
       assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]
       assert_equal %w[0001.ann 0002.ann], store.network_names(0)
+      # The runner goes on with the state it saved, not a reload.
+      assert_equal store.state(0), gen.send(:data)
     end
   end
 
@@ -1586,5 +1586,116 @@ class GenerationTimingsReportTest < Minitest::Test
                       'ruby=2.000 games=8 failures=0 benchmark=5.000 total=21.000'
       refute_includes out, 'Resumed'
     end
+  end
+end
+
+# The runner keeps a generation's state in memory while it plays it. After
+# every save that state must be what the database gives a resumed run, and
+# the stored ranking what a full save of it would write.
+class InMemoryStateTest < Minitest::Test
+  include RunGenerationHelpers
+
+  NETWORKS = %w[a.ann b.ann c.ann d.ann e.ann f.ann].freeze
+  # Draws and byes give points too, so they move players.
+  SCORING = SetupExperiment::DEFAULT_SCORING.merge('win' => 3, 'draw' => 1, 'bye' => 2)
+  ROUNDS = 3
+  GAMES = 12
+
+  # A fresh experiment database with round 0 of generation 1 set up: six
+  # networks and Brown1, so every round has a bye. The ranking is not in
+  # [-score, name] order, as setup_tournament's shuffled ties are not.
+  def fresh_store
+    store = ExperimentDatabase.new(':memory:')
+    SetupExperiment.save_rules(store)
+    store.save_scoring(SCORING)
+    players = NETWORKS.to_h { |name| [name, { 'command' => "../evo #{name}" }] }
+    players['Brown1'] = { 'command' => 'brown', 'external' => true }
+    ranking = players.keys.reverse.map { |name| { 'name' => name, 'score' => 0 } }
+    games = ranking.map { |r| r['name'] }.each_slice(2).map { |black, white| { 'black' => black, 'white' => white } }
+    store.save_state(1, { 'setup_complete' => true, 'round' => 0, 'players' => players, 'ranking' => ranking,
+                          'games' => games })
+    store
+  end
+
+  # Every game's result depends only on its players, so a resumed run plays
+  # the same games as an uninterrupted one. Some networks draw.
+  ARENA = lambda do |id, game|
+    black, white = game.values_at('black', 'white')
+    result = if ((black.ord + white.ord) % 3).zero? then '0'
+             elsif black < white then 'B+1.5'
+             else 'W+1.5'
+             end
+    arena_played(id, result:)
+  end
+  # What the network playing Brown1 gets: wins, draws, and a failed game.
+  GOGUI = { 'a' => 'black_wins', 'b' => 'white_wins', 'c' => 'draw', 'd' => 'draw', 'e' => 'black_wins',
+            'f' => 'no_referee_score' }.freeze
+
+  def build(store)
+    gen = build_generation(settings: { 'tournament_rounds' => ROUNDS, 'concurrency' => 2 }, store:)
+    pool = FakePool.new(arena: ARENA) do |game|
+      network = [game['black'], game['white']].find { |name| name.end_with?('.ann') }
+      copy_dat(GOGUI.fetch(network[0]), gen.send(:prefix_from, game))
+    end
+    gen.instance_variable_set(:@pool, pool)
+    gen
+  end
+
+  # Calls `check` with a label after every game and after every round's
+  # pairing, once each is saved.
+  def watch(gen, &check)
+    gen.define_singleton_method(:refresh_progress) do
+      super()
+      check.call(:game)
+    end
+    gen.define_singleton_method(:setup_next_round) do
+      super()
+      check.call(:round)
+    end
+  end
+
+  def play(gen)
+    capture_io { gen.send(:play_games) }
+  end
+
+  # The stored games without their timings, which depend on the chunks.
+  def untimed_games(store)
+    store.games(1).map { |row| row.except(:duration, :time_black, :time_white) }
+  end
+
+  def final(store)
+    [store.ranking(1), untimed_games(store), store.state(1)]
+  end
+
+  def test_after_every_save_the_state_in_memory_is_what_the_database_holds
+    store = fresh_store
+    in_experiment do
+      gen = build(store)
+      saves = []
+      watch(gen) do |kind|
+        data = gen.send(:data)
+        assert_equal store.state(1), data, "after save #{saves.size + 1} (#{kind})"
+        full = ExperimentDatabase.new(':memory:')
+        full.save_state(1, data)
+        assert_equal full.ranking(1), store.ranking(1), "after save #{saves.size + 1} (#{kind})"
+        saves << kind
+      end
+      play(gen)
+      assert_equal [*[:game] * (GAMES / ROUNDS), :round] * ROUNDS, saves
+    end
+    # Draws and byes moved players: not every score is a multiple of the win.
+    assert(store.ranking(1).any? { |row| (row[:score] % 3).nonzero? })
+    assert(store.games(1).any? { |row| row[:failure] })
+  end
+
+  def test_the_state_is_loaded_once_per_generation
+    store = fresh_store
+    loads = 0
+    store.define_singleton_method(:state) do |generation|
+      loads += 1
+      super(generation)
+    end
+    in_experiment { play(build(store)) }
+    assert_equal 1, loads
   end
 end
