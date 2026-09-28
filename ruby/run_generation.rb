@@ -230,7 +230,8 @@ class RunGeneration
   # Raised when an arena chunk did not finish every game: a game the arena
   # could not finish (a failure record) is never scored, and neither is one
   # without a record. The chunk's other games are stored; the rest stay
-  # pending, so a resume replays them.
+  # pending, so a resume replays them. The message is the report the run
+  # stops with (RunExperiment prints it and exits 1).
   ArenaStopped = Class.new(StandardError)
 
   # Scores and stores every game of the chunk the arena finished, then
@@ -243,9 +244,10 @@ class RunGeneration
     output = read_utf8(chunk.out)
     parsed = ArenaResult.mixed_chunk(output, chunk.games.keys)
     stored = parsed.results.select { |_, result| result.failure.nil? }
-    # The chunk's time beyond its records' (starting the arena, loading the
-    # networks, and the games that failed) is shared out equally among the
-    # stored games, so the rows add up to the worker's time.
+    # The chunk's time beyond all its records' (starting the arena, loading
+    # the networks, and any game left without a record) is shared out
+    # equally among the stored games, so the rows add up to the worker's
+    # time. A failure record's own time is not shared: the game is replayed.
     played = parsed.results.values.sum { |result| result.duration || 0 }
     share = stored.empty? ? 0 : [duration - played, 0].max / stored.size
     stored.each do |id, result|
@@ -262,28 +264,50 @@ class RunGeneration
     File.exist?(path) ? File.read(path, encoding: 'UTF-8').scrub : ''
   end
 
-  # Stops the run for a chunk whose games did not all finish, naming each
-  # game left pending and why, with the chunk's stderr. Its files stay in
-  # work/ until the resume empties it.
+  # Stops the run for a chunk whose games did not all finish. First it
+  # sends SIGTERM to the round's other chunks still running, whose output
+  # would not be read (they are arenas, exec'd, so the signal reaches them
+  # and they stop their bots), instead of waiting out their bots' deadlines;
+  # their games stay pending too, and nothing reads their statuses, which
+  # would look like Ctrl-C. Then it raises ArenaStopped with the report:
+  # each game left pending and why, and the chunk's stderr. The chunk's
+  # files stay in work/ until the resume empties it. The round is counted
+  # from 0, as in the game IDs.
   def stop_for(chunk, parsed, status)
+    terminated = pool.terminate
     reasons = []
     reasons << 'wrote no header' unless parsed.header?
     reasons << 'did not finish its output' unless parsed.complete? || !parsed.header?
     reasons << 'could not finish a game' if parsed.failures.any?
-    reasons << "exited with #{status || 'no status'}" unless status&.success?
+    reasons << exit_reason(status) unless status&.success?
     withheld = parsed.results.reject { |_, result| result.failure.nil? }.map do |id, result|
       if result.failed?
-        "  #{id}: #{result.end_reason} (#{result.error_side}): #{result.error_message}"
+        "  #{id}: #{result.end_reason} (#{result.error_side}): #{result.error_message}\n"
       else
-        "  #{id}: no record"
+        "  #{id}: no record\n"
       end
     end
     stderr = read_utf8(chunk.err)
-    raise ArenaStopped, "Arena chunk #{chunk.name} of generation #{generation}, round #{data['round'] + 1} " \
-                        "#{reasons.join(', ')}. #{withheld.size} of its #{chunk.games.size} games stay pending:\n" \
-                        "#{withheld.join("\n")}\n" \
+    raise ArenaStopped, "Arena chunk #{chunk.name} of generation #{generation}, round #{data['round']} " \
+                        "#{reasons.join(', ')}. #{withheld.size} of its #{chunk.games.size} games stay pending" \
+                        "#{withheld.empty? ? '.' : ":\n#{withheld.join.chomp}"}\n" \
                         "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}\n" \
-                        'The games it finished are stored; resume after fixing the cause.'
+                        "The games it finished are stored. #{terminated_note(terminated)}\n" \
+                        'The run stopped; resume after fixing the cause.'
+  end
+
+  def exit_reason(status)
+    if status.nil? then 'has no exit status'
+    elsif status.signaled? then "was killed by #{Signal.signame(status.termsig).then { |name| "SIG#{name}" }}"
+    else "exited with status #{status.exitstatus}"
+    end
+  end
+
+  def terminated_note(count)
+    return 'No other chunk was running.' if count.zero?
+
+    "Sent SIGTERM to #{count} other #{count == 1 ? 'chunk' : 'chunks'} still running; " \
+      "#{count == 1 ? 'its' : 'their'} games stay pending too."
   end
 
   # A stored game never failed, and the chunk's stderr, shared by all its

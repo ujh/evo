@@ -901,10 +901,18 @@ class PlayRoundTest < Minitest::Test
                     status: exit_status(0), stderr: 'Segmentation fault', duration: 1.5)
     store = database
     setup_round(THREE_GAMES)
-    gen = build_with(FakePool.new(arena:, arena_output:, arena_stderr: stderr, status:, duration:), store:)
+    pool = FakePool.new(arena:, arena_output:, arena_stderr: stderr, status:, duration:)
+    gen = build_with(pool, store:)
     error = nil
     capture_io { error = assert_raises(RunGeneration::ArenaStopped) { gen.send(:play_round) } }
     assert_equal pending, pending(gen), 'the state in memory is the stored one'
+    # Every stop says where it happened (the round as in the game IDs), how
+    # to go on, and what the arena said, and stops the other chunks.
+    assert_includes error.message, 'Arena chunk arena-0 of generation 1, round 0 '
+    assert_includes error.message, "Its stderr:\n#{stderr}" unless stderr.empty?
+    assert_includes error.message, 'No other chunk was running.'
+    assert_match(/resume after fixing the cause\.\z/, error.message)
+    assert_equal [], pool.terminated
     [store.games(1).map { |row| row[:black] }, pending.map(&:first),
      scores(gen).values_at('a.ann', 'c.ann', 'd.ann', 'Brown1'), error.message]
   end
@@ -927,11 +935,9 @@ class PlayRoundTest < Minitest::Test
         assert_in_delta 10.05, database.games(1).first[:duration], 1e-9, finish
         assert_equal %w[c.ann d.ann], left, finish
         assert_equal [0, 0, 0, 1], points, finish
-        assert_includes message, 'generation 1, round 1', finish
         assert_includes message, "cxBrown2R0: #{finish} (white): brown: #{finish}", finish
         assert_includes message, 'dxeR0: no record', finish
         assert_includes message, 'Segmentation fault', finish
-        assert_includes message, 'resume', finish
       end
     end
   end
@@ -1008,7 +1014,119 @@ class PlayRoundTest < Minitest::Test
       stored, left, _, message = stopped_chunk(status: exit_status(1))
       assert_equal %w[Brown1 c.ann d.ann], stored
       assert_empty left
-      assert_includes message, 'exit 1'
+      assert_includes message, 'exited with status 1'
+    end
+  end
+
+  # Each way a chunk can end without all its games: the valid records are
+  # stored, the others stay pending, each named in the report.
+  def test_every_way_a_chunk_can_fall_short_stops_the_run
+    header_only = ->(_text) { "#{ArenaResult::HEADER}\ndone 0\n" }
+    cut = ->(text) { text.lines.first(2).join }
+    {
+      'exit 1 with no records' => [{ arena_output: header_only, status: exit_status(1) }, [], %w[Brown1 c.ann d.ann],
+                                   'did not finish its output, exited with status 1. 3 of its 3 games stay pending:'],
+      'a crash mid-chunk' => [{ arena_output: cut, status: signal_status('SEGV') }, %w[Brown1], %w[c.ann d.ann],
+                              'did not finish its output, was killed by SIGSEGV.'],
+      'SIGKILL' => [{ arena_output: cut, status: signal_status('KILL') }, %w[Brown1], %w[c.ann d.ann],
+                    'was killed by SIGKILL. 2 of its 3 games stay pending:'],
+      'SIGSEGV after the last record' => [{ status: signal_status('SEGV') }, %w[Brown1 c.ann d.ann], [],
+                                          "round 0 was killed by SIGSEGV. 0 of its 3 games stay pending.\nIts stderr"],
+      'a malformed line' => [{ arena_output: ->(text) { text.sub(/^cxBrown2R0\t.*$/, "cxBrown2R0\tgarbage") } },
+                             %w[Brown1 d.ann], %w[c.ann], 'did not finish its output. 1 of its 3 games'],
+      'a missing header' => [{ arena_output: ->(text) { text.lines.drop(1).join } }, %w[Brown1 c.ann d.ann], [],
+                             'wrote no header. 0 of its 3 games stay pending.']
+    }.each do |how, (options, stored_games, left_games, says)|
+      in_experiment do
+        @database = nil
+        stored, left, _, message = stopped_chunk(**options)
+        assert_equal stored_games, stored, how
+        assert_equal left_games, left, how
+        assert_includes message, says, how
+        (IDS - database.games(1).map { |row| "#{row[:black].delete_suffix('.ann')}x#{row[:white].delete_suffix('.ann')}R0" })
+          .each { |id| assert_includes message, "  #{id}: no record", how }
+      end
+    end
+  end
+
+  # With one chunk per game, the first chunk to finish stops the run; the
+  # others, still running, are terminated and never read, so their games
+  # stay pending with no row, whatever they would have given.
+  def test_chunks_still_running_at_the_stop_are_terminated_and_not_stored
+    in_experiment do
+      setup_round(THREE_GAMES)
+      pool = FakePool.new(arena: ->(id, _game) { id == 'Brown1xaR0' ? arena_failed(id, side: 'black') : arena_played(id) },
+                          status: ->(chunk) { chunk.name == 'arena-0' ? exit_status(2) : signal_status('TERM') })
+      gen = build_with(pool, settings: { 'concurrency' => 3 })
+      error = nil
+      capture_io { error = assert_raises(RunGeneration::ArenaStopped) { gen.send(:play_round) } }
+      assert_equal %w[arena-1 arena-2], pool.terminated.map(&:name)
+      assert_empty database.games(1)
+      assert_equal THREE_GAMES, pending
+      assert_includes error.message, 'Sent SIGTERM to 2 other chunks still running; their games stay pending too.'
+    end
+  end
+
+  # Ctrl-C while the stop terminates the other chunks changes nothing: the
+  # run still stops with the report, and no game of theirs is scored.
+  def test_ctrl_c_during_the_stop_leaves_the_other_chunks_games_pending
+    in_experiment do
+      setup_round(THREE_GAMES)
+      pool = FakePool.new(arena: ->(id, _game) { id == 'Brown1xaR0' ? arena_failed(id, side: 'black') : arena_played(id) },
+                          on_terminate: -> { $stop_now = true })
+      gen = build_with(pool, settings: { 'concurrency' => 3 })
+      capture_io { assert_raises(RunGeneration::ArenaStopped) { gen.send(:play_round) } }
+      assert_equal %w[arena-1 arena-2], pool.terminated.map(&:name)
+      assert_empty database.games(1)
+      assert_equal THREE_GAMES, pending
+    ensure
+      $stop_now = false
+    end
+  end
+
+  def test_the_report_says_how_many_other_chunks_were_terminated
+    gen = build_generation
+    assert_equal 'No other chunk was running.', gen.send(:terminated_note, 0)
+    assert_equal 'Sent SIGTERM to 1 other chunk still running; its games stay pending too.', gen.send(:terminated_note, 1)
+  end
+
+  # A stand-in for ../arena: a shell script that plays the chunk named
+  # `failing` by writing the header and `record` and exiting 2, and never
+  # finishes any other chunk; on SIGTERM it exits 143, as a shell reports a
+  # program the signal killed.
+  def fake_arena(failing, record)
+    File.write('../failing', "#{ArenaResult::HEADER}\n#{record}\n")
+    File.write('../arena', <<~SH)
+      #!/bin/sh
+      for last; do :; done
+      if [ "$last" = #{failing}.txt ]; then cat ../failing; exit 2; fi
+      echo '#{ArenaResult::HEADER}'
+      trap 'kill $!; exit 143' TERM
+      sleep 30 & wait
+    SH
+    File.chmod(0o755, '../arena')
+  end
+
+  # With the real pool and a stand-in arena: the stop sends SIGTERM to the
+  # chunk still running before anything waits for it, and never reads its
+  # status (143, which would count as an interrupt, exit 130).
+  def test_the_stop_terminates_the_running_chunks_before_joining_them
+    in_experiment do
+      fake_arena('arena-0', arena_failed('Brown1xaR0'))
+      setup_round(THREE_GAMES)
+      pool = WorkerPool.new(3)
+      gen = build_with(pool, settings: { 'concurrency' => 3 })
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      error = nil
+      capture_io { error = assert_raises(RunGeneration::ArenaStopped) { gen.send(:play_round) } }
+      pool.stop
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 10
+      assert_includes error.message, 'Brown1xaR0: timeout (white)'
+      assert_includes error.message, 'Sent SIGTERM to 2 other chunks still running'
+      assert_empty database.games(1)
+      assert_equal THREE_GAMES, pending
+    ensure
+      pool&.stop
     end
   end
 
@@ -1112,6 +1230,35 @@ class PlayRoundTest < Minitest::Test
     end
   end
 
+  # When the first chunk to finish is the one that fails, the other chunk
+  # is terminated unread: resuming plays the failed chunk's withheld games
+  # and all of the other's, and ends as if nothing had stopped.
+  def test_a_stop_by_the_first_chunk_to_finish_is_resumed_as_well
+    expected = uninterrupted
+    in_experiment do
+      setup_arena_generation
+      # The first chunk of the first round is Brown1-Brown2, c.ann-d.ann,
+      # then g.ann-h.ann; the arena stops at the failure.
+      arena = lambda do |id, game|
+        case id
+        when 'cxdR0' then arena_failed(id)
+        when 'gxhR0' then nil
+        else arena_by_name.call(id, game)
+        end
+      end
+      failing = FakePool.new(arena:)
+      assert_raises(RunGeneration::ArenaStopped) { play_generation(failing) }
+      assert_equal %w[arena-1], failing.terminated.map(&:name)
+      assert_equal [%w[Brown1 Brown2]], database.games(1).map { |row| row.values_at(:black, :white) }
+      assert_equal [%w[a.ann b.ann], %w[c.ann d.ann], %w[e.ann f.ann], %w[g.ann h.ann]],
+                   database.state(1)['games'].map { |g| g.values_at('black', 'white') }
+
+      play_generation(FakePool.new(arena: arena_by_name))
+      assert_equal expected, [untimed_games, database.ranking(1)]
+      assert_equal 15, database.games(1).size
+    end
+  end
+
   # What Ruby reports for a command that Ctrl-C (SIGINT) or SIGTERM ended:
   # killed by the signal, or, for a program that catches it and exits (the
   # JVM that runs gogui-twogtp), 128 plus the signal.
@@ -1123,9 +1270,13 @@ class PlayRoundTest < Minitest::Test
       in_experiment do
         @database = nil
         setup_round([%w[a.ann b.ann], %w[c.ann Brown1]])
-        gen = build_with(FakePool.new(status:, arena_output: ->(text) { text.lines.first(2).join }))
+        pool = FakePool.new(status:, arena_output: ->(text) { text.lines.first(2).join })
+        gen = build_with(pool)
         _, err = capture_io { assert_equal 130, assert_raises(SystemExit, how) { gen.send(:play_round) }.status, how }
         assert_includes err, 'arena chunk arena-0 (cxBrown1R0, axbR0) was interrupted; its games stay pending', how
+        # An interrupt, not a stop: no report, and nothing is terminated.
+        refute_includes err, 'resume after fixing', how
+        assert_empty pool.terminated, how
         assert_empty database.games(1), how
         assert_equal 2, database.state(1)['games'].size, how
       end

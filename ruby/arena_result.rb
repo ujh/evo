@@ -1,8 +1,10 @@
 require_relative 'game_result'
 
 # The outcome of one game the arena (engine/arena) played, read from its
-# stdout. It answers what GameResult answers, so the runner scores both
-# alike, plus the game's own arena time and its moves.
+# stdout: what GameResult answers for a twogtp game (winner, result,
+# length, times, error message), so the two compare alike, plus how the
+# game ended, its own arena time, and its moves. The runner scores every
+# tournament game from it.
 #
 # The arena writes one tab-separated line per game, flushed complete and
 # ending in the field "ok", then "done N". A line that does not match the

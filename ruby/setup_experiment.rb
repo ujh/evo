@@ -101,7 +101,8 @@ class SetupExperiment
     # Half of a benchmark's games are played with each color.
     'benchmark_games' => ['Benchmark games per opponent', '20', even(2)],
     'benchmark_opening_moves' => ['Stones in each benchmark opening (0 for none)', '4', integer(0)],
-    # Given to both players and the referee of every game. A multiple of
+    # The arena's for every tournament game, sent to each bot, and given to
+    # both players and the referee of every benchmark game. A multiple of
     # 0.5, so an area-scored margin is never zero unless the game is a
     # draw, and never prints as W+0.0.
     'komi' => ['Komi', '6.5', half(-50, 50)],

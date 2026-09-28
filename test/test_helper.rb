@@ -130,12 +130,17 @@ end
 # stderr. `status` is every job's exit status, or a lambda giving it from
 # the job's identifier; by default the job succeeded. With a `clock` (a
 # FakeClock), waiting for a job advances it by the job's duration.
+# `terminate` stands in for WorkerPool#terminate: the jobs not yet handed
+# back count as running and are never handed back; `on_terminate` runs
+# first.
 class FakePool
-  attr_reader :commands, :identifiers
+  attr_reader :commands, :identifiers, :terminated
 
   def initialize(arena: ->(id, _game) { arena_played(id) }, arena_output: ->(text) { text }, arena_stderr: '',
-                 duration: 1.5, status: exit_status(0), clock: nil, &run)
+                 duration: 1.5, status: exit_status(0), clock: nil, on_terminate: nil, &run)
     @run = run
+    @on_terminate = on_terminate
+    @terminated = []
     @clock = clock
     @arena = arena
     @arena_output = arena_output
@@ -151,6 +156,13 @@ class FakePool
     @commands << command
     @identifiers << identifier
     @queued << identifier
+  end
+
+  def terminate
+    @on_terminate&.call
+    @terminated.concat(@queued)
+    @queued.clear
+    @terminated.size
   end
 
   # Every job "takes" 1.5 seconds unless told otherwise.
