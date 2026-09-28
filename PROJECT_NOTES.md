@@ -4,11 +4,21 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** the networks now have hand-coded Go knowledge (`docs/features.md`), and one seeded comparison showed a clear head start against Brown but no progress towards AmiGo in 20 generations. Repeat that comparison with several seeds and more benchmark games (see [Go features: what is still open](#go-features-what-is-still-open)) before building on it. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** the longer `bigrun` and `even-bigger` experiments show improvement against AmiGo but leave a large gap to GNU Go level 0. Prioritize the arena speedup and tournament rework below, then find and calibrate a fast intermediate opponent and test whether low mutation rates limit further progress. Improve checkpoint comparisons and repeat controlled runs with several seeds before attributing a gain to a setting. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
-**Next task: arena performance with big populations.** With populations large in both network size and count (such as the `even-bigger` experiment), much of the time between tournament rounds seems to go into loading the networks: every round starts new arena processes (one per chunk), and each loads its networks again. Not yet investigated (owner, 26 Sep 2026). Measure first where the time goes; one candidate remedy is to keep the arena running for all of a generation's tournament rounds, so each network is loaded once.
+**Further arena speedup and tournament rework:** Loading is faster but still costs about 1.5 s for one 250-game chunk of `even-bigger` (see `docs/performance.md`). Measure full-round and generation time, then consider keeping arenas alive across a generation's rounds so each network is loaded once. Check memory use, since each arena process could eventually load much of the 4.46 GB population, and preserve interruption and resume behavior. Profile the small and large experiments separately: bot games dominate `bigrun`'s recorded worker time, while arena games dominate `even-bigger`'s.
+
+Move **all tournament games**, including network–bot and bot–bot games, into the arena. Give it a small GTP controller for external players (`boardsize`, `komi`, `clear_board`, `genmove`, `play`, `quit`; handle response framing and errors), so tournament games no longer launch GoGui or a GNU Go referee. Use the arena's Tromp–Taylor score for every tournament game; the owner accepts the possible difference from GNU Go's Chinese-rules adjudication. Keep the checkpoint benchmark's fixed procedure and referee so it remains comparable across runs. Work through these details when implementing it:
+
+- Reuse the existing arena ending rule: two consecutive passes or the `max_moves` limit. The arena currently plays at most `max_moves + 1` moves, matching `gogui-twogtp`'s limit; passes count. Handle a bot's resignation, illegal move, GTP error, crash, or stalled response explicitly.
+- Give each player the configured `game_length` of main time. Send `time_settings` and updated `time_left` to bots that support them, and maintain a monotonic clock and enforce the limit in the controller. Brown and AmiGo currently support neither time command, so telling the bot its allowance is insufficient. Decide and record how a time loss is scored.
+- Preserve per-game seeds, color and move records, timings, SGFs at kept checkpoints, and interruption/resume behavior. A bot failure should remain a failed game rather than an undeserved network win. Record the new scorer and bump the tournament scoring-rules version; do not mix old and new rules within a started experiment. Measure the speedup on complete generations before adding more bots.
+
+**Also profile the Ruby side of a tournament round.** Besides the games, the Ruby code that pairs networks, launches games, and records results may have bottlenecks of its own (owner, 27 Sep 2026). Measure it before changing anything.
 
 **Next step: benchmark against more past champions.** A checkpoint's benchmark plays only two networks: generation 0's champion (`initial_champion`) and the previous checkpoint's (`previous_checkpoint`). That makes progress hard to see (owner, 27 Sep 2026): a win against the previous checkpoint says little about the run as a whole, and a loss can hide steady gains against older champions. Play the top network against more of the earlier checkpoints' champions, or all of them, so each checkpoint gets a row of results against the whole line of its ancestors. Only checkpoint champions count, since theirs are the networks kept (owner, 27 Sep 2026). Open questions, to decide later:
+
+Start by comparing the retained champions within each of `bigrun` and `even-bigger` out of band, across several openings with both colors, to see whether later checkpoints beat older ones consistently or cycle between strengths. Keep AmiGo and GNU Go as external anchors. Do not infer steady progress from the previous-checkpoint result alone, which has stayed near even while AmiGo results have risen and fallen.
 
 - How many champions: all, or the last N, given the benchmark's cost.
 - Whether games against past champions go to the arena instead of GoGui, which would make them nearly free. The scoring differs little: the referee's Chinese rules are area scoring too, and differ from the arena's Tromp–Taylor only where dead stones stay on the board (GNU Go removes them, Tromp–Taylor counts them), which happens often while networks pass early and less once they finish games. The arena lacks openings, though, which the benchmark needs because networks play deterministically; it would have to learn to start games from one.
@@ -26,7 +36,7 @@ The tournament has a useful idea: match roughly comparable players while includi
 
 Parents are chosen by tournament selection with a default size of 3 (`tournament_size`). Nothing yet shows whether that keeps enough variation or selects too weakly to make progress.
 
-**Proposed response:** measure it with the [recorded data](#6-test-the-assumptions-with-the-recorded-data) below, compare a few tournament sizes, and consider preserving a small number of elites.
+**Proposed response:** measure it with the [recorded data](#6-test-the-assumptions-with-the-recorded-data) below, compare a few tournament sizes, and consider preserving a small number of elites. Re-evaluate top-ranked networks and some lower-ranked ones on the same independent openings to estimate how much the ten-game tournament schedule misorders parents and checkpoint champions.
 
 ### 3. Mutation and crossover deserve separate experiments
 
@@ -41,6 +51,8 @@ Crossing raw weight arrays also assumes that hidden units occupy compatible role
 The genes start from the `initial_*` settings (defaults: `copy_chance` 1%, 0.0004 weight changes per weight, `weight_step` ±0.5) and adapt at the pace of `meta_rate`. None of those values was chosen from evidence. Question them in these experiments: compare starting values, and a `meta_rate` of 0 (fixed genes) against self-adaptation, at equal game budgets.
 
 **Open question: do the self-adaptive genes drift to their clamps?** Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies. A 20-generation seeded run with the default genes (9×9, 20 networks of 1×50, 5 rounds, 25 Sep 2026) hit no clamp, but the medians moved: `copy_chance` from 0.01 to about 0.005, `activation_rate` from 0.02 to about 0.01, `structure_rate` up to 0.04 and back to 0.016, `weight_changes` from 3.3 to 4.2, and `weight_step`'s median rose to about 0.74 around generations 14–17 and fell back to 0.48 (all births: 0.23–1.21). Only three structural changes and seven activation switches happened, and none spread: no generation had more than two networks with another activation or one with another shape than 1×50. Twenty generations cannot tell drift from selection. The same settings with every feature group (26 Sep 2026; the stones-only run gave the numbers above again) also hit no clamp: `weight_changes` fell from 21.2 to 12.5, `weight_step` to about 0.34, and `structure_rate` to about 0.008, and `copy_chance` and `activation_rate` to about 0.008 and 0.016. Watch the Genes table in longer runs; if genes reach a clamp, try a lower `meta_rate`, or fix `copy_chance` (and perhaps the other probabilities) while `weight_changes` and `weight_step` adapt. If shapes are to be explored, start with a higher `initial_structure_rate`.
+
+**Next diagnostic for structural exploration:** The larger ongoing run adopted an 11×200 shape from 10×200 early, but only 42 of 50,000 births in generations 100–149 changed structure. The longer small-population run also had stretches with almost no structural or activation changes. Low adaptive rates mean the runs scarcely test alternative shapes; they do not establish a local optimum. Compare a maintained minimum structural-change rate against the current self-adaptation, with other settings fixed, and measure both how many different shapes are tried and how often they survive. Test selection pressure, weight mutation size, and crossover separately rather than changing them together. Evaluate at equal generations as well as equal games and elapsed time.
 
 **Proposed experiment: cross the rest of the genome apart from the weights.** A crossover child takes all of the non-weight genome (the mutation genes, both activations, the feature weights, and `feature_step`) from the picked parent, the one whose weights come first. Instead, cross it separately: for example take each gene from either parent at random, or average the numeric ones. These genes do not depend on the network's shape, so they could mix even between parents of different shapes, which today always give a mutation. Compare against the present scheme at equal game budgets.
 
@@ -61,6 +73,8 @@ That makes a compact policy an interesting learning experiment, with substantial
 
 None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. Generation 0's sizes and activations are experiment settings and defaults; from there, activations and sizes evolve as genes of each network. Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
 
+**Check whether the dense network still influences move choice.** In late `bigrun`, the population has tanh outputs (bounded by −1 and 1) while some added feature weights are around 7–10. This may make the feature terms decide many moves, even as the dense weights mutate. On a saved bank of positions, measure move agreement with the feature terms removed and with the dense output removed; inspect score margins and test the resulting policies on held-out games. Large feature weights alone do not establish that they hurt play.
+
 Search remains a choice to discuss.
 
 ### 5. Long runs need recoverable evidence
@@ -72,6 +86,8 @@ Networks and SGFs are kept only for every `keep_every`-th generation. That saves
 ### 6. Test the assumptions with the recorded data
 
 Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The experiment database records what is needed (`games`, `births`, and `rankings` in `experiment.sqlite3`), and `stats` reports it, including children per parent and where the bots rank. Still to do: run a few seeded experiments that vary one setting at a time.
+
+**Investigate the color gap before tuning around it.** Against AmiGo after generation 0, `bigrun`'s checkpoint champions won 444/1,140 games as Black and 688/1,140 as White; `even-bigger` showed the same direction in its first four checkpoints (11/40 and 20/40). The benchmark pairs colors, so its combined rate is still useful, but these results call for checking outcomes by opening, game length, passing, and komi. Do not assume yet whether the cause is the policy, the openings, or the opponent.
 
 ### 7. Move choice is deterministic
 
@@ -122,20 +138,22 @@ The recommendation is to consider using the network's move scores to guide explo
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-Games between two networks run in the arena and cost almost nothing. Every game with a bot still launches a new GoGui process, two players, and a GNU Go referee, and that overhead is now nearly all of a profiled generation's game time (see `docs/performance.md`): a median of 0.27 s per game, against 0.005 s in the arena. Once GNU Go opponents return through the ladder, each of their games takes about 7 s.
+Games between two networks run in the arena and cost almost nothing. Every game with a bot still launches a new GoGui process, two players, and a GNU Go referee, and that overhead is now nearly all of a profiled small generation's game time (see `docs/performance.md`): a median of 0.27 s per game, against 0.005 s in the arena. The large population spends most of its recorded worker time in arena games instead. Once GNU Go opponents return through the ladder, each of their games takes about 7 s under the current path. The arena tournament rework above targets the GoGui/referee overhead; it will not eliminate a bot's own thinking time.
 
 The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. That adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
 
-Candidate remedies, to decide between:
+Other tournament improvements:
 
 - Skip pairings between two copies of the same bot. This is mainly for accuracy, but games between bots are also a large share of the remaining GoGui games (41 of 101 in the profile).
-- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; it lives in each experiment's `opponents` table, which the runner reads every generation, so a ladder can add rows; next come GNU Go level 0, then GNU Go level 10. Bots in between would make the steps smaller, such as GNU Go levels 1–9, or Pachi or Fuego with a small playout limit; their order needs measuring first. Keep it simple until networks actually get past AmiGo. A changing panel changes what a tournament score means; the benchmark panel is stored apart (`benchmark_opponents`), so checkpoints stay comparable while the ladder moves.
+- Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; it lives in each experiment's `opponents` table, which the runner reads every generation, so a ladder can add rows. A measured intermediate bot should come before GNU Go level 0, then GNU Go level 10. Keep it simple until networks actually get past AmiGo. A changing panel changes what a tournament score means; the benchmark panel is stored apart (`benchmark_opponents`), so checkpoints stay comparable while the ladder moves.
 
 The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
 
 ### More engines for the tournament
 
-The opponent ladder needs bots between AmiGo and GNU Go, and beyond GNU Go once networks get there. Candidates: michi, Pachi, Fuego, GNU Go at levels 0–10, and others. For each, find out whether it builds on macOS (clang) and Linux (GCC), speaks GTP well enough for `gogui-twogtp`, can be weakened by a playout limit or a level, and how strong each setting is on 9×9 (for example against GNU Go level 0 and each other, over enough games in both colours). Each one that qualifies goes into the external tools release (`scripts/external-tools.txt`) and the installer.
+The opponent ladder needs bots between AmiGo and GNU Go, and beyond GNU Go once networks get there. Candidates: michi, Pachi, Fuego, GNU Go at levels 0–10, and others. GNU Go level 0 is already too strong here, so its higher levels are unlikely to fill the AmiGo-to-GNU-Go gap. First try an adjustable playout limit on Pachi or a C version of Michi. For each candidate, find out whether it builds on macOS (clang) and Linux (GCC), speaks the GTP commands the arena controller needs, accepts or ignores time controls, and how strong and fast each setting is on 9×9 (against AmiGo, GNU Go level 0, and the other candidates, with varied openings and both colours). Calibrate candidates in separate matches, then include a qualifying bot in new experiments' fixed benchmark panels before deciding whether to use it for tournament selection. Each one that qualifies goes into the external tools release (`scripts/external-tools.txt`) and the installer.
+
+**Next: a fast bot stronger than AmiGo for the normal rounds.** GNU Go is strong but slow in our settings (about 7 s per game), and the networks do not need an opponent that strong yet (owner, 27 Sep 2026). Look for a bot that is somewhat stronger than AmiGo but plays quickly, and add it to the default `opponents` panel.
 
 ## Code cleanup
 
@@ -153,6 +171,18 @@ The owner finds `ranking` of little use (26 Sep 2026). Remove the script and eve
 
 `stats`' text tables are not useful as they are (owner, 26 Sep 2026). Replace them with a proper app, for example a web app run locally, that reads the experiment database read-only and shows graphs: benchmark results per checkpoint, gene and feature-weight trends, shapes and activations over time, and where the bots rank, plus whatever else turns out to be interesting. Open questions: the technology (a small local Ruby web server with a charting library, or something else), what to show, and whether the CSV output stays.
 
+### `run`: compiling is probably no longer useful
+
+`run` compiles the executables, but experiments now use their own copied-over executables (owner, 27 Sep 2026), so the build step is probably wasted. Check that nothing still depends on it, then remove it.
+
+### `run`: print timings
+
+`run` should print how long each generation took, and how long each of its parts took: generating the population, the tournament, and the benchmark (owner, 27 Sep 2026). This also gives the measurements the arena, scheduling, and Ruby profiling items above ask for.
+
+### Convert the C code to Rust?
+
+Consider porting Evo's own C code to Rust, keeping the libraries it uses (such as GENANN and `pcg-c`) as they are and linking them rather than rewriting them (owner, 27 Sep 2026). The Rust compiler gives better error messages, and LLM-assisted work may go more smoothly there. The owner already wrote a Rust Go bot, [Iomrascálaí](https://github.com/ujh/iomrascalai) (GPL-3.0, last pushed January 2018, so pre-2018-edition Rust). Its board, rule set, scoring, GTP, and SGF modules may be reusable here (owner, 27 Sep 2026). Open questions: how much code that is, whether the tests carry over, and what it does to the build and CI.
+
 ### Neural network library
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). Extra feature inputs only widen the input layer, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes, both activations, its genes, and its feature set with its feature weights (format version 2). GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
@@ -166,7 +196,7 @@ These are candidate milestones for discussion, rather than an implementation com
 2. **Measure the features' effect.** Compare a feature run with a stones-only run and with random search using the same inputs and game budget, with the same breeding procedure. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.
 
-Repeated deterministic games from the same starting position do not provide independent evidence. Evaluation needs controlled variation in openings or opponent seeds, with color-balanced comparisons. Compare methods by games and compute consumed, not merely generation count.
+Repeated deterministic games from the same starting position do not provide independent evidence. Evaluation needs controlled variation in openings or opponent seeds, with color-balanced comparisons. Report progress at equal generations as well as equal games and compute consumed: `even-bigger` reached similar AmiGo benchmark performance in only 300 generations, but it also changed population size and architecture, so those effects need separate comparisons.
 
 A useful success statement would be: “Within an agreed CPU/time budget, evolution consistently beats equally budgeted random search and the initial population on opponents or positions not used to select parents.” A later milestone could name a particular external bot and a target win rate once baseline results exist.
 
