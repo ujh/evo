@@ -1,5 +1,6 @@
 require 'minitest/autorun'
 require 'tmpdir'
+require 'timeout'
 require_relative '../ruby/worker_pool'
 
 class WorkerPoolTest < Minitest::Test
@@ -101,6 +102,189 @@ class WorkerPoolTest < Minitest::Test
       assert_equal %w[0 1], Dir.children(dir).sort
     ensure
       trap('INT', previous || 'DEFAULT')
+    end
+  end
+
+  # A pool job's own status, as the runner reads it: what Ruby reports for
+  # the shell or the program it ran.
+  def pool_status(command)
+    pool = WorkerPool.new(1)
+    pool.submit(command, :job)
+    pool.next_finished.last
+  ensure
+    pool&.stop
+  end
+
+  def test_a_job_ended_by_ctrl_c_or_sigterm_was_interrupted
+    ['kill -INT $$', 'kill -TERM $$', 'exit 130', 'exit 143', 'exec sh -c "kill -TERM \\$\\$"'].each do |command|
+      assert WorkerPool.interrupted?(pool_status(command)), command
+    end
+    ['true', 'exit 1', 'exit 139', 'kill -KILL $$', 'kill -SEGV $$'].each do |command|
+      refute WorkerPool.interrupted?(pool_status(command)), command
+    end
+  end
+
+  # As `system` did: the shell reports a program it cannot run.
+  def test_a_command_that_cannot_run_exits_127
+    saved = $stderr.dup
+    $stderr.reopen(File::NULL) # the shell's "not found"
+    status = pool_status('no-such-program-anywhere')
+    $stderr.reopen(saved)
+    assert_equal 127, status.exitstatus
+  end
+
+  # Waits until `path` holds a pid, and returns it.
+  def pid_in(path)
+    Timeout.timeout(5) { sleep 0.01 until File.size?(path) }
+    Integer(File.read(path).split.first)
+  end
+
+  def alive?(pid)
+    Process.kill(0, pid)
+    true
+  rescue Errno::ESRCH
+    false
+  end
+
+  def test_terminate_sends_sigterm_to_the_running_jobs_and_says_how_many
+    Dir.mktmpdir do |dir|
+      pool = WorkerPool.new(3)
+      2.times { |i| pool.submit("echo $$ > #{dir}/#{i}; exec sleep 30", i) }
+      pids = Array.new(2) { |i| pid_in("#{dir}/#{i}") }
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      assert_equal 2, pool.terminate
+      statuses = Array.new(2) { pool.next_finished.last }
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
+      assert_equal [Signal.list['TERM']] * 2, statuses.map(&:termsig)
+      refute pids.any? { |pid| alive?(pid) }
+      pool.stop
+    end
+  end
+
+  # The arena is exec'd, so the SIGTERM reaches it and not a shell, and its
+  # own cleanup stops its bots. Here a shell that kills its child on SIGTERM
+  # stands in for it.
+  def test_terminate_reaches_an_execd_program_that_stops_its_children
+    Dir.mktmpdir do |dir|
+      File.write("#{dir}/arena", "sleep 30 & echo $! > #{dir}/bot; trap 'kill $!; exit 143' TERM; wait\n")
+      pool = WorkerPool.new(1)
+      pool.submit("exec sh #{dir}/arena > #{dir}/out 2> #{dir}/err", :chunk)
+      bot = pid_in("#{dir}/bot")
+      assert_equal 1, pool.terminate
+      assert_equal 143, pool.next_finished.last.exitstatus
+      Timeout.timeout(5) { sleep 0.01 while alive?(bot) }
+      pool.stop
+    end
+  end
+
+  # A pool that records each pid it signals.
+  class RecordingPool < WorkerPool
+    def signalled = (@signalled ||= [])
+
+    private
+
+    def signal(pid)
+      signalled << pid
+      super
+    end
+  end
+
+  def test_terminate_starts_no_queued_job_and_signals_no_finished_one
+    Dir.mktmpdir do |dir|
+      pool = RecordingPool.new(1)
+      pool.submit('true', :done)
+      pool.next_finished
+      # The finished job's pid is no longer recorded, so it is not signalled.
+      assert_equal 0, pool.terminate
+      pool.submit("touch #{dir}/queued", :queued)
+      sleep 0.2 # the thread takes the job before stop drops it
+      pool.stop
+      assert_empty pool.signalled
+      assert_empty Dir.children(dir)
+    end
+  end
+
+  # A pool whose threads wait at `hook` (:start, before starting a job, or
+  # :reap, after a job was reaped but before its pid is cleared) until the
+  # test lets them go on.
+  class HeldPool < WorkerPool
+    def initialize(size, hook)
+      @hook = hook
+      @reached = Queue.new
+      @go = Queue.new
+      super(size)
+    end
+
+    attr_reader :reached, :go
+
+    private
+
+    def start(command)
+      hold if @hook == :start
+      super
+    end
+
+    def reap(pid)
+      status = super
+      hold if @hook == :reap
+      status
+    end
+
+    def hold
+      @reached << true
+      @go.pop
+    end
+  end
+
+  # A job whose thread has passed the halt check but not yet started it
+  # when terminate runs: it must not escape.
+  def test_a_job_started_just_after_terminate_is_killed_at_once
+    pool = HeldPool.new(1, :start)
+    pool.submit('exec sleep 30', :late)
+    Timeout.timeout(5) { pool.reached.pop }
+    assert_equal 0, pool.terminate
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    pool.go << true
+    assert_equal Signal.list['TERM'], pool.next_finished.last.termsig
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
+    pool.stop
+  end
+
+  # Between reaping a job and clearing its pid, the pid is gone: signalling
+  # it fails with ESRCH, which terminate ignores.
+  def test_terminate_ignores_a_job_reaped_but_not_yet_cleared
+    pool = HeldPool.new(1, :reap)
+    pool.submit('true', :reaped)
+    Timeout.timeout(5) { pool.reached.pop }
+    assert_equal 0, pool.terminate
+    pool.go << true
+    assert pool.next_finished.last.success?
+    pool.stop
+  end
+
+  # Ctrl-C in a terminal reaches the whole foreground process group: the
+  # runner and every job, an exec'd arena and a shell running gogui-twogtp
+  # with its child alike. Here a child Ruby in its own group stands in for
+  # the runner, and the test sends the group SIGINT.
+  def test_ctrl_c_in_the_terminal_reaches_every_job
+    Dir.mktmpdir do |dir|
+      child = %(ruby -e 'File.write(ARGV[0], Process.pid.to_s); sleep 30')
+      runner = <<~RUBY
+        require #{File.expand_path('../ruby/worker_pool', __dir__).inspect}
+        pool = WorkerPool.new(2)
+        trap('INT') { pool.halt }
+        pool.submit("exec #{child} #{dir}/arena > /dev/null 2>&1", :arena)
+        pool.submit("#{child} #{dir}/twogtp 2> /dev/null; true", :twogtp)
+        statuses = Array.new(2) { pool.next_finished.last }
+        pool.stop
+        File.write(#{"#{dir}/statuses".inspect}, statuses.map { |s| WorkerPool.interrupted?(s) }.inspect)
+      RUBY
+      pid = Process.spawn(RbConfig.ruby, '-e', runner, pgroup: true)
+      jobs = %w[arena twogtp].map { |name| pid_in("#{dir}/#{name}") }
+      Process.kill('INT', -pid)
+      Timeout.timeout(10) { Process.wait(pid) }
+      assert_equal '[true, true]', File.read("#{dir}/statuses")
+      refute jobs.any? { |job| alive?(job) }
     end
   end
 

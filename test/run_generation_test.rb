@@ -676,7 +676,7 @@ class PlayRoundTest < Minitest::Test
       # nothing for it.
       assert_equal({ 'a.ann' => 1, 'b.ann' => 0, 'c.ann' => 1, 'd.ann' => 0, 'Brown1' => 0 },
                    scores(gen).slice('a.ann', 'b.ann', 'c.ann', 'd.ann', 'Brown1'))
-      assert_equal ['../arena --mixed 9 6.5 200 600 10 10 arena-0.txt > arena-0.out 2> arena-0.err'], pool.commands
+      assert_equal ['exec ../arena --mixed 9 6.5 200 600 10 10 arena-0.txt > arena-0.out 2> arena-0.err'], pool.commands
       assert_equal({ %w[a.ann b.ann] => 'tromp_taylor', %w[c.ann Brown1] => 'tromp_taylor' },
                    database.games(1).to_h { |row| [row.values_at(:black, :white), row[:scorer]] })
     end
@@ -686,7 +686,7 @@ class PlayRoundTest < Minitest::Test
     in_experiment do
       pool = FakePool.new
       play([%w[a.ann b.ann]], pool, settings: { 'board_size' => 7, 'komi' => 7.0, 'max_moves' => 50, 'game_length' => 3 })
-      assert_equal ['../arena --mixed 7 7.0 50 180 10 10 arena-0.txt > arena-0.out 2> arena-0.err'], pool.commands
+      assert_equal ['exec ../arena --mixed 7 7.0 50 180 10 10 arena-0.txt > arena-0.out 2> arena-0.err'], pool.commands
     end
   end
 
