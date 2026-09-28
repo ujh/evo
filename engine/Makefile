@@ -3,13 +3,14 @@ LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
 OBJS = brown.o gtp.o features.o generate_move.o interface.o
 
-.PHONY: enginetest arenatest test clean
+.PHONY: enginetest arenatest bottest test clean
 
-default: evo arena
+default: evo arena botdriver
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
-include $(OBJS:.o=.dep) score.dep arena.dep rules_test.dep score_test.dep gtp_test.dep features_test.dep
+include $(OBJS:.o=.dep) score.dep arena.dep rules_test.dep score_test.dep gtp_test.dep features_test.dep \
+	bot.dep botdriver.dep fakebot.dep
 
 evo: $(OBJS) main.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
@@ -22,6 +23,19 @@ enginetest: evo
 arena: brown.o features.o generate_move.o score.o arena.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+# Drives external GTP programs through the bot controller (bot.c), for
+# bottest.sh and the real-bot smoke check, which runs where only plain
+# make has built; hence a default target.
+botdriver: bot.o botdriver.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
+# A scripted fake GTP program, so the controller's tests need no real bot.
+fakebot: fakebot.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
+bottest: botdriver fakebot
+	sh bottest.sh
+
 # Needs ../initial-population/initial-population for its random networks.
 arenatest: evo arena
 	sh arenatest.sh
@@ -29,12 +43,14 @@ arenatest: evo arena
 # The Go rules: Brown's board code and the move filter. Linked without the
 # GTP code (gtp.o, interface.o), which also checks that a program other than
 # evo can play networks with brown.o, features.o, and generate_move.o alone.
-test: brown.o features.o generate_move.o rules_test.o ../lib/libann.a score_test gtp_test features_test
-	$(CC) $(CFLAGS) -o rules_test $(filter-out score_test gtp_test features_test,$^) $(LDLIBS)
+# Then the bot controller against the fake bot (bottest.sh).
+test: brown.o features.o generate_move.o rules_test.o ../lib/libann.a score_test gtp_test features_test botdriver fakebot
+	$(CC) $(CFLAGS) -o rules_test $(filter-out score_test gtp_test features_test botdriver fakebot,$^) $(LDLIBS)
 	./rules_test
 	./score_test
 	./gtp_test
 	./features_test
+	sh bottest.sh
 
 # The features, over Brown's board alone (libann.a only for the layout's
 # counts).
@@ -55,4 +71,4 @@ score_test: brown.o score.o score_test.o
 
 clean:
 	$(RM) *.o *.dep
-	$(RM) evo arena rules_test score_test gtp_test features_test
+	$(RM) evo arena rules_test score_test gtp_test features_test botdriver fakebot
