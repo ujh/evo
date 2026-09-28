@@ -522,11 +522,14 @@ for main in 0.001 0.00125 0.0015 0.00175 0.002 0.00225 0.0025 0.00275 0.003 0.00
   0.004 0.00425 0.0045 0.00475 0.005 0.00525 0.0055 0.00575 0.006; do
   arena_ok time-hh --mixed 5 6.5 40 "$main" 10 10 "$tmp/hh-manifest"
   if ! awk -F'\t' -v main="$main" '
+    # The times are printed to the microsecond, so a loser past main time
+    # by at most half a microsecond prints as main time itself: >= for the
+    # loser; the winner, never past main time, stays <=.
     $1 == "hh" {
       split($2, r, "="); split($3, e, "="); split($5, b, "="); split($6, w, "=")
       if (e[2] != "time") bad = 1
-      else if (r[2] == "W+T") { if (!(b[2] > main && w[2] <= main)) bad = 1 }
-      else if (r[2] == "B+T") { if (!(w[2] > main && b[2] <= main)) bad = 1 }
+      else if (r[2] == "W+T") { if (!(b[2] >= main && w[2] <= main)) bad = 1 }
+      else if (r[2] == "B+T") { if (!(w[2] >= main && b[2] <= main)) bad = 1 }
       else bad = 1
       n++
     }
