@@ -328,6 +328,157 @@ if [ "$(cat "$tmp/empty")" != "done 0" ]; then
   fail "empty schedule: expected 'done 0', got: $(cat "$tmp/empty")"
 fi
 
+# --protocol prints the protocol version of the --mixed invocation.
+status=0
+./arena --protocol >"$tmp/protocol" 2>"$tmp/protocol.err" || status=$?
+if [ "$status" -ne 0 ] || [ "$(cat "$tmp/protocol")" != "3" ] || [ -s "$tmp/protocol.err" ]; then
+  fail "--protocol: expected '3' and exit status 0, got status $status: $(cat "$tmp/protocol" "$tmp/protocol.err")"
+fi
+refuses '--protocol with an argument' --protocol 3
+
+# The --mixed invocation: SIZE KOMI MAX_MOVES MAIN_TIME RESPONSE_DEADLINE
+# GRACE MANIFEST. Its manifest declares the players and then the games,
+# one tab-separated line each.
+mixed() {
+  ./arena --mixed 5 6.5 10 600 10 10 "$@"
+}
+manifest="$tmp/manifest"
+{
+  printf 'network\tpass\t%s\n' "$tmp/pass.ann"
+  printf 'network\tplay\t%s\n' "$tmp/play.ann"
+  printf 'network\tkomi\t%s\n' "$tmp/komi.ann"
+  printf 'network\tmissing\t%s\n' "$tmp/missing.ann"
+  printf 'network\texample\texample.ann\n'
+  printf 'bot\tgnugo-1\n'
+  printf 'game\tpp\tpass\tpass\n'
+  printf 'game\tlp\tplay\tpass\n'
+  printf 'game\tpl\tpass\tplay\n'
+  printf 'game\tkk\tkomi\tkomi\n'
+  printf 'game\tmissing\tmissing\tpass\n'
+  printf 'game\tsize\tpass\texample\n'
+} >"$manifest"
+status=0
+mixed "$manifest" >"$tmp/mixed" 2>"$tmp/mixed.err" || status=$?
+if [ "$status" -ne 0 ]; then
+  fail "mixed: expected exit status 0, got $status: $(cat "$tmp/mixed.err")"
+fi
+# The header comes first, then one record per game in manifest order, then
+# the trailer.
+got=$(cut -f1 "$tmp/mixed" | tr '\n' '|')
+if [ "$got" != "arena protocol 3 ready|pp|lp|pl|kk|missing|size|done 6|" ]; then
+  fail "mixed: expected the header, the games in order and 'done 6', got: $got"
+fi
+# A played game's record is the legacy line.
+for id in pp lp pl kk; do
+  want=$(strip_times <"$tmp/main" | grep "^$id	")
+  expect_line mixed "$id" "$want"
+done
+# A network that cannot be played loses its game, with the reason.
+expect_line mixed missing "missing${T}end=network_error${T}error=black${T}message=cannot open $tmp/missing.ann${T}ok"
+expect_line mixed size "size${T}end=network_error${T}error=white${T}message=example.ann does not fit a 5x5 board${T}ok"
+
+# The same network may play both colors, and a player need not play.
+printf 'network\tp\t%s\nnetwork\tunused\t%s\ngame\tpp\tp\tp\n' "$tmp/pass.ann" "$tmp/play.ann" >"$tmp/self-manifest"
+status=0
+mixed "$tmp/self-manifest" >"$tmp/self" 2>"$tmp/self.err" || status=$?
+expect_line self pp "pp${T}result=W+6.5${T}end=passes${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,pass${T}ok"
+if [ "$status" -ne 0 ] || [ "$(tail -1 "$tmp/self")" != "done 1" ]; then
+  fail "self: expected exit status 0 and 'done 1', got $status: $(cat "$tmp/self" "$tmp/self.err")"
+fi
+
+# An empty manifest plays nothing, after the header.
+: >"$tmp/empty-manifest"
+status=0
+mixed "$tmp/empty-manifest" >"$tmp/mixed-empty" 2>&1 || status=$?
+if [ "$status" -ne 0 ] || [ "$(cat "$tmp/mixed-empty")" != "arena protocol 3 ready
+done 0" ]; then
+  fail "empty manifest: expected the header and 'done 0', got status $status: $(cat "$tmp/mixed-empty")"
+fi
+
+# When neither network can be played, the game is a failure: its record
+# is written, no later game is played, there is no trailer, and the exit
+# status is 2.
+{
+  printf 'network\tgarbage\t%s\nnetwork\texample\texample.ann\nnetwork\tpass\t%s\n' "$tmp/garbage.ann" "$tmp/pass.ann"
+  printf 'game\tpp\tpass\tpass\ngame\tboth\tgarbage\texample\ngame\tlater\tpass\tpass\n'
+} >"$tmp/both-manifest"
+status=0
+mixed "$tmp/both-manifest" >"$tmp/both" 2>"$tmp/both.err" || status=$?
+if [ "$status" -ne 2 ]; then
+  fail "both: expected exit status 2, got $status"
+fi
+got=$(cut -f1 "$tmp/both" | tr '\n' '|')
+if [ "$got" != "arena protocol 3 ready|pp|both|" ]; then
+  fail "both: expected the header, pp and both only, got: $got"
+fi
+expect_line both both "both${T}end=network_error${T}error=both${T}message=$tmp/garbage.ann holds no network; example.ann does not fit a 5x5 board${T}ok"
+
+# Bad arguments or a bad manifest stop the arena with exit status 1 and a
+# message, before the header and any game.
+refuses '--mixed without arguments' --mixed
+refuses '--mixed, six arguments' --mixed 5 6.5 10 600 10 "$manifest"
+refuses '--mixed, eight arguments' --mixed 5 6.5 10 600 10 10 "$manifest" extra
+refuses '--mixed, size 1' --mixed 1 6.5 10 600 10 10 "$manifest"
+refuses '--mixed, komi nan' --mixed 5 nan 10 600 10 10 "$manifest"
+refuses '--mixed, max_moves -1' --mixed 5 6.5 -1 600 10 10 "$manifest"
+for bad in 0 -1 '' abc 1x 1e3 0x10 inf nan ' 1' 1. .5 1000001; do
+  refuses "--mixed, main time '$bad'" --mixed 5 6.5 10 "$bad" 10 10 "$manifest"
+  refuses "--mixed, response deadline '$bad'" --mixed 5 6.5 10 600 "$bad" 10 "$manifest"
+done
+for bad in -1 '' abc 1x inf ' 1' 1000001; do
+  refuses "--mixed, grace '$bad'" --mixed 5 6.5 10 600 10 "$bad" "$manifest"
+done
+refuses '--mixed, missing manifest' --mixed 5 6.5 10 600 10 10 "$tmp/no-manifest"
+# Tiny times and a grace of 0 are allowed.
+status=0
+./arena --mixed 5 6.5 10 0.000001 0.001 0 "$tmp/self-manifest" >"$tmp/tiny" 2>"$tmp/tiny.err" || status=$?
+if [ "$status" -ne 0 ]; then
+  fail "tiny times: expected exit status 0, got $status: $(cat "$tmp/tiny.err")"
+fi
+bad_manifest() {
+  printf "$2" >"$tmp/bad-manifest"
+  refuses "manifest: $1" --mixed 5 6.5 10 600 10 10 "$tmp/bad-manifest"
+  if ! grep -q "$3" "$tmp/refused.err"; then
+    fail "manifest: $1: expected a message with '$3', got: $(cat "$tmp/refused.err")"
+  fi
+}
+n="network${T}n${T}$tmp/pass.ann\n"
+bad_manifest 'blank line' "$n\ngame${T}g${T}n${T}n\n" 'line 2'
+bad_manifest 'unknown kind' "$n""player${T}p${T}x\n" 'line 2'
+bad_manifest 'spaces for tabs' "network n $tmp/pass.ann\n" 'line 1'
+bad_manifest 'network, two fields' "network${T}n\n" 'line 1'
+bad_manifest 'network, four fields' "network${T}n${T}a${T}b\n" 'line 1'
+bad_manifest 'network, empty path' "network${T}n${T}\n" 'line 1'
+bad_manifest 'bot, three fields' "bot${T}b${T}brown\n" 'line 1'
+bad_manifest 'game, three fields' "$n""game${T}g${T}n\n" 'line 2'
+bad_manifest 'game, five fields' "$n""game${T}g${T}n${T}n${T}n\n" 'line 2'
+bad_manifest 'empty game ID' "$n""game${T}${T}n${T}n\n" 'line 2'
+bad_manifest 'space in a player ID' "network${T}a b${T}$tmp/pass.ann\n" 'line 1'
+bad_manifest 'space in a game ID' "$n""game${T}g 1${T}n${T}n\n" 'line 2'
+bad_manifest 'carriage return' "$n""network${T}m${T}$tmp/play.ann\r\n" 'line 2'
+bad_manifest 'control character' "network${T}m${T}$tmp/play\001.ann\n" 'line 1'
+bad_manifest 'tab at the end' "$n""game${T}g${T}n${T}n${T}\n" 'line 2'
+bad_manifest 'duplicate player' "$n""bot${T}n\n" 'line 2'
+bad_manifest 'duplicate game' "$n""game${T}g${T}n${T}n\ngame${T}g${T}n${T}n\n" 'line 3'
+bad_manifest 'undeclared player' "$n""game${T}g${T}n${T}m\n" 'line 2'
+bad_manifest 'player after its game' "game${T}g${T}n${T}n\n$n" 'line 1'
+bad_manifest 'player after a game' "$n""game${T}g${T}n${T}n\nnetwork${T}m${T}$tmp/play.ann\n" 'line 3'
+b="bot${T}b\n"
+bad_manifest 'command, three fields' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}white\n" 'line 4'
+bad_manifest 'command, undeclared game' "$n$b""command${T}g${T}white${T}brown\n" 'line 3'
+bad_manifest 'command, bad color' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}w${T}brown\n" 'line 4'
+bad_manifest 'command for a network' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}black${T}brown\n" 'line 4'
+bad_manifest 'command twice' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}white${T}brown\ncommand${T}g${T}white${T}brown\n" 'line 5'
+bad_manifest 'blank command' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}white${T}  \n" 'line 4'
+bad_manifest 'command, empty' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}white${T}\n" 'line 4'
+bad_manifest 'bot without a command' "$n$b""game${T}g${T}n${T}b\n" 'game g'
+bad_manifest 'bot without a command, later game' "$n$b""game${T}g${T}b${T}n\ncommand${T}g${T}black${T}brown\ngame${T}h${T}n${T}b\n" 'game h'
+# Bots are parsed but cannot play yet.
+bad_manifest 'bot game' "$n$b""game${T}g${T}n${T}b\ncommand${T}g${T}white${T}gnugo --mode gtp --seed 7\n" 'not supported yet'
+# A NUL byte is refused too.
+printf "$n""game${T}g${T}n${T}n\000\n" >"$tmp/bad-manifest"
+refuses 'manifest: NUL byte' --mixed 5 6.5 10 600 10 10 "$tmp/bad-manifest"
+
 if [ "$failed" -ne 0 ]; then
   exit 1
 fi
