@@ -12,7 +12,7 @@ class ExperimentDatabase
   MIGRATIONS = File.expand_path('../db/migrations', __dir__)
   COLUMNS = %i[
     generation round black white black_external white_external
-    winner failure length referee_result error_message stderr sgf duration time_black time_white scorer
+    winner failure length referee_result error_message stderr sgf duration time_black time_white scorer end_reason
   ].freeze
   # Who decided a game; see migration 009.
   SCORERS = %w[gnugo tromp_taylor].freeze

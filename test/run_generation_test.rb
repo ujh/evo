@@ -728,7 +728,7 @@ class PlayRoundTest < Minitest::Test
       assert_equal [{ generation: 1, round: 0, black: 'a.ann', white: 'Brown1', black_external: false,
                       white_external: true, winner: 'a.ann', failure: nil, length: 93, referee_result: 'B+R',
                       error_message: '', stderr: '', sgf: nil, duration: 1.5, time_black: 0.0,
-                      time_white: 0.0, scorer: 'gnugo' }], store.games(1)
+                      time_white: 0.0, scorer: 'gnugo', end_reason: nil }], store.games(1)
       assert_empty Dir['axBrown1R0*']
     end
   end
@@ -783,7 +783,7 @@ class PlayRoundTest < Minitest::Test
       play([%w[a.ann b.ann], %w[c.ann d.ann]], pool, store:)
       row = { generation: 1, round: 0, black_external: false, white_external: false, failure: nil, length: 4,
               referee_result: 'B+3.5', error_message: nil, stderr: nil, sgf: nil, duration: 0.75,
-              time_black: 0.3, time_white: 0.0, scorer: 'tromp_taylor' }
+              time_black: 0.3, time_white: 0.0, scorer: 'tromp_taylor', end_reason: nil }
       assert_equal [row.merge(black: 'a.ann', white: 'b.ann', winner: 'a.ann'),
                     row.merge(black: 'c.ann', white: 'd.ann', winner: 'c.ann')], store.games(1)
       assert_empty Dir['arena-*']
