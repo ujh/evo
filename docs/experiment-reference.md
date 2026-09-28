@@ -19,6 +19,31 @@ Detailed runner, scoring, storage, and benchmark behavior. Read the relevant sec
 - Brown and AmiGo play deterministically. The 5 Brown and 10 AmiGo "instances" are copies of the same opponent, so replaying a pairing with the same colors adds no information.
 - GNU Go seeds its random choices from the clock unless it gets `--seed N`. The runner always passes one; outside the runner, compare GNU Go behavior with a fixed seed.
 
+### Tromp–Taylor against the GNU Go referee on the same games
+
+`mise exec -- scripts/compare-arena-scoring.rb [--lanes N] [--small] [--keep]` plays one fixed, seeded set of tournament-style 9×9 games (komi 6.5, 200 moves, 10 minutes each side) twice: through `arena --mixed` (600 s main time, 10 s response deadline and grace) and through `gogui-twogtp` with the runner's flags (`-time 10 -force -maxmoves 200`, the referee `GameResult::REFEREE --seed N`, GNU Go players seeded with the same N, as `RunGeneration#prepare_game` does). The networks are the champions (first network by rank, as the benchmark picks it) of `bigrun` generations 0, 500, …, 5500 and 5750 and of `even-bigger` generations 0, 100, 200 and 300, and 4 random generation-0 networks of each, exported from the databases opened read-only; `evo` plays them under twogtp. Each network plays Brown, AmiGo and GNU Go level 0 with both colors; the bots play each other (each ordered pair; three seeds where GNU Go plays); 40 random network pairs play with both colors. The script fails if any game's moves or end differ, if the arena writes a failure record, if twogtp reports an error, or if the arena's result differs from a Tromp–Taylor recount of the final position (from GNU Go's `loadsgf` and `list_stones`). For each game it asks the seeded referee for `final_status_list dead`, `seki` and `dame` and the side to move, and sorts out why the referee's result differs. `--small` plays 49 games only, to try the script. The scratch files go in a temporary directory, deleted afterwards unless `--keep`.
+
+Run on 28 Sep 2026 at `6156e4a` (the script's commit), 6 games at a time: 249 games in 199 s, and the same output on a second run. All 249 have identical moves and end in both. None reached the move limit and nobody resigned (GNU Go level 0 never did), so every game ended by two passes and the differences below are all scoring.
+
+| Pairing | Games | Same result | Same winner, other margin | Winner changes | Mean \|margin difference\| |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| network–Brown | 50 | 47 | 3 | 0 | 1.8 |
+| network–AmiGo | 50 | 32 | 11 | 7 | 7.1 |
+| network–GNU Go level 0 | 50 | 0 | 33 | 17 | 68.5 |
+| bot–bot | 19 | 9 | 7 | 3 | 28.9 |
+| network–network | 80 | 27 | 48 | 5 | 15.4 |
+| all | 249 | 115 | 102 | 32 | 22.7 |
+
+Why the referee differs, in the 134 games where it does (winner changes in brackets):
+
+- **Dead stones left on the board** (99 [23]): taking GNU Go's dead stones off and counting Tromp–Taylor gives the referee's result exactly. Tromp–Taylor counts a dead stone for its owner and makes the region around it neutral; the referee removes it and gives the area to the other side. A game ends when both pass, and a network or GNU Go often passes with the opponent's dead stones still inside its area.
+- **Dame** (11 [0]) and **dead stones and dame** (10 [4]): after the dead stones go, the rest is the neutral points (GNU Go's dame, touching both colors). Tromp–Taylor gives them to neither; GNU Go's Chinese-rules `final_score` counts as if they were filled in turn starting with the side to move, so an odd number of dame gives that side one point more. That rule, applied after removing the dead stones, reproduces these 21 results.
+- **Judgement** (14 [5]; 3 without dead stones, 11 with): neither rule reproduces the referee. The differences are 1–3 points in 12 of them and 13 and 16 points in two short network–network games; presumably GNU Go's scoring play-out fills or captures otherwise than its status lists say (for example, a dame point that only one side can fill without self-atari), which the script does not model. No stones in seki were found.
+
+Who gains, in the 24 network–bot winner changes: against AmiGo, all 7 go from the network (by the referee) to AmiGo (by Tromp–Taylor); in each, AmiGo's dead stones stay in the network's area (9–20 stones) because the network passed without capturing them. Networks won 23 of 50 AmiGo games by the referee and 16 by Tromp–Taylor. Against GNU Go level 0, all 17 go the other way: networks win 0 of 50 by the referee and 17 by Tromp–Taylor, because GNU Go passes with the network's dead stones (8–39) still in its area. Against Brown, which fills the board before passing, the winner never changed, and networks won 42 of 50 either way. The bot–bot winner changes are all games with GNU Go (GNU Go against Brown twice, against itself once); the four Brown and AmiGo pairings, the only ones the default panel plays, keep their winner (one AmiGo–AmiGo game moves a point by dame). Network–network games are already scored by Tromp–Taylor in the tournament, so their 5 changes are what a referee would have said, not a change of rules.
+
+So with Brown and AmiGo, a Tromp–Taylor tournament rewards a network for capturing dead stones before it passes: against AmiGo it loses games the referee gives it. A GNU Go opponent scored by Tromp–Taylor would lose games it wins on the board, since it passes leaving dead stones; a panel with GNU Go needs another ending (for example, having bots play on until the dead stones are captured) or a referee.
+
 ## Running experiments
 
 - On a first run, `mise run run NAME` prompts on STDIN for settings. To start without prompts, create the experiment first; `SetupExperiment::SETTINGS` lists every setting with its default and its type (a whole number, an even whole number, or a number, and its range; `mise run new-experiment` without arguments shows them). A value that does not parse strictly is refused when the experiment is created, and a prompt asks again. The database stores settings as strings; `SetupExperiment.parse` turns them into Integers and Floats on every load, so the runner never converts them itself, and test settings must be typed too:
