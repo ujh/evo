@@ -1,19 +1,33 @@
 /*
- * The arena: plays games between two networks in one process and scores
- * them with the Tromp-Taylor count, without GTP, GoGui, or a referee.
+ * The arena: plays Go games and scores them with the Tromp-Taylor count on
+ * its own board, without GoGui or a referee. Networks play in its process;
+ * external GTP programs ("bots", --mixed only) are separate processes it
+ * drives itself through the bot controller (bot.c). It has two
+ * invocations with their own input and output, and a query:
  *
- *   arena SIZE KOMI MAX_MOVES SCHEDULE
+ *   arena SIZE KOMI MAX_MOVES SCHEDULE          (legacy, network-only)
+ *   arena --mixed SIZE KOMI MAX_MOVES MAIN_TIME RESPONSE_DEADLINE GRACE MANIFEST
+ *   arena --protocol
  *
- * SCHEDULE has one game per line, "ID BLACK.ann WHITE.ann", the fields
- * separated by spaces or tabs, so no field holds whitespace. IDs must be
- * distinct. The whole schedule is read and checked before the first game.
+ * --protocol prints the protocol version of the --mixed invocation, "3",
+ * on a line of its own and exits 0. A later arena that changes the
+ * --mixed input or output prints a higher number.
  *
  * The games follow Brown's rules (simple ko, no superko) and the move
  * filter, exactly as evo plays them through GTP, with Brown's global komi
  * set to KOMI as twogtp's "komi" command sets it. A game ends as twogtp
  * ends one: after two passes in a row, or after MAX_MOVES + 1 moves
  * (twogtp refuses a genmove only once more than MAX_MOVES moves were
- * played). Passes count as moves. There is no time limit.
+ * played). Passes count as moves. SIZE is 2-23, KOMI a finite number,
+ * MAX_MOVES a whole number from 0 to 1000000000.
+ *
+ * Legacy invocation
+ * -----------------
+ *
+ * SCHEDULE has one game per line, "ID BLACK.ann WHITE.ann", the fields
+ * separated by spaces or tabs, so no field holds whitespace. IDs must be
+ * distinct. The whole schedule is read and checked before the first game.
+ * There is no time limit.
  *
  * Stdout gets one tab-separated line per game, in schedule order, flushed
  * at once:
@@ -22,31 +36,178 @@
  * or, when a network cannot be played (missing, unreadable, does not fit
  * the board), without playing:
  *   ID error=black|white|both message=... ok
- * then "done N" after the last game. Times are monotonic-clock seconds
- * with six decimals: time_black and time_white sum each side's move
- * choices, duration is the whole game. Bad arguments or an unreadable or
+ * then "done N" after the last game. Times are seconds with six
+ * decimals: time_black and time_white sum each side's move choices,
+ * duration is the whole game. Bad arguments or an unreadable or
  * malformed schedule print a message on stderr and exit 1 before any game.
+ *
+ * The --mixed invocation
+ * ----------------------
+ *
+ * Plays games between networks and external GTP programs ("bots"), with a
+ * clock. MAIN_TIME is each side's absolute main time per game, in seconds
+ * (no byo-yomi, no overtime); RESPONSE_DEADLINE bounds a bot's answer to
+ * any command but genmove (setup, play, quit), in seconds, and is not
+ * charged to its clock; GRACE is how long past its remaining main time a
+ * bot's genmove answer is waited for, in seconds. Each is a decimal
+ * number of seconds, digits with an optional fraction ("600", "0.05"),
+ * at most 1000000; MAIN_TIME and RESPONSE_DEADLINE are above 0, GRACE
+ * may be 0. RESPONSE_DEADLINE and GRACE are 10 s each for the runner:
+ * hang guards with a wide margin, since one missed deadline stops a run.
+ * scripts/bot-response-times.sh checks the margin: Brown, AmiGo, and GNU
+ * Go level 0 answered setup, play, and quit within 0.03 s at worst, over
+ * 300 games eight at a time on a busy machine. The grace only matters at
+ * the end of main time.
+ *
+ * MANIFEST is a text file of lines, each a kind and its fields separated
+ * by single tabs, with no empty field and no control character (bytes
+ * below 0x20 other than the separating tab, 0x7f, NUL), so a field may
+ * hold spaces but never a tab. A blank line is an error; the last line
+ * may lack its newline. First the players, then the games:
+ *
+ *   network PLAYER PATH      a network, read from the .ann file at PATH
+ *   bot PLAYER               an external GTP program
+ *   game GAME BLACK WHITE    a game between two declared players
+ *   command GAME COLOR COMMAND
+ *                            the command line that starts the bot playing
+ *                            COLOR (black or white) in the declared GAME
+ *
+ * PLAYER and GAME IDs are printable ASCII without spaces (bytes 0x21-0x7e);
+ * player IDs are distinct among all players, game IDs among all games.
+ * No player line may follow a game line. A player may play both colors
+ * of a game, and need not play at all. Every bot side of every game has
+ * exactly one command line, and a network side none; a command line
+ * comes after its game line. COMMAND is the whole command, program and
+ * arguments, in the stored opponent format (for example
+ * "gnugo --level 0 --mode gtp --seed 12345"); it is per game so that a
+ * seed can differ from game to game, and it holds a non-space character.
+ * The arena never splits a manifest field at whitespace except COMMAND,
+ * which it splits into an argv as twogtp's StringUtil.splitArguments
+ * does and starts with execvp, not through a shell. The whole manifest
+ * is read and checked before anything is written to stdout.
+ *
+ * Stdout starts with the header "arena protocol 3 ready", written once
+ * the arguments and the manifest are checked and before any network is
+ * loaded or game played. Then one tab-separated record per game, in
+ * manifest order, each flushed at once and ending in the field "ok":
+ *
+ * a played game:
+ *   GAME result=R end=passes|limit|resign|time length=N time_black=S
+ *     time_white=S duration=S moves=M ok
+ *   R is the Tromp-Taylor score for passes and limit ("B+3.5", "W+0.5",
+ *   "0"), B+R or W+R when the other side's bot resigned, B+T or W+T when
+ *   the other side's network ran out of main time (checked after each of
+ *   its moves; the overrunning move is in the moves).
+ * a game in which one network cannot be played (missing, unreadable, does
+ * not fit the board), which that network loses without a move:
+ *   GAME end=network_error error=black|white message=TEXT ok
+ * a failed game, which stops the arena:
+ *   GAME end=network_error error=both message=TEXT ok
+ *   GAME end=timeout|illegal|crash|launch error=black|white length=N
+ *     time_black=S time_white=S duration=S moves=M message=TEXT ok
+ *   error names the failing bot's color. timeout: the bot missed a
+ *   deadline from its first play or genmove on, or its genmove answer
+ *   took it past main time; illegal: its genmove answer is not a legal
+ *   move on the arena's board; crash: it died, or answered with a GTP
+ *   error, from its first play or genmove on; launch: it could not be
+ *   started, or failed or missed its deadline on a setup command
+ *   (known_command, boardsize, clear_board, komi, time_settings). The
+ *   moves and times are those completed before the failure; a failed
+ *   genmove's wait is in its side's time (play and setup are not
+ *   charged). TEXT says which command failed and how.
+ *
+ * M is the moves, comma-separated, in GTP vertices: "pass" in lowercase,
+ * coordinates in uppercase ("C3"; columns skip I, row 1 at the bottom),
+ * empty for a game without moves. N is their number. S is seconds with
+ * six decimals: time_black and time_white sum each side's genmove times
+ * (the time charged against main time), duration is the whole game.
+ * TEXT is a non-empty message on one line, without tabs. After the last
+ * record, when every game has one, the trailer "done N" counts them.
+ *
+ * Exit status: 0 after the trailer; 2 right after a failure record, with
+ * no later game played and no trailer; 1, with a message on stderr, for
+ * bad arguments, a manifest that cannot be read or is malformed (before
+ * the header), or an error such as a failed write. The arena's own
+ * failures never exit 130 or 143, which the runner reads as an interrupt.
+ *
+ * A network's main time is checked after each of its moves, in every
+ * game, network-network games included: once the side's move choices
+ * together take more than MAIN_TIME, that move is played and recorded
+ * and the game ends B+T or W+T. A time loss is a played game, so the
+ * arena goes on with the later games.
+ *
+ * Both invocations time with bot_now() (bot.h), a clock that does not
+ * count system sleep (CLOCK_UPTIME_RAW on macOS, whose CLOCK_MONOTONIC
+ * counts it; CLOCK_MONOTONIC elsewhere), so a laptop that sleeps during a
+ * move does not charge the sleep to it.
+ *
+ * Bots
+ * ----
+ *
+ * A game's networks are loaded first, so a game that a network cannot
+ * play (a one-sided network_error) starts no bot. Then each bot side of
+ * the game gets a process of its own, started from that game's command
+ * with its stderr on the arena's, and is set up (bot_setup in bot.h:
+ * known_command time_settings, then twogtp's boardsize SIZE, clear_board,
+ * komi KOMI, boardsize SIZE, clear_board, and time_settings
+ * ceil(MAIN_TIME) 0 0 when known, so that a bot plays the moves it plays
+ * under twogtp); nothing carries over from one game to the next. On its turn a bot is sent "play COLOR
+ * VERTEX" with the other player's last move, if there was one, and then
+ * "genmove COLOR"; it is never sent its own moves, which it played
+ * itself, nor the game's last move. The genmove answer is waited for
+ * during the side's remaining main time plus GRACE, and that wait is
+ * charged to the side like a network's move choice. The answer is read
+ * ignoring case: "resign" ends the game, a win for the other side (with
+ * no move before it, a record without moves); a pass or a vertex must be
+ * a legal move on the arena's board, which follows Brown's rules as
+ * evo's GTP play does (an empty point, not a simple-ko retake; suicide is
+ * allowed), else the game fails as illegal. An answer that takes the
+ * side past MAIN_TIME fails the game as timeout. After a played game's
+ * record each bot is sent quit and waited for up to RESPONSE_DEADLINE; a
+ * bot that misses it is killed, with a note on stderr, and the record
+ * stands. After a failure record the game's bots are killed at once.
+ *
+ * SIGPIPE is ignored from the header on, so a reader that has gone is a
+ * failed write: exit 1. SIGINT, SIGTERM, SIGHUP, and SIGQUIT kill the
+ * running bots, and then the arena by the same signal, without a record
+ * for the game in progress (bot.h). A SIGKILL leaves no time for that: a
+ * bot that exits at stdin EOF, as Brown, AmiGo, and GNU Go do, then ends
+ * by itself, but one that ignores EOF keeps running.
  */
 
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include <unistd.h>
 
 #include "ann.h"
+#include "bot.h"
 #include "brown.h"
 #include "generate_move.h"
 #include "score.h"
 
+#define PROTOCOL 3
+
+// The largest MAIN_TIME, RESPONSE_DEADLINE, and GRACE, in seconds.
+#define MAX_SECONDS 1000000.0
+
+enum { SIDE_BLACK, SIDE_WHITE };
+
 typedef struct {
   char *id;
-  char *black;
+  char *black;     // the network paths; NULL for a bot (--mixed only)
   char *white;
+  char *player[2]; // the player IDs (--mixed only)
+  char *command[2]; // each bot side's command; NULL for a network
 } game;
+
+// The --mixed invocation's time arguments, in seconds.
+static double main_time, response_deadline, genmove_grace;
 
 // A network file, loaded once however many games it plays.
 typedef struct {
@@ -172,6 +333,8 @@ static game *read_schedule(const char *path, int *count) {
     games[*count].id = checked_strdup(fields[0]);
     games[*count].black = checked_strdup(fields[1]);
     games[*count].white = checked_strdup(fields[2]);
+    games[*count].player[SIDE_BLACK] = games[*count].player[SIDE_WHITE] = NULL;
+    games[*count].command[SIDE_BLACK] = games[*count].command[SIDE_WHITE] = NULL;
     (*count)++;
   }
   if (ferror(in)) {
@@ -183,20 +346,182 @@ static game *read_schedule(const char *path, int *count) {
   return games;
 }
 
-static double now(void) {
-  struct timespec t;
-  clock_gettime(CLOCK_MONOTONIC, &t);
-  return t.tv_sec + t.tv_nsec / 1e9;
+// Parses a decimal number of seconds, digits with an optional fraction
+// ("600", "0.05"), as the whole string, in [0, MAX_SECONDS]; above 0
+// unless zero_allowed.
+static int parse_seconds(const char *s, int zero_allowed, double *value) {
+  const char *p = s;
+  while (*p >= '0' && *p <= '9') p++;
+  if (p == s) return 0;
+  if (*p == '.') {
+    const char *fraction = ++p;
+    while (*p >= '0' && *p <= '9') p++;
+    if (p == fraction) return 0;
+  }
+  if (*p != '\0') return 0;
+  double v = strtod(s, NULL);
+  if (!isfinite(v) || v > MAX_SECONDS || (v == 0 && !zero_allowed)) return 0;
+  *value = v;
+  return 1;
 }
 
-// Appends a move in GTP vertex notation (columns skip I, row 1 at the
-// bottom), as evo answers genmove, or "pass".
+// A manifest player: a network with its path, or a bot.
+typedef struct {
+  char *id;
+  char *path; // NULL for a bot
+} player;
+
+static const char *manifest_path;
+static int manifest_line;
+
+// Stops the arena for a bad manifest line: message on stderr, exit 1.
+__attribute__((noreturn, format(printf, 1, 2))) static void manifest_error(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  fprintf(stderr, "arena: %s line %d: ", manifest_path, manifest_line);
+  vfprintf(stderr, format, args);
+  fprintf(stderr, "\n");
+  va_end(args);
+  exit(1);
+}
+
+// Player and game IDs: printable ASCII without spaces.
+static int valid_id(const char *s) {
+  for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+    if (*p < 0x21 || *p > 0x7e) return 0;
+  return *s != '\0';
+}
+
+static player *find_player(player *players, int count, const char *id) {
+  for (int k = 0; k < count; k++)
+    if (strcmp(players[k].id, id) == 0) return &players[k];
+  return NULL;
+}
+
+static game *find_game(game *games, int count, const char *id) {
+  for (int k = 0; k < count; k++)
+    if (strcmp(games[k].id, id) == 0) return &games[k];
+  return NULL;
+}
+
+// Reads and checks the --mixed manifest (see the top of the file); exits 1
+// with a message if it cannot be read or is malformed.
+static game *read_manifest(const char *path, int *count) {
+  FILE *in = fopen(path, "r");
+  if (in == NULL) {
+    fprintf(stderr, "arena: cannot read manifest %s: %s\n", path, strerror(errno));
+    exit(1);
+  }
+  manifest_path = path;
+  manifest_line = 0;
+  player *players = NULL;
+  int player_count = 0;
+  game *games = NULL;
+  *count = 0;
+  char *line = NULL;
+  size_t capacity = 0;
+  ssize_t length;
+  while ((length = getline(&line, &capacity, in)) != -1) {
+    manifest_line++;
+    if (length > 0 && line[length - 1] == '\n') line[--length] = '\0';
+    if ((ssize_t)strlen(line) != length) manifest_error("holds a NUL byte");
+    for (const unsigned char *p = (const unsigned char *)line; *p; p++)
+      if ((*p < 0x20 && *p != '\t') || *p == 0x7f) manifest_error("holds a control character");
+    char *fields[5];
+    int n = 0;
+    for (char *f = line;; n++) {
+      char *tab = strchr(f, '\t');
+      if (n < 5) fields[n] = f;
+      if (tab == NULL) break;
+      *tab = '\0';
+      f = tab + 1;
+    }
+    n++;
+    for (int k = 0; k < n && k < 5; k++)
+      if (*fields[k] == '\0') manifest_error("has an empty field (fields are separated by single tabs)");
+    const char *kind = fields[0];
+
+    if (strcmp(kind, "network") == 0 || strcmp(kind, "bot") == 0) {
+      int is_bot = kind[0] == 'b';
+      if (n != (is_bot ? 2 : 3)) manifest_error(is_bot ? "expected bot PLAYER" : "expected network PLAYER PATH");
+      if (*count > 0) manifest_error("player %s follows a game; players come first", fields[1]);
+      if (!valid_id(fields[1])) manifest_error("player ID %s is not printable ASCII without spaces", fields[1]);
+      if (find_player(players, player_count, fields[1]))
+        manifest_error("player ID %s appears twice", fields[1]);
+      players = checked_realloc(players, (player_count + 1) * sizeof(player));
+      players[player_count].id = checked_strdup(fields[1]);
+      players[player_count].path = is_bot ? NULL : checked_strdup(fields[2]);
+      player_count++;
+    } else if (strcmp(kind, "game") == 0) {
+      if (n != 4) manifest_error("expected game GAME BLACK WHITE");
+      if (!valid_id(fields[1])) manifest_error("game ID %s is not printable ASCII without spaces", fields[1]);
+      if (find_game(games, *count, fields[1])) manifest_error("game ID %s appears twice", fields[1]);
+      player *sides[2];
+      for (int side = SIDE_BLACK; side <= SIDE_WHITE; side++) {
+        sides[side] = find_player(players, player_count, fields[2 + side]);
+        if (sides[side] == NULL) manifest_error("player %s is not declared", fields[2 + side]);
+      }
+      games = checked_realloc(games, (*count + 1) * sizeof(game));
+      game *g = &games[(*count)++];
+      g->id = checked_strdup(fields[1]);
+      g->black = sides[SIDE_BLACK]->path;
+      g->white = sides[SIDE_WHITE]->path;
+      for (int side = SIDE_BLACK; side <= SIDE_WHITE; side++) {
+        g->player[side] = sides[side]->id;
+        g->command[side] = NULL;
+      }
+    } else if (strcmp(kind, "command") == 0) {
+      if (n != 4) manifest_error("expected command GAME COLOR COMMAND");
+      game *g = find_game(games, *count, fields[1]);
+      if (g == NULL) manifest_error("game %s is not declared before its command", fields[1]);
+      int side;
+      if (strcmp(fields[2], "black") == 0)
+        side = SIDE_BLACK;
+      else if (strcmp(fields[2], "white") == 0)
+        side = SIDE_WHITE;
+      else
+        manifest_error("color %s is not black or white", fields[2]);
+      if ((side == SIDE_BLACK ? g->black : g->white) != NULL)
+        manifest_error("game %s: %s is the network %s, which takes no command", g->id, fields[2], g->player[side]);
+      if (g->command[side] != NULL) manifest_error("game %s: a second command for %s", g->id, fields[2]);
+      if (strspn(fields[3], " ") == strlen(fields[3])) manifest_error("the command is blank");
+      g->command[side] = checked_strdup(fields[3]);
+    } else {
+      manifest_error("unknown kind %s: expected network, bot, game, or command", kind);
+    }
+  }
+  if (ferror(in)) {
+    fprintf(stderr, "arena: cannot read manifest %s\n", path);
+    exit(1);
+  }
+  free(line);
+  fclose(in);
+
+  for (int k = 0; k < *count; k++)
+    for (int side = SIDE_BLACK; side <= SIDE_WHITE; side++)
+      if ((side == SIDE_BLACK ? games[k].black : games[k].white) == NULL && games[k].command[side] == NULL) {
+        fprintf(stderr, "arena: %s: game %s: no command for its %s player %s\n", path, games[k].id,
+                side == SIDE_BLACK ? "black" : "white", games[k].player[side]);
+        exit(1);
+      }
+  // The players' IDs and paths live on in the games.
+  free(players);
+  return games;
+}
+
+// A move in GTP vertex notation (columns skip I, row 1 at the bottom), as
+// evo answers genmove, or "pass".
+static void vertex_name(int i, int j, char *vertex, size_t size) {
+  if (i == -1 && j == -1)
+    snprintf(vertex, size, "pass");
+  else
+    snprintf(vertex, size, "%c%d", 'A' + j + (j >= 8), board_size - i);
+}
+
+// Appends a move, as vertex_name writes it, to the comma-separated moves.
 static void append_move(char **moves, size_t *used, size_t *capacity, int i, int j) {
   char vertex[8];
-  if (i == -1 && j == -1)
-    snprintf(vertex, sizeof(vertex), "pass");
-  else
-    snprintf(vertex, sizeof(vertex), "%c%d", 'A' + j + (j >= 8), board_size - i);
+  vertex_name(i, j, vertex, sizeof(vertex));
   size_t need = *used + strlen(vertex) + 2;
   if (need > *capacity) {
     *capacity = need * 2;
@@ -205,66 +530,251 @@ static void append_move(char **moves, size_t *used, size_t *capacity, int i, int
   *used += sprintf(*moves + *used, "%s%s", *used ? "," : "", vertex);
 }
 
-static void play_game(const game *g, network const *black, network const *white, long max_moves) {
+static void flush_results(void) {
+  if (fflush(stdout) != 0) {
+    fprintf(stderr, "arena: cannot write the results: %s\n", strerror(errno));
+    exit(1);
+  }
+}
+
+// Prints `text` as a record's message: control characters as spaces,
+// blanks at the end dropped, never empty.
+static void print_message(const char *text) {
+  size_t n = strlen(text);
+  while (n > 0 && (unsigned char)text[n - 1] <= ' ') n--;
+  if (n == 0) {
+    fputs("no message", stdout);
+    return;
+  }
+  for (size_t k = 0; k < n; k++) {
+    unsigned char c = (unsigned char)text[k];
+    putchar(c < 0x20 || c == 0x7f ? ' ' : c);
+  }
+}
+
+static const char *const side_name[2] = {"black", "white"};
+
+// The state of the game being played, for its failure record.
+typedef struct {
+  const game *g;
+  bot *bots[2];      // each bot side's process; NULL for a network or none yet
+  double spent[2];   // each side's genmove time
+  double start;
+  long length;
+  const char *moves;
+} game_state;
+
+// Writes the failure record of the game: `end` (timeout, illegal, crash,
+// launch) by the bot playing `side`, with the moves and times so far and
+// the message; kills the game's bots and exits 2.
+__attribute__((noreturn, format(printf, 4, 5))) static void game_failed(game_state *s, const char *end, int side,
+                                                                        const char *format, ...) {
+  double duration = bot_now() - s->start;
+  // The message first: its arguments may be a bot's text, which lives
+  // only as long as the bot.
+  va_list args;
+  va_start(args, format);
+  int n = vsnprintf(NULL, 0, format, args);
+  va_end(args);
+  char *text = checked_realloc(NULL, (size_t)n + 1);
+  va_start(args, format);
+  vsnprintf(text, (size_t)n + 1, format, args);
+  va_end(args);
+  for (int k = SIDE_BLACK; k <= SIDE_WHITE; k++)
+    if (s->bots[k]) {
+      bot_kill(s->bots[k]);
+      s->bots[k] = NULL;
+    }
+  printf("%s\tend=%s\terror=%s\tlength=%ld\ttime_black=%.6f\ttime_white=%.6f\tduration=%.6f\tmoves=%s\tmessage=",
+         s->g->id, end, side_name[side], s->length, s->spent[SIDE_BLACK], s->spent[SIDE_WHITE], duration, s->moves);
+  print_message(text);
+  printf("\tok\n");
+  free(text);
+  flush_results();
+  exit(2);
+}
+
+// The failure a bot's answer other than "=" is, from its first play or
+// genmove on: a missed deadline is a timeout, anything else a crash.
+__attribute__((noreturn)) static void bot_failed(game_state *s, int side, const char *command, bot_status status,
+                                                 const char *text) {
+  if (status == BOT_ERROR) {
+    if (*text)
+      game_failed(s, "crash", side, "%s answered an error: %s", command, text);
+    game_failed(s, "crash", side, "%s answered an error", command);
+  }
+  game_failed(s, status == BOT_TIMEOUT ? "timeout" : "crash", side, "%s: %s", command, text);
+}
+
+// Plays one game and writes its record. `players` are the sides'
+// networks, NULL for a bot, which is started from the game's command for
+// that side. A network whose move choices together take more than `limit`
+// seconds loses on time after that move; pass INFINITY for no limit (no
+// bot then). A bot's genmove time counts against the same limit, and a
+// failing bot stops the arena (game_failed).
+static void play_game(const game *g, network *const players[2], long max_moves, double limit) {
   static char *moves = NULL;
   static size_t capacity = 0;
   size_t used = 0;
-  double spent[2] = {0, 0};  // black, white
-  double start = now();
-  long length = 0;
+  game_state s = {g, {NULL, NULL}, {0, 0}, bot_now(), 0, NULL};
   int passes = 0;
   int color = BLACK;
+  int overrun = EMPTY;  // the color that ran out of main time, if one did
+  int resigned = EMPTY; // the color whose bot resigned, if one did
+  char last[8] = "";    // the last move's vertex
 
   if (moves == NULL) {
     capacity = 256;
     moves = checked_realloc(NULL, capacity);
   }
   moves[0] = '\0';
+  s.moves = moves;
+
+  // Start and set up the bots, each in a fresh process: every failure so
+  // far is a launch failure.
+  for (int side = SIDE_BLACK; side <= SIDE_WHITE; side++) {
+    if (players[side] != NULL) continue;
+    const char *text;
+    s.bots[side] = bot_start(g->command[side], STDERR_FILENO, &text);
+    if (s.bots[side] == NULL) game_failed(&s, "launch", side, "%s", text);
+    if (bot_setup(s.bots[side], board_size, komi, limit, response_deadline, &text) != BOT_OK)
+      game_failed(&s, "launch", side, "%s", text);
+  }
+
   new_game();
   // twogtp's loop: stop after two passes in a row, else refuse the move
   // once more than max_moves moves were played.
-  while (passes < 2 && length <= max_moves) {
+  // A move that runs out of main time is played and recorded, then ends
+  // the game.
+  while (passes < 2 && s.length <= max_moves) {
     int i, j;
-    network const *mover = color == BLACK ? black : white;
-    double before = now();
-    generate_move(mover->ann, &mover->features, &i, &j, color);
-    spent[color == BLACK ? 0 : 1] += now() - before;
+    int side = color == BLACK ? SIDE_BLACK : SIDE_WHITE;
+    if (players[side] != NULL) {
+      network const *mover = players[side];
+      double before = bot_now();
+      generate_move(mover->ann, &mover->features, &i, &j, color);
+      s.spent[side] += bot_now() - before;
+    } else {
+      bot *b = s.bots[side];
+      const char *text;
+      char command[32];
+      bot_status status;
+      // Only the other player's move, which the bot has not seen yet:
+      // never its own, which it played itself.
+      if (s.length > 0) {
+        snprintf(command, sizeof(command), "play %c %s", color == BLACK ? 'w' : 'b', last);
+        status = bot_command(b, command, response_deadline, &text);
+        if (status != BOT_OK) bot_failed(&s, side, "play", status, text);
+      }
+      // Wait for the remaining main time plus the grace.
+      double left = limit - s.spent[side];
+      snprintf(command, sizeof(command), "genmove %c", color == BLACK ? 'b' : 'w');
+      double before = bot_now();
+      status = bot_command(b, command, (left > 0 ? left : 0) + genmove_grace, &text);
+      s.spent[side] += bot_now() - before;
+      if (status != BOT_OK) bot_failed(&s, side, "genmove", status, text);
+      if (s.spent[side] > limit)
+        game_failed(&s, "timeout", side,
+                    "genmove: answered after %.3f s of genmove time in all, past the main time of %.3f s",
+                    s.spent[side], limit);
+      int column, row;
+      bot_move move = bot_parse_move(text, board_size, &column, &row);
+      if (move == BOT_MOVE_RESIGN) {
+        resigned = color;
+        break;
+      }
+      if (move == BOT_MOVE_INVALID)
+        game_failed(&s, "illegal", side, "genmove answered '%s', which is not a move on a %dx%d board", text,
+                    board_size, board_size);
+      if (move == BOT_MOVE_PASS) {
+        i = j = -1;
+      } else {
+        i = board_size - 1 - row;
+        j = column;
+      }
+      if (!legal_move(i, j, color)) {
+        char vertex[8];
+        vertex_name(i, j, vertex, sizeof(vertex));
+        game_failed(&s, "illegal", side, "genmove answered %s, which is not a legal move on the board", vertex);
+      }
+    }
     play_move(i, j, color);
     passes = (i == -1 && j == -1) ? passes + 1 : 0;
     append_move(&moves, &used, &capacity, i, j);
-    length++;
+    s.moves = moves;
+    vertex_name(i, j, last, sizeof(last));
+    s.length++;
+    if (players[side] != NULL && s.spent[side] > limit) {
+      overrun = color;
+      break;
+    }
     color = OTHER_COLOR(color);
   }
 
   // The largest margin is the board plus |komi|; komi is only bounded by
   // what a float holds, so leave room for any.
   char result[64];
-  format_score(tromp_taylor_score(komi), result, sizeof(result));
-  double duration = now() - start;
+  const char *end;
+  if (overrun != EMPTY) {
+    snprintf(result, sizeof(result), "%s", overrun == BLACK ? "W+T" : "B+T");
+    end = "time";
+  } else if (resigned != EMPTY) {
+    snprintf(result, sizeof(result), "%s", resigned == BLACK ? "W+R" : "B+R");
+    end = "resign";
+  } else {
+    format_score(tromp_taylor_score(komi), result, sizeof(result));
+    end = passes >= 2 ? "passes" : "limit";
+  }
+  double duration = bot_now() - s.start;
   printf("%s\tresult=%s\tend=%s\tlength=%ld\ttime_black=%.6f\ttime_white=%.6f\tduration=%.6f\tmoves=%s\tok\n",
-         g->id, result, passes >= 2 ? "passes" : "limit", length, spent[0], spent[1], duration, moves);
+         g->id, result, end, s.length, s.spent[SIDE_BLACK], s.spent[SIDE_WHITE], duration, moves);
+  flush_results();
+
+  // The record stands whatever quit brings: a bot that does not answer is
+  // killed.
+  for (int side = SIDE_BLACK; side <= SIDE_WHITE; side++)
+    if (s.bots[side]) {
+      if (!bot_quit(s.bots[side], response_deadline))
+        fprintf(stderr, "arena: game %s: the %s bot did not answer quit in time and was killed\n", g->id,
+                side_name[side]);
+      s.bots[side] = NULL;
+    }
 }
 
-int main(int argc, char **argv) {
-  long size, max_moves;
-  if (argc != 5) {
-    fprintf(stderr, "Usage: %s SIZE KOMI MAX_MOVES SCHEDULE\n", argv[0]);
-    return 1;
+
+static void usage(const char *program) {
+  fprintf(stderr,
+          "Usage: %s SIZE KOMI MAX_MOVES SCHEDULE\n"
+          "       %s --mixed SIZE KOMI MAX_MOVES MAIN_TIME RESPONSE_DEADLINE GRACE MANIFEST\n"
+          "       %s --protocol\n",
+          program, program, program);
+  exit(1);
+}
+
+// Sets the board size and komi, and max_moves, from SIZE KOMI MAX_MOVES;
+// exits 1 with a message if one is bad.
+static void parse_game_arguments(char **args, long *max_moves) {
+  long size;
+  if (!parse_int(args[0], MIN_BOARD, MAX_BOARD, &size)) {
+    fprintf(stderr, "arena: SIZE must be a whole number from %d to %d, not %s\n", MIN_BOARD, MAX_BOARD, args[0]);
+    exit(1);
   }
-  if (!parse_int(argv[1], MIN_BOARD, MAX_BOARD, &size)) {
-    fprintf(stderr, "arena: SIZE must be a whole number from %d to %d, not %s\n", MIN_BOARD, MAX_BOARD, argv[1]);
-    return 1;
-  }
-  if (!parse_komi(argv[2], &komi)) {
-    fprintf(stderr, "arena: KOMI must be a finite number, not %s\n", argv[2]);
-    return 1;
+  if (!parse_komi(args[1], &komi)) {
+    fprintf(stderr, "arena: KOMI must be a finite number, not %s\n", args[1]);
+    exit(1);
   }
   // max_moves + 1 moves must fit a long.
-  if (!parse_int(argv[3], 0, 1000000000L, &max_moves)) {
-    fprintf(stderr, "arena: MAX_MOVES must be a whole number from 0 to 1000000000, not %s\n", argv[3]);
-    return 1;
+  if (!parse_int(args[2], 0, 1000000000L, max_moves)) {
+    fprintf(stderr, "arena: MAX_MOVES must be a whole number from 0 to 1000000000, not %s\n", args[2]);
+    exit(1);
   }
   board_size = (int)size;
+}
+
+// arena SIZE KOMI MAX_MOVES SCHEDULE
+static int legacy_main(char **argv) {
+  long max_moves;
+  parse_game_arguments(argv + 1, &max_moves);
 
   int count;
   game *games = read_schedule(argv[4], &count);
@@ -273,22 +783,90 @@ int main(int argc, char **argv) {
     network *black = load(games[k].black);
     network *white = load(games[k].white);
     if (black->ann && white->ann) {
-      play_game(&games[k], black, white, max_moves);
+      network *const players[2] = {black, white};
+      play_game(&games[k], players, max_moves, INFINITY);
     } else if (black->ann == NULL && white->ann == NULL) {
       printf("%s\terror=both\tmessage=%s; %s\tok\n", games[k].id, black->problem, white->problem);
     } else {
       network *bad = black->ann ? white : black;
       printf("%s\terror=%s\tmessage=%s\tok\n", games[k].id, black->ann ? "white" : "black", bad->problem);
     }
-    if (fflush(stdout) != 0) {
-      fprintf(stderr, "arena: cannot write the results: %s\n", strerror(errno));
-      return 1;
-    }
+    flush_results();
   }
   printf("done %d\n", count);
-  if (fflush(stdout) != 0) {
-    fprintf(stderr, "arena: cannot write the results: %s\n", strerror(errno));
-    return 1;
-  }
+  flush_results();
   return 0;
+}
+
+// arena --mixed SIZE KOMI MAX_MOVES MAIN_TIME RESPONSE_DEADLINE GRACE MANIFEST
+static int mixed_main(char **argv) {
+  long max_moves;
+  parse_game_arguments(argv + 2, &max_moves);
+  if (!parse_seconds(argv[5], 0, &main_time)) {
+    fprintf(stderr, "arena: MAIN_TIME must be decimal seconds above 0 and at most %.0f, not %s\n", MAX_SECONDS,
+            argv[5]);
+    exit(1);
+  }
+  if (!parse_seconds(argv[6], 0, &response_deadline)) {
+    fprintf(stderr, "arena: RESPONSE_DEADLINE must be decimal seconds above 0 and at most %.0f, not %s\n",
+            MAX_SECONDS, argv[6]);
+    exit(1);
+  }
+  if (!parse_seconds(argv[7], 1, &genmove_grace)) {
+    fprintf(stderr, "arena: GRACE must be decimal seconds from 0 to %.0f, not %s\n", MAX_SECONDS, argv[7]);
+    exit(1);
+  }
+
+  int count;
+  game *games = read_manifest(argv[8], &count);
+  // SIGPIPE is ignored from here on, as it is once a bot runs, so a
+  // reader that is gone is a failed write (exit 1) in every game.
+  bot_init();
+  printf("arena protocol %d ready\n", PROTOCOL);
+  flush_results();
+
+  for (int k = 0; k < count; k++) {
+    // A game's networks are loaded before its bot starts, so a bot is
+    // never started for a game that a network cannot play.
+    network *players[2] = {NULL, NULL};
+    int bad[2] = {0, 0};
+    for (int side = SIDE_BLACK; side <= SIDE_WHITE; side++) {
+      const char *path = side == SIDE_BLACK ? games[k].black : games[k].white;
+      if (path == NULL) continue;
+      players[side] = load(path);
+      bad[side] = players[side]->ann == NULL;
+    }
+    if (bad[SIDE_BLACK] && bad[SIDE_WHITE]) {
+      // Neither side can play: a failed game, which stops the arena.
+      printf("%s\tend=network_error\terror=both\tmessage=%s; %s\tok\n", games[k].id, players[SIDE_BLACK]->problem,
+             players[SIDE_WHITE]->problem);
+      flush_results();
+      return 2;
+    } else if (bad[SIDE_BLACK] || bad[SIDE_WHITE]) {
+      int side = bad[SIDE_BLACK] ? SIDE_BLACK : SIDE_WHITE;
+      printf("%s\tend=network_error\terror=%s\tmessage=%s\tok\n", games[k].id, side_name[side],
+             players[side]->problem);
+    } else {
+      play_game(&games[k], players, max_moves, main_time);
+    }
+    flush_results();
+  }
+  printf("done %d\n", count);
+  flush_results();
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  if (argc >= 2 && strcmp(argv[1], "--protocol") == 0) {
+    if (argc != 2) usage(argv[0]);
+    printf("%d\n", PROTOCOL);
+    flush_results();
+    return 0;
+  }
+  if (argc >= 2 && strcmp(argv[1], "--mixed") == 0) {
+    if (argc != 9) usage(argv[0]);
+    return mixed_main(argv);
+  }
+  if (argc != 5) usage(argv[0]);
+  return legacy_main(argv);
 }
