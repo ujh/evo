@@ -474,6 +474,45 @@ if ! awk -F'\t' '
   END { exit bad || n != 2 }' "$tmp/time"; then
   fail "time: expected the loser's time past 0.0004 and the winner's within it: $(cat "$tmp/time")"
 fi
+# A time loss beats the other endings of the same move. With max_moves 0
+# black's overrunning move is also the last allowed one; with max_moves 1,
+# white's.
+status=0
+./arena --mixed 5 6.5 0 0.0004 10 10 "$tmp/time-manifest" >"$tmp/time-limit0" 2>&1 || status=$?
+expect_line time-limit0 hp "hp${T}result=W+T${T}end=time${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=$heavy_first${T}ok"
+status=0
+./arena --mixed 5 6.5 1 0.0004 10 10 "$tmp/time-manifest" >"$tmp/time-limit1" 2>&1 || status=$?
+expect_line time-limit1 ph "ph${T}result=B+T${T}end=time${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,$heavy_reply${T}ok"
+# heavy-pass.ann has heavy.ann's shape and speed, but every weight 0 except
+# the pass output's bias weight, so it always passes. As white against
+# pass.ann, its overrunning move is also the second pass in a row.
+{
+  printf 'EVOANN'
+  printf '\002\000\000\000'   # format version 2
+  printf '\032\000\000\000'   # 26 inputs
+  printf '\002\000\000\000'   # 2 hidden layers
+  printf '\320\007\000\000'   # of 2000 neurons
+  printf '\032\000\000\000'   # 26 outputs
+  printf '\001\000\000\000'   # hidden activation: sigmoid
+  printf '\004\000\000\000'   # output activation: linear
+  # The genes and features, as in network().
+  printf '\173\024\256\107\341\172\204\077'
+  printf '\000\000\000\000\000\000\360\077'
+  printf '\000\000\000\000\000\000\340\077'
+  printf '\173\024\256\107\341\172\224\077'
+  printf '\173\024\256\107\341\172\224\077'
+  printf '\000\000\000\000'
+  printf '\173\024\256\107\341\172\204\077'
+  # The hidden layers (2000 x 27, 2000 x 2001 weights) and 25 point
+  # outputs of 2001 weights each, all 0; then the pass output.
+  head -c $(((2000 * 27 + 2000 * 2001 + 25 * 2001) * 8)) /dev/zero
+  printf "$minus_one"
+  head -c $((2000 * 8)) /dev/zero
+} >"$tmp/heavy-pass.ann"
+printf 'network\theavy\t%s\nnetwork\tpass\t%s\ngame\tpp\tpass\theavy\n' "$tmp/heavy-pass.ann" "$tmp/pass.ann" >"$tmp/pass-manifest"
+status=0
+./arena --mixed 5 6.5 10 0.0004 10 10 "$tmp/pass-manifest" >"$tmp/time-passes" 2>&1 || status=$?
+expect_line time-passes pp "pp${T}result=B+T${T}end=time${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,pass${T}ok"
 
 # Bad arguments or a bad manifest stop the arena with exit status 1 and a
 # message, before the header and any game.
