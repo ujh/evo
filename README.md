@@ -36,7 +36,8 @@ refereed matches), so a failure shows which kind of check broke. For
 development without the
 external programs, use `mise run setup` and `mise run test` (or `test-c` and
 `test-ruby` on their own). Other useful tasks are `mise run build`,
-`mise run clean`, `mise run doctor`, and `mise run smoke`.
+`mise run clean`, `mise run doctor`, `mise run smoke`, and `mise run profile-workload`
+(the fixed workloads in `docs/performance.md`).
 
 ## Running the evolution of the neural net
 

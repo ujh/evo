@@ -66,6 +66,11 @@ description = "Show experiment statistics: mise run stats NAME [--watch | --csv]
 run = "./stats"
 raw = true
 
+[tasks.profile-workload]
+description = "Profile a fixed workload of docs/performance.md on a quiet machine: mise run profile-workload small|large [--results FILE] [--keep] [--tiny]"
+run = "sh scripts/profile-workload.sh"
+raw = true
+
 [tasks.example]
 description = "Open the bundled network self-play example in GoGui"
 depends = ["build", "doctor"]
