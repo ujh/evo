@@ -20,9 +20,11 @@ fail() {
   failed=1
 }
 
-# watch NAME PID: kills PID if it still runs after 60 s (no test takes
-# 10), so a hang fails the test instead of stopping it. The watcher ends
-# by itself soon after PID does.
+# watch NAME PID: stops PID if it still runs after 60 s (no test takes
+# 10), so a hang fails the test instead of stopping it: first with
+# SIGTERM, which the driver answers by killing its bots (a SIGKILL would
+# leave a bot that ignores stdin EOF running), then with SIGKILL. The
+# watcher ends by itself soon after PID does.
 watch() {
   (
     n=0
@@ -30,6 +32,8 @@ watch() {
       n=$((n + 1))
       if [ "$n" -gt 300 ]; then
         : >"$tmp/$1.hung"
+        kill -TERM "$2"
+        sleep 2
         kill -9 "$2"
         exit
       fi
@@ -226,6 +230,7 @@ start b ./fakebot --pid $tmp/deadline-b.pid --ignore-signals --stay "genmove=raw
 send b 1 genmove b
 wait 5
 EOF
+: >"$tmp/deadline"
 ./botdriver script <"$tmp/deadline.in" >"$tmp/deadline" 2>"$tmp/deadline.err" &
 job=$!
 watch deadline "$job"
