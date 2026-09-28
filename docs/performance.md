@@ -83,3 +83,32 @@
     - What remains per game is O(population) work in Ruby and SQLite, not O(population²): `RunGeneration#update_data` still re-sorts the whole ranking, `in_order?` checks the old ranking's order, `ranking_moves` copies and searches it, and the rank shift in `ExperimentDatabase#raise_in_ranking` scans the generation's `rankings` rows, which have no index on `rank`. The first game of each round also rewrites all of the generation's `rankings` rows, and each round's pairing still saves the whole state.
     - On the large workload, `setup` (breeding or creating the population, storing it, and exporting its 4.6 GB of networks to `work/`) is now the largest single step of a generation: 33 s in generation 0 and 54 s in generation 1 (breeding), against 4–5 s for a round and 40–43 s for all 10 rounds.
     - Limits as above: one run of each; the small run started at a load average of 1.75.
+  - After playing every tournament game in the arena (#83 and commit `2568fff`; 28 Sep 2026, git `3241a0f`, same machine, commands, and concurrency; one run each; machine idle, load average 1.6 just before the small run and 4.4 just before the large). Games with a bot no longer go through `gogui-twogtp` and a GNU Go referee: the arena starts the bot itself and scores by Tromp–Taylor (`docs/code-reference.md`). The large run used a temporary copy of `scripts/profile-workload.sh` with a 20 GiB free-space threshold instead of 25, since `df` showed 22.1 GiB while Time Machine local snapshots held deleted workloads; the run peaked at 17.1 GiB, and nothing else differed. Same columns and units as above.
+
+    | | S0 | S1 | L0 | L1 |
+    | --- | --- | --- | --- | --- |
+    | wall (`/usr/bin/time`) | 30.5 | 29.6 | 99.3 | 134.7 |
+    | timings `total` | 30.2 | 29.4 | 99.0 | 129.1 |
+    | `setup` | 0.7 | 0.9 | 40.7 | 59.9 |
+    | `tournament` (10 rounds) | 1.3 | 1.0 | 35.5 | 40.1 |
+    | a round | 0.09–0.37 | 0.09–0.11 | 3.21–4.85 | 3.81–4.68 |
+    | `ruby` | 0.24 | 0.26 | 10.4 | 10.4 |
+    | `ruby` per round | 0.02–0.03 | 0.02–0.03 | 0.93–1.26 | 0.96–1.23 |
+    | `worker` | 7.8 | 5.7 | 215.2 | 250.3 |
+    | `benchmark` | 28.3 | 27.5 | 22.8 | 28.8 |
+    | tournament games (none failed) | 320 | 320 | 5,070 | 5,070 |
+    | GoGui games with a bot: count, summed `duration` | 0 | 0 | 0 | 0 |
+    | arena games: count, summed `duration` | 320, 7.8 | 320, 5.7 | 5,070, 215.2 | 5,070, 250.3 |
+    | benchmark games (none failed): count, summed `duration` | 60, 196.3 | 80, 188.8 | 60, 161.3 | 80, 202.0 |
+    | runner CPU, user + sys | 0.36 + 0.49 | 0.42 + 0.68 | 18.1 + 8.1 | 19.1 + 14.5 |
+    | runner allocated objects | 1.12 M | 1.18 M | 89.4 M | 91.1 M |
+    | runner GC runs (major), GC time | 41 (6), 0.04 | 47 (8), 0.05 | 2,247 (17), 1.11 | 2,663 (19), 1.27 |
+    | peak RSS, process tree summed (1 s samples), MiB | 1,054 | 1,053 | 4,318 | 4,088 |
+    | peak RSS, runner (1 s samples), MiB | 125 | 123 | 213 | 226 |
+    | largest single process (`/usr/bin/time`), MiB | 125 | 123 | 559 | 560 |
+    | arena load of all networks, three runs: wall; max RSS | 0.02; 43 MiB | 0.02; 43 MiB | 2.21; 4,408 MiB | 2.19–2.25; 4,407–4,408 MiB |
+
+    - Small workload, against the #82 profile: the tournament went from about 9 s to 1.0–1.3 s and its worker time from about 61 s to 5.7–7.8 s, because the 117 games with a bot no longer start GoGui, a JVM, and a GNU Go referee. A generation went from about 40 s to about 30 s, and is now almost all the benchmark (27.5–28.3 s), which still plays every game through `gogui-twogtp` with the GNU Go referee, most of its time in the games against GNU Go level 0.
+    - Large workload: the tournament went from 40 and 43 s to 35 and 40 s, its worker time from 304 and 335 s to 215 and 250 s, and Ruby from 14–15 s to about 10.4 s (about 2 ms a game). A generation's `total` is about unchanged (97 and 127 s before, 99 and 129 s now), because `setup` (breeding or creating the population, storing it, and exporting its 4.6 GB of networks to `work/`) varies between runs, 33–60 s across the two profiles, and is now the largest part of a generation. L1's re-entry into generation 0 took about 5 s.
+    - Keeping arenas alive across a generation's rounds would save at most the network loading: about 2.3 s of CPU per round for the 1,000 networks, spread over 8 workers, so roughly 3 s of a 35–40 s tournament and under 3% of a generation. That does not pay for the memory (an arena holding the whole population takes 4.3 GiB, and each of 8 could approach that) or the complexity of keeping sessions alive through interruption and resume, so the runner keeps starting fresh arenas each round. The next bottlenecks are `setup` on large populations and the `gogui-twogtp` benchmark on small ones.
+    - Limits: one run of each; RSS sampled every second; the large run started at a load average of 4.4.
