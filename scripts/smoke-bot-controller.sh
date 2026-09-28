@@ -8,8 +8,9 @@ set -eu
 # genmove, play, and quit; bot-against-bot games relayed through the
 # controller finish; a seeded GNU Go game repeats exactly in new
 # processes; SIGTERM with bots running kills them and gives status 143
-# under sh -c and sh -c 'exec ...'; and the arena plays a --mixed chunk
-# with networks and bots. The C tests (engine/bottest.sh)
+# under sh -c and sh -c 'exec ...'; the arena plays a --mixed chunk with
+# networks and bots; and its games with Brown, AmiGo and GNU Go repeat
+# twogtp's moves. The C tests (engine/bottest.sh)
 # cover the rest with a fake bot; this is where real bots run, locally
 # and in CI's smoke-matches job.
 
@@ -176,6 +177,53 @@ $(diff "$scratch/mixed.stripped" "$scratch/mixed-again.stripped" || true)"
   sed '1d;$d' "$scratch/mixed" | while IFS="$T" read -r id result end length rest; do
     printf 'arena %s: %s, %s, %s\n' "$id" "${result#result=}" "${end#end=}" "${length#length=} moves"
   done
+fi
+
+# The arena's bot games repeat twogtp's: the same pairings with the same
+# commands, through gogui-twogtp (evo playing the network), give the same
+# moves. Brown reseeds its moves on boardsize, so this checks that the
+# arena sends twogtp's setup sequence.
+# sgf_moves FILE: the moves of an SGF game as the arena writes them.
+sgf_moves() {
+  grep -o ';[BW]\[[a-z]*\]' "$1" | awk -F'[][]' '
+    {
+      c = $2
+      if (c == "" || c == "tt") v = "pass"
+      else v = substr("ABCDEFGHJKLMNOPQRST", index("abcdefghijklmnopqrs", substr(c, 1, 1)), 1) \
+        (9 - index("abcdefghijklmnopqrs", substr(c, 2, 1)) + 1)
+      printf "%s%s", n++ ? "," : "", v
+    }'
+}
+net="$evo $root/engine/example.ann"
+{
+  printf 'network\tnet\t%s\nbot\tbot\n' "$root/engine/example.ann"
+  printf 'game\tnet-brown\tnet\tbot\ncommand\tnet-brown\twhite\tbrown\n'
+  printf 'game\tbrown-net\tbot\tnet\ncommand\tbrown-net\tblack\tbrown\n'
+  printf 'game\tgnugo-brown\tbot\tbot\ncommand\tgnugo-brown\tblack\t%s\n' "$gnugo"
+  printf 'command\tgnugo-brown\twhite\tbrown\n'
+  printf 'game\tbrown-amigo\tbot\tbot\ncommand\tbrown-amigo\tblack\tbrown\n'
+  printf 'command\tbrown-amigo\twhite\tamigogtp\n'
+} >"$scratch/twogtp.manifest"
+if "$root/engine/arena" --mixed 9 6.5 200 600 10 10 "$scratch/twogtp.manifest" >"$scratch/twogtp-arena" \
+  2>"$scratch/twogtp-arena.err"; then
+  for pair in "net-brown|$net|brown" "brown-net|brown|$net" "gnugo-brown|$gnugo|brown" "brown-amigo|brown|amigogtp"; do
+    id=${pair%%|*} rest=${pair#*|}
+    black=${rest%%|*} white=${rest#*|}
+    gogui-twogtp -black "$black" -white "$white" -size 9 -komi 6.5 -auto -games 1 -time 10 -maxmoves 200 \
+      -sgffile "$scratch/$id" >/dev/null 2>"$scratch/$id.twogtp.err" || true
+    arena_moves=$(sed -n "s/^$id${T}.*${T}moves=\([^${T}]*\)${T}ok\$/\1/p" "$scratch/twogtp-arena")
+    twogtp_moves=$(sgf_moves "$scratch/$id-0.sgf" 2>/dev/null || true)
+    if [ -z "$arena_moves" ] || [ "$arena_moves" != "$twogtp_moves" ]; then
+      fail "$id: the arena and twogtp played different moves:
+  arena  $arena_moves
+  twogtp $twogtp_moves
+$(cat "$scratch/$id.twogtp.err")"
+    else
+      printf '%s: the arena and twogtp played the same %s moves\n' "$id" "$(printf '%s\n' "$arena_moves" | tr ',' '\n' | wc -l | tr -d ' ')"
+    fi
+  done
+else
+  fail "twogtp comparison: the arena failed: $(cat "$scratch/twogtp-arena" "$scratch/twogtp-arena.err")"
 fi
 
 # The response-time script fails when a game fails: here no bot can

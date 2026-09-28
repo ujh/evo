@@ -669,13 +669,15 @@ exits() {
 
 # log NAME FILE LINE...: the bot's log (fakebot --log) is the lines; a
 # line SETUP stands for the setup commands of a 5x5 game with komi 6.5,
-# IDs 1 to 4.
+# IDs 1 to 6, for a bot without time_settings: twogtp's boardsize,
+# clear_board and komi, then boardsize and clear_board again.
 log() {
   name=$1 file=$2
   shift 2
   want=$(for line in "$@"; do
     if [ "$line" = SETUP ]; then
-      printf '%s\n' '1 known_command time_settings' '2 boardsize 5' '3 clear_board' '4 komi 6.5'
+      printf '%s\n' '1 known_command time_settings' '2 boardsize 5' '3 clear_board' '4 komi 6.5' '5 boardsize 5' \
+        '6 clear_board'
     else
       printf '%s\n' "$line"
     fi
@@ -686,6 +688,19 @@ $(cat "$file" 2>/dev/null)
 expected
 $want"
   fi
+}
+
+# wait_for FILE PATTERN: waits up to 10 s for a line matching PATTERN.
+wait_for() {
+  n=0
+  until grep -q "$2" "$1" 2>/dev/null; do
+    n=$((n + 1))
+    if [ "$n" -gt 100 ]; then
+      fail "no '$2' in $1"
+      return 1
+    fi
+    sleep 0.1
+  done
 }
 
 # gone NAME PIDFILE: the process in PIDFILE (fakebot --pid) no longer runs.
@@ -736,12 +751,12 @@ for id in lp pl pp; do
   want=$(strip_times <"$tmp/main" | grep "^$id	")
   expect_line with-bots "$id" "$want"
 done
-log lp "$tmp/lp.log" SETUP '5 play b A5' '6 genmove w' '7 play b B5' '8 genmove w' '9 play b C5' '10 genmove w' \
-  '11 play b D5' '12 genmove w' '13 play b E5' '14 genmove w' '15 quit'
-log pl "$tmp/pl.log" SETUP '5 genmove b' '6 play w A5' '7 genmove b' '8 play w B5' '9 genmove b' \
-  '10 play w C5' '11 genmove b' '12 play w D5' '13 genmove b' '14 play w E5' '15 genmove b' '16 quit'
-log pp "$tmp/pp-b.log" SETUP '5 genmove b' '6 quit'
-log pp "$tmp/pp-w.log" SETUP '5 play b pass' '6 genmove w' '7 quit'
+log lp "$tmp/lp.log" SETUP '7 play b A5' '8 genmove w' '9 play b B5' '10 genmove w' '11 play b C5' '12 genmove w' \
+  '13 play b D5' '14 genmove w' '15 play b E5' '16 genmove w' '17 quit'
+log pl "$tmp/pl.log" SETUP '7 genmove b' '8 play w A5' '9 genmove b' '10 play w B5' '11 genmove b' \
+  '12 play w C5' '13 genmove b' '14 play w D5' '15 genmove b' '16 play w E5' '17 genmove b' '18 quit'
+log pp "$tmp/pp-b.log" SETUP '7 genmove b' '8 quit'
+log pp "$tmp/pp-w.log" SETUP '7 play b pass' '8 genmove w' '9 quit'
 
 # max_moves + 1 moves between two bots, with lowercase vertices written in
 # uppercase; the same bot player plays both colors, each color its own
@@ -754,8 +769,8 @@ log pp "$tmp/pp-w.log" SETUP '5 play b pass' '6 genmove w' '7 quit'
 bots limit 2 600 10 10
 exits limit 0
 expect_line limit limit "limit${T}result=B+18.5${T}end=limit${T}length=3${T}time_black=T${T}time_white=T${T}duration=T${T}moves=C3,pass,D4${T}ok"
-log limit "$tmp/limit-b.log" SETUP '5 genmove b' '6 play w pass' '7 genmove b' '8 quit'
-log limit "$tmp/limit-w.log" SETUP '5 play b C3' '6 genmove w' '7 quit'
+log limit "$tmp/limit-b.log" SETUP '7 genmove b' '8 play w pass' '9 genmove b' '10 quit'
+log limit "$tmp/limit-w.log" SETUP '7 play b C3' '8 genmove w' '9 quit'
 
 # A bot's resignation is its opponent's win, also before any move; the
 # games after it are played. Its genmove time is charged to its side.
@@ -848,7 +863,7 @@ expect_line play-exit g "g${T}end=crash${T}error=white${T}length=3${T}time_black
 failure gtp-error 10 600 10 10 black "./fakebot genmove=err:out\tof\\nstones"
 expect_line gtp-error g "g${T}end=crash${T}error=black${T}length=0${T}time_black=T${T}time_white=T${T}duration=T${T}moves=${T}message=genmove answered an error: out of stones${T}ok"
 failure wrong-id 10 600 10 10 white './fakebot "genmove=raw:=99 A1\n\n"'
-expect_line wrong-id g "g${T}end=crash${T}error=white${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5${T}message=genmove: answered with ID 99 to command 6${T}ok"
+expect_line wrong-id g "g${T}end=crash${T}error=white${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5${T}message=genmove: answered with ID 99 to command 8${T}ok"
 failure play-timeout 10 600 0.2 10 white "./fakebot play=hang"
 expect_line play-timeout g "g${T}end=timeout${T}error=white${T}length=1${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5${T}message=play: no answer to play within 0.200 s${T}ok"
 within play-timeout g time_white 0 0.1
@@ -895,12 +910,63 @@ fi
 if [ "$(cut -d' ' -f1 "$tmp/g1.pid")" = "$(cut -d' ' -f1 "$tmp/g3.pid")" ]; then
   fail "fresh: games g1 and g3 had the same bot process"
 fi
-log fresh "$tmp/g1.log" SETUP '5 play b pass' '6 genmove w' '7 quit'
-log fresh "$tmp/g2.log" SETUP '5 genmove b' '6 quit'
-log fresh "$tmp/g3.log" SETUP '5 play b pass' '6 genmove w' '7 quit'
+log fresh "$tmp/g1.log" SETUP '7 play b pass' '8 genmove w' '9 quit'
+log fresh "$tmp/g2.log" SETUP '7 genmove b' '8 quit'
+log fresh "$tmp/g3.log" SETUP '7 play b pass' '8 genmove w' '9 quit'
 gone fresh "$tmp/g1.pid"
 gone fresh "$tmp/g2.pid"
 gone fresh "$tmp/g3.pid"
+
+# A bot that knows time_settings gets the main time in whole seconds,
+# rounded up, after the second clear_board, as twogtp sends it.
+for main in 2.5 600; do
+  printf 'network\tpass\t%s\nbot\tfake\ngame\tg\tpass\tfake\ncommand\tg\twhite\t./fakebot --log %s known_command=ok:true\n' \
+    "$tmp/pass.ann" "$tmp/time-$main.log" >"$tmp/time-$main.manifest"
+  bots "time-$main" 10 "$main" 10 10
+  exits "time-$main" 0
+done
+log time-2.5 "$tmp/time-2.5.log" '1 known_command time_settings' '2 boardsize 5' '3 clear_board' '4 komi 6.5' \
+  '5 boardsize 5' '6 clear_board' '7 time_settings 3 0 0' '8 play b pass' '9 genmove w' '10 quit'
+log time-600 "$tmp/time-600.log" '1 known_command time_settings' '2 boardsize 5' '3 clear_board' '4 komi 6.5' \
+  '5 boardsize 5' '6 clear_board' '7 time_settings 600 0 0' '8 play b pass' '9 genmove w' '10 quit'
+
+# A genmove waits only for the side's remaining main time plus the grace:
+# after a first genmove of 0.2 s of 0.3 s main time, the second waits
+# about 0.1 + 0.3 s, not 0.3 + 0.3 s.
+failure remaining 10 0.3 10 0.3 white "./fakebot genmove#1=sleep:0.2 genmove#2=hang"
+expect_line remaining.bare g "g${T}end=timeout${T}error=white${T}length=3${T}time_black=T${T}time_white=T${T}duration=T${T}moves=A5,pass,B5${T}message=M${T}ok"
+waited=$(field remaining g message | sed -n 's/^genmove: no answer to genmove within \([0-9.]*\) s$/\1/p')
+if ! awk -v w="$waited" 'BEGIN { exit !(w != "" && w >= 0.3 && w <= 0.405) }'; then
+  fail "remaining: expected a wait of about 0.4 s, got: $(field remaining g message)"
+fi
+within remaining g time_white 0.59 1.5
+
+# A bot that does not answer quit after a played game is killed, with a
+# note on stderr; its record stands, written before quit is asked, and
+# the arena goes on with the later games.
+{
+  printf 'network\tpass\t%s\nbot\tfake\ngame\tg\tpass\tfake\n' "$tmp/pass.ann"
+  printf 'command\tg\twhite\t./fakebot --pid %s --ignore-signals --stay quit=hang\ngame\tpp\tpass\tpass\n' \
+    "$tmp/quit.pid"
+} >"$tmp/quit.manifest"
+./arena --mixed 5 6.5 10 600 2 10 "$tmp/quit.manifest" >"$tmp/quit" 2>"$tmp/quit.err" &
+job=$!
+watch quit "$job"
+if wait_for "$tmp/quit" "^g${T}"; then
+  if ! kill -0 "$job" 2>/dev/null || grep -q "^pp${T}" "$tmp/quit"; then
+    fail "quit: the record was not written before quit was waited for: $(cat "$tmp/quit")"
+  fi
+fi
+status=0
+{ wait "$job" || status=$?; } 2>/dev/null
+hung quit
+exits quit 0
+order quit "arena protocol 3 ready|g|pp|done 2|"
+expect_line quit g "g${T}result=W+6.5${T}end=passes${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,pass${T}ok"
+if ! grep -q "^arena: game g: the white bot did not answer quit in time and was killed$" "$tmp/quit.err"; then
+  fail "quit: no note on stderr: $(cat "$tmp/quit.err")"
+fi
+gone quit "$tmp/quit.pid"
 
 # A bot that hangs mid-chunk: its game's failure record is written after
 # the records before it, a one-sided network_error among them; the arena
@@ -950,18 +1016,6 @@ hung fifo
 exits fifo 0
 expect_line fifo pp "pp${T}result=W+6.5${T}end=passes${T}length=2${T}time_black=T${T}time_white=T${T}duration=T${T}moves=pass,pass${T}ok"
 
-# wait_for FILE PATTERN: waits up to 10 s for a line matching PATTERN.
-wait_for() {
-  n=0
-  until grep -q "$2" "$1" 2>/dev/null; do
-    n=$((n + 1))
-    if [ "$n" -gt 100 ]; then
-      fail "no '$2' in $1"
-      return 1
-    fi
-    sleep 0.1
-  done
-}
 
 # SIGINT and SIGTERM while a bot is thinking: the arena kills the bot and
 # dies by the signal, with the records before and none for the game it

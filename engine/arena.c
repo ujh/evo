@@ -148,9 +148,10 @@
  * play (a one-sided network_error) starts no bot. Then each bot side of
  * the game gets a process of its own, started from that game's command
  * with its stderr on the arena's, and is set up (bot_setup in bot.h:
- * known_command time_settings, boardsize SIZE, clear_board, komi KOMI,
- * and time_settings ceil(MAIN_TIME) 0 0 when known); nothing carries over
- * from one game to the next. On its turn a bot is sent "play COLOR
+ * known_command time_settings, then twogtp's boardsize SIZE, clear_board,
+ * komi KOMI, boardsize SIZE, clear_board, and time_settings
+ * ceil(MAIN_TIME) 0 0 when known, so that a bot plays the moves it plays
+ * under twogtp); nothing carries over from one game to the next. On its turn a bot is sent "play COLOR
  * VERTEX" with the other player's last move, if there was one, and then
  * "genmove COLOR"; it is never sent its own moves, which it played
  * itself, nor the game's last move. The genmove answer is waited for

@@ -650,10 +650,13 @@ bot_status bot_setup(bot *b, int size, double komi, double main_time, double sec
   char command[96];
   bot_status s = bot_known_command(b, "time_settings", seconds, &known, text);
   if (s != BOT_OK) snprintf(command, sizeof(command), "known_command");
-  for (int step = 0; step < 4 && s == BOT_OK; step++) {
-    if (step == 0) {
+  // twogtp's sequence: boardsize, clear_board and komi when it starts, then
+  // boardsize and clear_board again for the game. Brown reseeds its moves
+  // on boardsize, so its games repeat twogtp's only with both.
+  for (int step = 0; step < 6 && s == BOT_OK; step++) {
+    if (step == 0 || step == 3) {
       snprintf(command, sizeof(command), "boardsize %d", size);
-    } else if (step == 1) {
+    } else if (step == 1 || step == 4) {
       snprintf(command, sizeof(command), "clear_board");
     } else if (step == 2) {
       char k[64];

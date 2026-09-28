@@ -283,8 +283,10 @@ expect stuck "start${T}ok" "send${T}timeout${T}no answer to play within 1.000 s"
 seconds stuck 2 0.99 1.6
 gone stuck "$tmp/stuck.pid"
 
-# setup: known_command time_settings, boardsize, clear_board, komi as
-# twogtp writes it, and time_settings only when known, with whole seconds.
+# setup: known_command time_settings, then twogtp's sequence for a game:
+# boardsize, clear_board, komi as twogtp writes it, boardsize and
+# clear_board again, and time_settings only when known, with whole
+# seconds. A failure on the second boardsize or clear_board is named.
 run setup <<EOF
 start a ./fakebot --log $tmp/setup-a.log
 setup a 5 9 6.5 600
@@ -303,22 +305,29 @@ start e ./fakebot komi=hang
 setup e 0.2 9 6.5 600
 start f ./fakebot known_command=exit:1
 setup f 5 9 6.5 600
+start g ./fakebot "boardsize#2=err:not twice"
+setup g 5 9 6.5 600
+start h ./fakebot clear_board#2=hang
+setup h 0.2 9 6.5 600
 EOF
 expect setup "start${T}ok" "setup${T}ok${T}" "setup${T}ok${T}" "setup${T}ok${T}" "setup${T}ok${T}" "quit${T}answered${T}" \
   "start${T}ok" "setup${T}ok${T}" "quit${T}answered${T}" \
   "start${T}ok" "setup${T}error${T}time_settings: no time" \
   "start${T}ok" "setup${T}error${T}boardsize: unacceptable size" \
   "start${T}ok" "setup${T}timeout${T}komi: no answer to komi within 0.200 s" \
-  "start${T}ok" "setup${T}died${T}known_command: exited with status 1"
-want=$(printf '%s\n' '1 known_command time_settings' '2 boardsize 9' '3 clear_board' '4 komi 6.5' \
-  '5 known_command time_settings' '6 boardsize 19' '7 clear_board' '8 komi 7' \
-  '9 known_command time_settings' '10 boardsize 9' '11 clear_board' '12 komi -0.125' \
-  '13 known_command time_settings' '14 boardsize 9' '15 clear_board' '16 komi 6' '17 quit')
+  "start${T}ok" "setup${T}died${T}known_command: exited with status 1" \
+  "start${T}ok" "setup${T}error${T}boardsize: not twice" \
+  "start${T}ok" "setup${T}timeout${T}clear_board: no answer to clear_board within 0.200 s"
+want=$(printf '%s\n' '1 known_command time_settings' '2 boardsize 9' '3 clear_board' '4 komi 6.5' '5 boardsize 9' \
+  '6 clear_board' '7 known_command time_settings' '8 boardsize 19' '9 clear_board' '10 komi 7' '11 boardsize 19' \
+  '12 clear_board' '13 known_command time_settings' '14 boardsize 9' '15 clear_board' '16 komi -0.125' \
+  '17 boardsize 9' '18 clear_board' '19 known_command time_settings' '20 boardsize 9' '21 clear_board' '22 komi 6' \
+  '23 boardsize 9' '24 clear_board' '25 quit')
 if [ "$(cat "$tmp/setup-a.log")" != "$want" ]; then
   fail "setup: a bot without time_settings read $(cat "$tmp/setup-a.log")"
 fi
-want=$(printf '%s\n' '1 known_command time_settings' '2 boardsize 9' '3 clear_board' '4 komi 6.5' \
-  '5 time_settings 1 0 0' '6 quit')
+want=$(printf '%s\n' '1 known_command time_settings' '2 boardsize 9' '3 clear_board' '4 komi 6.5' '5 boardsize 9' \
+  '6 clear_board' '7 time_settings 1 0 0' '8 quit')
 if [ "$(cat "$tmp/setup-b.log")" != "$want" ]; then
   fail "setup: a bot with time_settings read $(cat "$tmp/setup-b.log")"
 fi

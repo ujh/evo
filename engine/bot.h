@@ -102,11 +102,17 @@ bot_status bot_command(bot *b, const char *command, double seconds, const char *
 // case, 0 when it is anything else. A "?" answer is BOT_ERROR.
 bot_status bot_known_command(bot *b, const char *name, double seconds, int *known, const char **text);
 
-// A new game: known_command time_settings, then boardsize SIZE,
+// A new game: known_command time_settings, then the commands twogtp
+// (GoGui 1.6.0) sends before a one-game run's first move: boardsize SIZE,
 // clear_board, komi KOMI (as twogtp writes komi: at most three decimals,
-// no trailing zeros, "6.5", "7"), and, only when time_settings is known,
-// "time_settings M 0 0" with M = ceil(main_time), absolute time without
-// byo-yomi. Each command gets `seconds`. Stops at the first command that
+// no trailing zeros, "6.5", "7"), which it sends on starting the programs,
+// then boardsize SIZE and clear_board again for the game, and, only when
+// time_settings is known, "time_settings M 0 0" with M = ceil(main_time),
+// absolute time without byo-yomi. Brown reseeds its random moves on
+// boardsize, so only this sequence repeats its twogtp games. twogtp's
+// queries (protocol_version, name, version, list_commands) change no
+// state and are not sent; known_command stands for list_commands. Each
+// command gets `seconds`. Stops at the first command that
 // does not answer "=", with its status; *text then starts with that
 // command's name. BOT_OK when every one answered "=".
 bot_status bot_setup(bot *b, int size, double komi, double main_time, double seconds, const char **text);
