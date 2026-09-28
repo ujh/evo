@@ -216,6 +216,75 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # Four players in order, for the per-game saves below.
+  FOUR = STATE.merge(
+    'players' => STATE['players'].merge('1.ann' => { 'command' => '../evo 1.ann' }, 'Brown2' => { 'command' => 'brown', 'external' => true }),
+    'ranking' => [{ 'name' => 'Brown1', 'score' => 3 }, { 'name' => '0.ann', 'score' => 2 },
+                  { 'name' => '1.ann', 'score' => 1 }, { 'name' => 'Brown2', 'score' => 0 }]
+  ).freeze
+
+  def standings(store)
+    store.ranking(2).map { |r| r.values_at(:rank, :name, :score, :external) }
+  end
+
+  def test_a_finished_game_leaves_the_pending_games_and_a_bye_is_the_one_without_white
+    with_store do |store|
+      store.save_state(2, STATE.merge('games' => STATE['games'] + [{ 'black' => '0.ann', 'white' => nil }]))
+      store.remove_pending_game(2, '0.ann', nil)
+      assert_equal STATE['games'], store.state(2)['games']
+      store.remove_pending_game(2, '0.ann', 'Brown1')
+      assert_equal [{ 'black' => '1.ann', 'white' => nil }], store.state(2)['games']
+    end
+  end
+
+  def test_a_player_moving_up_shifts_the_players_it_passes_down_one
+    with_store do |store|
+      store.save_state(2, FOUR)
+      store.raise_in_ranking(2, 'Brown2', 3, from: 4, to: 2)
+      assert_equal [[1, 'Brown1', 3, true], [2, 'Brown2', 3, true], [3, '0.ann', 2, false], [4, '1.ann', 1, false]],
+                   standings(store)
+      store.raise_in_ranking(2, '1.ann', 4, from: 4, to: 1)
+      assert_equal [[1, '1.ann', 4, false], [2, 'Brown1', 3, true], [3, 'Brown2', 3, true], [4, '0.ann', 2, false]],
+                   standings(store)
+      store.raise_in_ranking(2, '0.ann', 3, from: 4, to: 4)
+      assert_equal [[1, '1.ann', 4, false], [2, 'Brown1', 3, true], [3, 'Brown2', 3, true], [4, '0.ann', 3, false]],
+                   standings(store)
+    end
+  end
+
+  def test_only_the_generations_ranking_shifts
+    with_store do |store|
+      store.save_state(2, FOUR)
+      store.save_state(3, FOUR)
+      store.raise_in_ranking(2, 'Brown2', 4, from: 4, to: 1)
+      assert_equal [1, 2, 3, 4], store.ranking(3).map { |r| r[:rank] }
+      assert_equal %w[Brown1 0.ann 1.ann Brown2], store.ranking(3).map { |r| r[:name] }
+    end
+  end
+
+  # Points are never negative, so a player never moves down.
+  def test_a_player_cannot_move_down
+    with_store do |store|
+      store.save_state(2, FOUR)
+      assert_raises(ArgumentError) { store.raise_in_ranking(2, 'Brown1', 0, from: 1, to: 4) }
+      assert_equal [[1, 'Brown1', 3, true], [2, '0.ann', 2, false], [3, '1.ann', 1, false], [4, 'Brown2', 0, true]],
+                   standings(store)
+    end
+  end
+
+  def test_saving_the_ranking_replaces_it_as_saving_the_state_would
+    with_store do |store|
+      store.save_state(2, FOUR)
+      ranking = FOUR['ranking'].reverse
+      store.save_ranking(2, ranking, FOUR['players'])
+      rewritten = store.ranking(2)
+      store.save_state(2, FOUR.merge('ranking' => ranking))
+      assert_equal store.ranking(2), rewritten
+      assert_equal [[1, 'Brown2', 0, true], [2, '1.ann', 1, false], [3, '0.ann', 2, false], [4, 'Brown1', 3, true]],
+                   standings(store)
+    end
+  end
+
   def test_lists_generations_in_order
     with_store do |store|
       [3, 0, 1].each { |g| store.save_state(g, STATE) }

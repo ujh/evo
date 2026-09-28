@@ -132,11 +132,8 @@ class RunGeneration
   # scored when it finishes.
   def play_round
     byes, games = data['games'].partition { |game| game['white'].nil? }
-    byes.each do |game|
-      # The odd player out sits the round out and gets the bye points.
-      update_data(game, { 'winner' => nil })
-      refresh_progress
-    end
+    # The odd player out sits the round out and gets the bye points.
+    byes.each { |game| save_game(game, { 'winner' => nil }) }
     arena, gogui = games.partition { |game| arena_game?(game) }
     jobs = arena_chunks(arena).each { |chunk| pool.submit(prepare_chunk(chunk), chunk) }
     gogui.each do |game|
@@ -172,9 +169,7 @@ class RunGeneration
     result = GameResult.read(prefix_from(game))
     scored = score_game(game, result)
     timings.game(scored['failure'])
-    store_game(game, result, scored, duration)
-    update_data(game, scored)
-    refresh_progress
+    save_game(game, scored) { store_game(game, result, scored, duration) }
   end
 
   # One arena run: `games` maps each game's ID in the schedule to the game.
@@ -223,9 +218,7 @@ class RunGeneration
       result = results.fetch(id)
       scored = score_game(game, result)
       timings.game(scored['failure'])
-      store_arena_game(game, result, scored, (result.duration || 0) + share, stderr)
-      update_data(game, scored)
-      refresh_progress
+      save_game(game, scored) { store_arena_game(game, result, scored, (result.duration || 0) + share, stderr) }
     end
     FileUtils.rm_f(chunk.files)
   end
@@ -243,21 +236,82 @@ class RunGeneration
     )
   end
 
+  # Stores a scored game in one transaction: its row (the block writes it;
+  # a bye has none), its removal from the pending games, and the change to
+  # the ranking, so a crash keeps all of it or none. Ctrl-C stops the runner
+  # only once that has committed: exiting inside the transaction would roll
+  # it back and throw the finished game away.
+  def save_game(game, scored)
+    store.transaction do
+      yield if block_given?
+      update_data(game, scored)
+    end
+    exit if $stop_now
+    refresh_progress
+  end
+
+  # Scores one game in the state: it leaves the pending games and its points
+  # move its players. Saves only what changed, in a transaction of its own or
+  # save_game's.
   def update_data(game, result)
     points = points_for(game, result)
-    new_ranking = data['ranking'].map do |s|
+    ranking = data['ranking']
+    new_ranking = ranking.map do |s|
       s.merge('score' => s['score'] + points.fetch(s['name'], 0))
     end
     # A stable order while the round is played; ties are shuffled once per
     # round in setup_next_round, so the order games finish in does not matter.
-    new_ranking = new_ranking.sort_by { |s| [-s['score'], s['name']] }
-    new_data = data.merge(
+    new_ranking = new_ranking.sort_by { |s| ranking_key(s) }
+    store.transaction do
+      store.remove_pending_game(generation.to_i, game['black'], game['white'])
+      save_ranking_change(ranking, new_ranking, points)
+    end
+    @data = data.merge(
       'games' => data['games'].reject { |g| g == game },
       'ranking' => new_ranking
     )
     # The failure itself is in the game's row in the database.
     warn "\n#{prefix_from(game)}: #{result['failure']}" if result['failure']
-    save_data(new_data)
+  end
+
+  def ranking_key(entry)
+    [-entry['score'], entry['name']]
+  end
+
+  # Keeps the stored ranking the one in memory, rank for rank: the ranking
+  # CLI shows it. When the ranking was in ranking_key order before the game,
+  # only the players whose score changed move. Otherwise (the first game
+  # after a full save, whose ties setup_next_round shuffled, or after a
+  # resume that loaded such a ranking) sorting reorders players who did not
+  # play too, so the whole ranking is rewritten, about once a round.
+  def save_ranking_change(ranking, new_ranking, points)
+    if in_order?(ranking)
+      ranking_moves(ranking, points).each do |name, score, from, to|
+        store.raise_in_ranking(generation.to_i, name, score, from:, to:)
+      end
+    else
+      store.save_ranking(generation.to_i, new_ranking, data['players'])
+    end
+  end
+
+  def in_order?(ranking)
+    ranking.each_cons(2).all? { |a, b| (ranking_key(a) <=> ranking_key(b)).negative? }
+  end
+
+  # [name, new score, old rank, new rank] for each player whose score rose,
+  # moved one after the other in a copy of the ranking, which stays in
+  # ranking_key order. Points are never negative, so a player only moves up.
+  def ranking_moves(ranking, points)
+    order = ranking.dup
+    points.filter_map do |name, gained|
+      next if gained.zero?
+
+      from = order.index { |s| s['name'] == name }
+      entry = order.delete_at(from).then { |s| s.merge('score' => s['score'] + gained) }
+      to = order.bsearch_index { |s| (ranking_key(s) <=> ranking_key(entry)).positive? } || order.size
+      order.insert(to, entry)
+      [name, entry['score'], from + 1, to + 1]
+    end
   end
 
   # Points by player for one game, from the experiment's scoring: a win
@@ -319,8 +373,8 @@ class RunGeneration
 
   # Writes the game to the experiment database, then deletes the files gogui-twogtp
   # left, so an experiment does not pile up three files per game. The SGF is
-  # kept for every keep_every-th generation only. A crash between the two
-  # steps replays the game, and its row is replaced.
+  # kept for every keep_every-th generation only. A crash before save_game
+  # commits replays the game.
   def store_game(game, result, scored, duration)
     prefix = prefix_from(game)
     sgf_file = "#{prefix}-0.sgf"
@@ -364,7 +418,9 @@ class RunGeneration
   end
 
   # Replaces the state in one transaction, so a crash leaves the old state or
-  # the new one, never half of it, and keeps it as the state in memory.
+  # the new one, never half of it, and keeps it as the state in memory. Used
+  # at setup and at each round's pairing; a game saves only what it changed
+  # (save_game).
   def save_data(hash, retire_networks_of: nil)
     store.save_state(generation.to_i, hash, retire_networks_of:)
     @data = hash

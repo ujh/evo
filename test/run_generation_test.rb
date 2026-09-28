@@ -1487,12 +1487,14 @@ class GenerationTimingsReportTest < Minitest::Test
       pool = FakePool.new(arena: ->(id, _game) { id == 'axbR0' ? nil : arena_played(id) }, clock: @clock)
       gen = with_clock(build_generation(settings: { 'tournament_rounds' => 2, 'concurrency' => 2 }))
       gen.instance_variable_set(:@pool, pool)
-      # Saving the state takes 0.125 s: after each of a round's 4 games and
-      # once more for the next round's pairing, all of it Ruby time.
+      # Saving takes 0.125 s: after each of a round's 4 games and once more
+      # for the next round's pairing, all of it Ruby time.
       clock = @clock
-      database.define_singleton_method(:save_state) do |*args, **options|
-        clock.advance(0.125)
-        super(*args, **options)
+      %i[remove_pending_game save_state].each do |save|
+        database.define_singleton_method(save) do |*args, **options|
+          clock.advance(0.125)
+          super(*args, **options)
+        end
       end
       capture_io { gen.send(:play_games) }
       assert_equal 'timings generation=1 partial=0 ' \
@@ -1697,5 +1699,150 @@ class InMemoryStateTest < Minitest::Test
     end
     in_experiment { play(build(store)) }
     assert_equal 1, loads
+  end
+
+  # A game saves its own changes; only the round's pairing saves the whole
+  # state, since its shuffled ties drive the next pairing.
+  def test_only_the_rounds_pairings_save_the_whole_state
+    store = fresh_store
+    saves = 0
+    store.define_singleton_method(:save_state) do |*args, **options|
+      saves += 1
+      super(*args, **options)
+    end
+    in_experiment { play(build(store)) }
+    assert_equal ROUNDS, saves
+  end
+
+  # The first game of a round re-sorts the shuffled ties, so it rewrites the
+  # ranking; later games only move the players whose score changed.
+  def test_the_ranking_is_rewritten_at_most_once_a_round
+    store = fresh_store
+    rewrites = 0
+    store.define_singleton_method(:save_ranking) do |*args|
+      rewrites += 1
+      super(*args)
+    end
+    in_experiment { play(build(store)) }
+    assert_includes 1..ROUNDS, rewrites
+  end
+
+  Crash = Class.new(StandardError)
+
+  # A crash after the game's row is written, before the rest of its save,
+  # leaves neither: the game is still pending and gets replayed.
+  def test_a_games_row_and_the_state_it_changes_are_saved_together
+    store = fresh_store
+    before = store.state(1)
+    store.define_singleton_method(:record) do |**row|
+      super(**row)
+      raise Crash
+    end
+    in_experiment { assert_raises(Crash) { play(build(store)) } }
+    assert_empty store.games(1)
+    # Only the bye, scored before any game, is saved.
+    bye = { 'black' => 'a.ann', 'white' => nil }
+    assert_equal before['games'] - [bye], store.state(1)['games']
+    assert_equal({ 'a.ann' => 2 }, store.ranking(1).to_h { |r| r.values_at(:name, :score) }.select { |_, s| s.positive? })
+  end
+
+  # Ctrl-C stops the runner after the game's save commits, not inside it,
+  # where exiting would roll the finished game back.
+  def test_ctrl_c_after_a_game_finished_keeps_it
+    store = fresh_store
+    store.define_singleton_method(:record) do |**row|
+      super(**row)
+      $stop_now = true
+    end
+    in_experiment { assert_raises(SystemExit) { play(build(store)) } }
+    assert_equal 1, store.games(1).size
+    game = store.games(1).first.values_at(:black, :white)
+    pending = store.state(1)['games'].map { |g| g.values_at('black', 'white') }
+    assert_equal 2, pending.size
+    refute_includes pending, game
+    refute_includes pending, ['a.ann', nil]
+  ensure
+    $stop_now = false
+  end
+
+  def test_a_crash_between_any_two_saves_resumes_to_the_same_end
+    store = fresh_store
+    in_experiment { play(build(store)) }
+    expected = final(store)
+    (1..(GAMES + ROUNDS)).each do |crash_after|
+      store = fresh_store
+      in_experiment do
+        gen = build(store)
+        saves = 0
+        watch(gen) { raise Crash if (saves += 1) == crash_after }
+        assert_raises(Crash) { play(gen) }
+        play(build(store))
+      end
+      assert_equal expected, final(store), "crash after save #{crash_after}"
+    end
+  end
+
+  # One game on a ranking already in [-score, name] order, then the stored
+  # ranking against a full save of the new state.
+  def after_one_game(ranking, game, result)
+    store = fresh_store
+    players = ranking.to_h { |name, _| [name, name == 'Brown1' ? { 'command' => 'brown', 'external' => true } : { 'command' => "../evo #{name}" }] }
+    store.save_state(1, { 'setup_complete' => true, 'round' => 1, 'players' => players,
+                          'ranking' => ranking.map { |name, score| { 'name' => name, 'score' => score } },
+                          'games' => [game] })
+    gen = build_generation(store:)
+    capture_io { gen.send(:update_data, game, result) }
+    full = ExperimentDatabase.new(':memory:')
+    full.save_state(1, gen.send(:data))
+    assert_equal full.ranking(1), store.ranking(1)
+    assert_equal store.state(1), gen.send(:data)
+    store.ranking(1).map { |r| r.values_at(:rank, :name, :score) }
+  end
+
+  SORTED = [['Brown1', 6], ['a.ann', 4], ['b.ann', 4], ['c.ann', 3], ['d.ann', 1], ['e.ann', 0], ['f.ann', 0]].freeze
+
+  # SORTED with `name` at `score`, in order.
+  def sorted_with(name, score)
+    SORTED.map { |n, s| [n, n == name ? score : s] }.sort_by { |n, s| [-s, n] }
+  end
+
+  def ranks(*entries)
+    entries.each_with_index.map { |(name, score), i| [i + 1, name, score] }
+  end
+
+  def test_a_win_moves_the_winner_past_everyone_it_now_outscores
+    moved = after_one_game(sorted_with('f.ann', 6), { 'black' => 'f.ann', 'white' => 'e.ann' }, { 'winner' => 'f.ann' })
+    assert_equal ranks(['f.ann', 9], ['Brown1', 6], ['a.ann', 4], ['b.ann', 4], ['c.ann', 3], ['d.ann', 1],
+                       ['e.ann', 0]), moved
+  end
+
+  def test_a_draw_moves_both_players_and_ties_go_by_name
+    moved = after_one_game(SORTED, { 'black' => 'f.ann', 'white' => 'e.ann' }, { 'winner' => nil })
+    assert_equal ranks(['Brown1', 6], ['a.ann', 4], ['b.ann', 4], ['c.ann', 3], ['d.ann', 1], ['e.ann', 1],
+                       ['f.ann', 1]), moved
+  end
+
+  def test_a_bye_moves_its_player
+    moved = after_one_game(SORTED, { 'black' => 'c.ann', 'white' => nil }, { 'winner' => nil })
+    assert_equal ranks(['Brown1', 6], ['c.ann', 5], ['a.ann', 4], ['b.ann', 4], ['d.ann', 1], ['e.ann', 0],
+                       ['f.ann', 0]), moved
+  end
+
+  def test_a_player_who_scores_but_stays_last_keeps_its_place
+    moved = after_one_game([['a.ann', 2], ['b.ann', 0]], { 'black' => 'b.ann', 'white' => nil }, { 'winner' => nil })
+    assert_equal ranks(['a.ann', 2], ['b.ann', 2]), moved
+  end
+
+  def test_a_failed_game_moves_nobody
+    moved = after_one_game(SORTED, { 'black' => 'a.ann', 'white' => 'b.ann' }, { 'winner' => nil, 'failure' => 'x' })
+    assert_equal ranks(*SORTED), moved
+  end
+
+  def test_a_win_that_ties_others_puts_the_winner_among_them_by_name
+    moved = after_one_game(SORTED, { 'black' => 'd.ann', 'white' => 'e.ann' }, { 'winner' => 'd.ann' })
+    assert_equal ranks(['Brown1', 6], ['a.ann', 4], ['b.ann', 4], ['d.ann', 4], ['c.ann', 3], ['e.ann', 0],
+                       ['f.ann', 0]), moved
+    moved = after_one_game(sorted_with('a.ann', 1), { 'black' => 'a.ann', 'white' => 'e.ann' }, { 'winner' => 'a.ann' })
+    assert_equal ranks(*SORTED), moved
   end
 end
