@@ -574,7 +574,7 @@ bot_status bot_command(bot *b, const char *command, double seconds, const char *
       break;
     }
     if (used + 1 + (size_t)length > BOT_MAX_RESPONSE) {
-      length = -3;
+      length = -4;
       break;
     }
     reply[used++] = '\n';
@@ -586,7 +586,11 @@ bot_status bot_command(bot *b, const char *command, double seconds, const char *
     free(reply);
     if (length == -1) goto timeout;
     if (length == -2) goto died;
-    goto too_long;
+    if (length == -3) goto too_long;
+    end(b);
+    set_text(b, 0, "an answer longer than %d bytes", BOT_MAX_RESPONSE);
+    *text = b->text;
+    return BOT_PROTOCOL;
   }
   while (used > 0 && (blank(reply[used - 1]) || reply[used - 1] == '\n')) reply[--used] = '\0';
   set_text(b, 1, "%s", reply);

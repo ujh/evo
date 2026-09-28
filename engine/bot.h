@@ -76,7 +76,10 @@ void bot_init(void);
 // names an existing file in the working directory is that file, as twogtp
 // makes such a name absolute), its stderr on `stderr_fd`. Returns the bot,
 // or NULL with *message set to why (no program, a failed pipe or fork, or
-// execvp's error), a static text valid until the next call.
+// execvp's error), a static text valid until the next call. stderr_fd
+// becomes the bot's stderr, but is not closed in the bot as well, so pass
+// 2 (the arena's stderr) or a descriptor with FD_CLOEXEC; otherwise the
+// bot holds a second copy of it.
 bot *bot_start(const char *command, int stderr_fd, const char **message);
 
 // The bot's process ID (0 once reaped).

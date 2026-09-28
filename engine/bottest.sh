@@ -20,11 +20,45 @@ fail() {
   failed=1
 }
 
-# run NAME: runs botdriver script on stdin, output in $tmp/NAME.
+# watch NAME PID: kills PID if it still runs after 60 s (no test takes
+# 10), so a hang fails the test instead of stopping it. The watcher ends
+# by itself soon after PID does.
+watch() {
+  (
+    n=0
+    while kill -0 "$2" 2>/dev/null; do
+      n=$((n + 1))
+      if [ "$n" -gt 300 ]; then
+        : >"$tmp/$1.hung"
+        kill -9 "$2"
+        exit
+      fi
+      sleep 0.2
+    done
+  ) >/dev/null 2>&1 &
+}
+
+# hung NAME: when the watcher had to kill NAME's job, fails and stops
+# the tests at once, since what hung one would hang the rest.
+hung() {
+  if [ -e "$tmp/$1.hung" ]; then
+    printf '%s: hung, killed after 60 s\n' "$1" >&2
+    exit 1
+  fi
+}
+
+# run NAME: runs botdriver script on stdin, output in $tmp/NAME, killed
+# by a watcher if it hangs. A background job's stdin is /dev/null, so
+# the script goes through a file.
 run() {
+  cat >"$tmp/$1.in"
+  ./botdriver script <"$tmp/$1.in" >"$tmp/$1" 2>"$tmp/$1.err" &
+  job=$!
+  watch "$1" "$job"
   status=0
   # The braces keep the shell's report of a crash out of the output.
-  { ./botdriver script >"$tmp/$1" 2>"$tmp/$1.err" || status=$?; } 2>/dev/null
+  { wait "$job" || status=$?; } 2>/dev/null
+  hung "$1"
 }
 
 # expect NAME LINE...: the output's lines without the seconds column,
@@ -49,6 +83,19 @@ seconds() {
   if ! awk -v s="$s" -v lo="$3" -v hi="$4" 'BEGIN { exit !(s >= lo && s <= hi) }'; then
     fail "$1: line $2 took $s s, expected $3 to $4"
   fi
+}
+
+# wait_for FILE PATTERN: waits up to 10 s for a line matching PATTERN.
+wait_for() {
+  n=0
+  until grep -q "$2" "$1" 2>/dev/null; do
+    n=$((n + 1))
+    if [ "$n" -gt 100 ]; then
+      fail "no '$2' in $1"
+      return 1
+    fi
+    sleep 0.1
+  done
 }
 
 # gone NAME PIDFILE: the process in PIDFILE (fakebot --pid) no longer runs.
@@ -154,30 +201,51 @@ start c ./fakebot name=flood
 send c 5 name
 start d ./fakebot "name=raw:=%ix\n\n"
 send d 5 name
+start e ./fakebot --pid $tmp/protocol-e.pid "name=raw:=%i$(awk 'BEGIN { while (n++ < 70) { printf "\\n"; for (k = 0; k < 1000; k++) printf "x" } }')\n\n"
+send e 5 name
+send e 5 name
 EOF
 expect protocol "start${T}ok" "send${T}protocol${T}answered with ID 99 to command 1" "send${T}died${T}the bot is gone" \
   "start${T}ok" "send${T}protocol${T}answered without ID to command 1" \
   "start${T}ok" "send${T}protocol${T}a line longer than 65536 bytes" \
-  "start${T}ok" "send${T}protocol${T}answered with ID 1x to command 1"
+  "start${T}ok" "send${T}protocol${T}answered with ID 1x to command 1" \
+  "start${T}ok" "send${T}protocol${T}an answer longer than 65536 bytes" "send${T}died${T}the bot is gone"
 gone protocol "$tmp/protocol-a.pid"
+gone protocol "$tmp/protocol-e.pid"
 
 # Deadlines: a slow answer within its deadline is fine; a missing one, or
-# half an answer, times out at the deadline, and the bot is killed even
-# when it ignores SIGTERM.
-run deadline <<EOF
-start a ./fakebot --pid $tmp/deadline-a.pid --ignore-signals genmove#1=sleep:0.4 genmove#2=hang
+# half an answer, times out at the deadline (1 s: the bounds allow a busy
+# machine but not twice the deadline), and the bot is killed even when it
+# ignores SIGTERM and stdin EOF: it is gone while the controller still
+# runs, before any exit cleanup.
+cat >"$tmp/deadline.in" <<EOF
+start a ./fakebot --pid $tmp/deadline-a.pid --ignore-signals --stay genmove#1=sleep:0.4 genmove#2=hang
 send a 5 genmove b
-send a 0.3 genmove b
-start b ./fakebot --pid $tmp/deadline-b.pid "genmove=raw:=%i C3\n"
-send b 0.3 genmove b
+send a 1 genmove b
+start b ./fakebot --pid $tmp/deadline-b.pid --ignore-signals --stay "genmove=raw:=%i C3\n"
+send b 1 genmove b
+wait 5
 EOF
-expect deadline "start${T}ok" "send${T}ok${T}pass" "send${T}timeout${T}no answer to genmove within 0.300 s" \
-  "start${T}ok" "send${T}timeout${T}no answer to genmove within 0.300 s"
-seconds deadline 2 0.35 3
-seconds deadline 3 0.29 1.5
-seconds deadline 5 0.29 1.5
+./botdriver script <"$tmp/deadline.in" >"$tmp/deadline" 2>"$tmp/deadline.err" &
+job=$!
+watch deadline "$job"
+n=0
+until [ "$(wc -l <"$tmp/deadline")" -ge 5 ] || [ "$n" -gt 100 ]; do
+  n=$((n + 1))
+  sleep 0.1
+done
 gone deadline "$tmp/deadline-a.pid"
 gone deadline "$tmp/deadline-b.pid"
+if ! kill -0 "$job" 2>/dev/null; then
+  fail "deadline: the driver ended before the bots were checked"
+fi
+{ wait "$job" || :; } 2>/dev/null
+hung deadline
+expect deadline "start${T}ok" "send${T}ok${T}pass" "send${T}timeout${T}no answer to genmove within 1.000 s" \
+  "start${T}ok" "send${T}timeout${T}no answer to genmove within 1.000 s" "wait${T}ok${T}"
+seconds deadline 2 0.35 3
+seconds deadline 3 0.99 1.6
+seconds deadline 5 0.99 1.6
 
 # A bot that exits, crashes, or closes its output dies; its exit status
 # or signal is the message. Writing to a bot that has exited is an error,
@@ -204,10 +272,10 @@ gone died "$tmp/died-c.pid"
 # A bot that stops reading its input times out on writing, too.
 run stuck <<EOF
 start a ./fakebot --pid $tmp/stuck.pid --no-read
-send a 0.3 play b $(awk 'BEGIN { while (n++ < 200000) printf "x" }')
+send a 1 play b $(awk 'BEGIN { while (n++ < 200000) printf "x" }')
 EOF
-expect stuck "start${T}ok" "send${T}timeout${T}no answer to play within 0.300 s"
-seconds stuck 2 0.29 1.5
+expect stuck "start${T}ok" "send${T}timeout${T}no answer to play within 1.000 s"
+seconds stuck 2 0.99 1.6
 gone stuck "$tmp/stuck.pid"
 
 # setup: known_command time_settings, boardsize, clear_board, komi as
@@ -339,19 +407,6 @@ EOF
 [ "$status" -eq 139 ] || fail "crash: expected status 139 (SIGSEGV), got $status"
 gone crash "$tmp/crash.pid"
 
-# wait_for FILE PATTERN: waits up to 10 s for a line matching PATTERN.
-wait_for() {
-  n=0
-  until grep -q "$2" "$1" 2>/dev/null; do
-    n=$((n + 1))
-    if [ "$n" -gt 100 ]; then
-      fail "no '$2' in $1"
-      return 1
-    fi
-    sleep 0.1
-  done
-}
-
 # SIGINT and SIGTERM while a bot is running kill the bot, then the
 # controller by the same signal, whether it runs under sh -c or
 # sh -c 'exec ...': the status a parent sees is 128 + the signal. A
@@ -364,6 +419,7 @@ signal_case() {
     "pid $tmp/$name.driver" "send a 100 genmove b" >"$tmp/$name.in"
   ./fakebot --exec sh -c "$exec./botdriver script <'$tmp/$name.in' >'$tmp/$name' 2>'$tmp/$name.err'" 2>/dev/null &
   job=$!
+  watch "$name" "$job"
   wait_for "$tmp/$name.log" genmove || { kill -9 "$job"; return; }
   driver=$(cat "$tmp/$name.driver")
   if [ -n "$exec" ] && [ "$driver" != "$job" ]; then
@@ -372,6 +428,7 @@ signal_case() {
   kill -"$signal" "$driver"
   status=0
   { wait "$job" || status=$?; } 2>/dev/null
+  hung "$name"
   [ "$status" -eq "$want" ] || fail "$name: expected status $want, got $status"
   gone "$name" "$tmp/$name.pid"
 }
@@ -386,6 +443,7 @@ printf '%s\n' "start a ./fakebot --pid $tmp/ignored.pid --log $tmp/ignored.log -
   "pid $tmp/ignored.driver" "send a 100 genmove b" >"$tmp/ignored.in"
 ./botdriver script <"$tmp/ignored.in" >"$tmp/ignored" 2>"$tmp/ignored.err" &
 job=$!
+watch ignored "$job"
 if wait_for "$tmp/ignored.log" genmove; then
   kill -INT "$job"
   sleep 0.3
@@ -395,6 +453,7 @@ if wait_for "$tmp/ignored.log" genmove; then
   kill -TERM "$job"
   status=0
   { wait "$job" || status=$?; } 2>/dev/null
+  hung ignored
   [ "$status" -eq 143 ] || fail "ignored: expected status 143, got $status"
   gone ignored "$tmp/ignored.pid"
 else
