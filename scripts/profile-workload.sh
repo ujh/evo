@@ -29,6 +29,8 @@ usage() {
 }
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+# A relative --results path is relative to the caller's directory.
+caller=$(pwd)
 cd "$root"
 
 [ $# -ge 1 ] || usage
@@ -85,7 +87,7 @@ fi
 experiment="$root/experiments/$name"
 
 [ -n "$results" ] || results="${TMPDIR:-/tmp}/evo-profile-$name-$(date +%Y%m%d-%H%M%S).txt"
-case $results in /*) ;; *) results="$(pwd)/$results" ;; esac
+case $results in /*) ;; *) results="$caller/$results" ;; esac
 case $results in
   "$root"/*) printf 'the results file must be outside the repository: %s\n' "$results" >&2; exit 2 ;;
 esac
@@ -212,6 +214,18 @@ run_generation() {
   out "## Invocation $((generation + 1)): generation $generation"
   out "command: EVO_PROFILE=$profile $command"
   out "exit status: $status, wall $((end - start)) s by the clock"
+  reentry=''
+  if [ "$generation" -gt 0 ]; then
+    # A one-generation run first re-enters the last finished generation:
+    # it empties work/ and exports that generation's networks, then finds
+    # nothing left to play. That is in this invocation's wall time,
+    # /usr/bin/time, and runner profile, but not in its timings line. Its
+    # length comes from the two generation headers' clock times, to the
+    # second.
+    reentry=$(awk '/^\*\*\* GENERATION / { split($5, t, ":"); s[++n] = t[1] * 3600 + t[2] * 60 + t[3] }
+      END { if (n >= 2) { d = s[2] - s[1]; if (d < 0) d += 86400; print d } }' "$log")
+    out "note: this invocation first re-entered generation $((generation - 1)) (emptied work/ and exported its networks) before generation $generation; its wall time, /usr/bin/time and runner profile include that, the timings line does not. Re-entry took about ${reentry:-?} s (generation headers, 1 s resolution)."
+  fi
   timings=$(grep '^timings ' "$log" || true)
   out "timings line: ${timings:-none}"
   line=$(cat "$profile" 2>/dev/null || true)
@@ -228,9 +242,8 @@ run_generation() {
   fi
 
   db="$experiment/experiment.sqlite3"
-  out 'games (tournament, by scorer): scorer|games|failures|summed duration s|summed move time s'
-  sqlite3 "$db" "select scorer, count(*), sum(failure is not null), round(sum(duration), 3),
-    round(sum(coalesce(time_black, 0) + coalesce(time_white, 0)), 3)
+  out 'games (tournament, by scorer): scorer|games|failures|summed duration s'
+  sqlite3 "$db" "select scorer, count(*), sum(failure is not null), round(sum(duration), 3)
     from games where generation = $generation group by scorer" | sed 's/^/    /' >> "$results"
   out 'benchmark games: games|failures|summed duration s'
   sqlite3 "$db" "select count(*), sum(failure is not null), round(sum(duration), 3)
@@ -242,13 +255,16 @@ run_generation() {
 
   # The arena's startup and load cost: one arena over every network of the
   # generation, each loaded once, playing one move per game (max_moves 0).
+  # An untimed first run warms the file cache, so the three timed runs
+  # compare.
   schedule="$results.gen$generation.schedule"
   find "$experiment/work" -maxdepth 1 -name '*.ann' | sort |
     awk '{ n[NR] = $0 } END { for (i = 1; i <= NR; i += 2) print "g" i, n[i], n[(i < NR) ? i + 1 : 1] }' > "$schedule"
   networks=$(find "$experiment/work" -maxdepth 1 -name '*.ann' | wc -l | tr -d ' ')
   bytes=$(find "$experiment/work" -maxdepth 1 -name '*.ann' -exec ls -l {} + | awk '{ s += $5 } END { print s + 0 }')
-  out "arena load (a separate run after the invocation, warm file cache): $networks networks, $bytes bytes, $(wc -l < "$schedule" | tr -d ' ') games at max_moves 0"
+  out "arena load (a separate run after the invocation, after an untimed warm-up run, so a warm file cache): $networks networks, $bytes bytes, $(wc -l < "$schedule" | tr -d ' ') games at max_moves 0"
   loads=''
+  ( cd "$experiment/work" && ../arena 9 6.5 0 "$schedule" > /dev/null )
   for run in 1 2 3; do
     arena_out="$results.gen$generation.arena.out"
     arena_time="$results.gen$generation.arena.time"
@@ -269,8 +285,8 @@ run_generation() {
   out ''
 
   summary="$summary
-generation $generation: exit $status, wall $((end - start)) s, runner total $(field total "$timings") s, tournament $(field tournament "$timings") s (ruby $(field ruby "$timings") s, worker $(field worker "$timings") s), benchmark $(field benchmark "$timings") s, games $(field games "$timings"), failures $(field failures "$timings")
-  runner CPU user $(field utime "$line") s sys $(field stime "$line") s, allocated objects $(field total_allocated_objects "$line"), GC runs $(field gc_count "$line")
+generation $generation: exit $status, wall $((end - start)) s$( [ -z "$reentry" ] || printf ' (including about %s s re-entering generation %s)' "$reentry" $((generation - 1))), runner total $(field total "$timings") s, tournament $(field tournament "$timings") s (ruby $(field ruby "$timings") s, worker $(field worker "$timings") s), benchmark $(field benchmark "$timings") s, games $(field games "$timings"), failures $(field failures "$timings")
+  runner CPU user $(field utime "$line") s sys $(field stime "$line") s, allocated objects $(field total_allocated_objects "$line"), GC runs $(field gc_count "$line")$( [ -z "$reentry" ] || printf ' (re-entry included)')
   peak RSS: tree sum $(echo "$peak" | cut -d' ' -f1) MiB, runner $(echo "$peak" | cut -d' ' -f2) MiB; arena load of $networks networks:$loads"
 }
 
