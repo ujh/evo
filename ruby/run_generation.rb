@@ -57,7 +57,7 @@ class RunGeneration
 
   # Tests set @clock to a FakeClock.
   def clock
-    @clock || GenerationTimings::MONOTONIC
+    @clock || GenerationTimings::AWAKE
   end
 
   # The scratch directory the generation works in. It is emptied at the

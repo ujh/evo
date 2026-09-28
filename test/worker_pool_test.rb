@@ -47,6 +47,22 @@ class WorkerPoolTest < Minitest::Test
     assert_operator seconds[:fast], :<, seconds[:slow]
   end
 
+  # A job's time is awake time (AwakeClock), so a sleeping laptop does not
+  # add its sleep to the job.
+  def test_times_jobs_with_the_awake_clock
+    times = Queue.new
+    [10.0, 12.5].each { |t| times << t }
+    original = AwakeClock.method(:now)
+    AwakeClock.define_singleton_method(:now) { times.pop }
+    pool = WorkerPool.new(1)
+    pool.submit('true', :job)
+    assert_equal 2.5, pool.next_finished[1]
+    pool.stop
+  ensure
+    AwakeClock.singleton_class.send(:remove_method, :now)
+    AwakeClock.define_singleton_method(:now, original)
+  end
+
   def test_reports_each_commands_exit_status
     pool = WorkerPool.new(2)
     pool.submit('exit 3', :failed)

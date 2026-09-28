@@ -1,3 +1,5 @@
+require_relative 'awake_clock'
+
 # Runs shell commands on a fixed number of threads. The commands play games
 # (one gogui-twogtp game, or a chunk of games in the arena), so the threads
 # spend their time waiting for their command's process (`Process.wait2`),
@@ -27,7 +29,8 @@ class WorkerPool
   end
 
   # Blocks until a command finishes and returns its identifier, the
-  # wall-clock seconds it ran, and its Process::Status.
+  # seconds it ran (on AwakeClock, so not counting system sleep), and its
+  # Process::Status.
   def next_finished
     @finished.pop
   end
@@ -96,7 +99,7 @@ class WorkerPool
       break if @halted
 
       command, identifier = job
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      started = AwakeClock.now
       pid = start(command)
       @lock.synchronize do
         @pids[Thread.current] = pid
@@ -104,7 +107,7 @@ class WorkerPool
       end
       status = reap(pid)
       @lock.synchronize { @pids.delete(Thread.current) }
-      @finished << [identifier, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, status]
+      @finished << [identifier, AwakeClock.now - started, status]
     end
   end
 

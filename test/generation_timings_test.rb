@@ -80,9 +80,20 @@ class GenerationTimingsTest < Minitest::Test
     assert_equal :value, t.wait { :value }
   end
 
-  def test_the_default_clock_is_monotonic
+  def test_the_default_clock_is_the_awake_clock
     t = GenerationTimings.new(0, partial: false)
     t.time(:total) { sleep 0.01 }
     assert_operator Float(t.line[/ total=(\S+)$/, 1]), :>=, 0.01
+    times = [3.0, 7.25]
+    original = AwakeClock.method(:now)
+    AwakeClock.define_singleton_method(:now) { times.shift }
+    t = GenerationTimings.new(0, partial: false)
+    t.time(:total) {}
+    assert_includes t.line, ' total=4.250'
+  ensure
+    if original
+      AwakeClock.singleton_class.send(:remove_method, :now)
+      AwakeClock.define_singleton_method(:now, original)
+    end
   end
 end

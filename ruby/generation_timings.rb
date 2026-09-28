@@ -1,4 +1,7 @@
-# Times the parts of one generation with the monotonic clock, for the
+require_relative 'awake_clock'
+
+# Times the parts of one generation with AwakeClock, the clock WorkerPool
+# times its jobs by (it stops while the machine sleeps), for the
 # summary and the machine-readable line printed when it ends. Nothing is
 # stored: a generation resumed part-way (`partial`) is timed only for what
 # this session ran, and its summary says so.
@@ -14,14 +17,14 @@
 # chunks), so above the round's time when jobs run in parallel. Its Ruby time is the round's time the runner spent not waiting
 # for a job: pairing, queueing, reading results, scoring, and storing.
 class GenerationTimings
-  MONOTONIC = -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
+  AWAKE = -> { AwakeClock.now }
 
   Round = Struct.new(:number, :wall, :waiting, :worker, :games, :failures) do
     def ruby = wall - waiting
   end
 
   # `clock` returns seconds when called; tests pass one that stands still.
-  def initialize(generation, partial:, clock: MONOTONIC)
+  def initialize(generation, partial:, clock: AWAKE)
     @generation = generation
     @partial = partial
     @clock = clock
