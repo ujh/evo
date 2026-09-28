@@ -4,6 +4,7 @@ require_relative 'arena_result'
 require_relative 'checkpoint_benchmark'
 require_relative 'feature_groups'
 require_relative 'game_result'
+require_relative 'generation_timings'
 require_relative 'seeds'
 require_relative 'worker_pool'
 
@@ -23,20 +24,42 @@ class RunGeneration
 
   def call
     puts "\n*** GENERATION #{generation} [#{Time.now}] ***\n\n"
-    setup do
-      result = play_games
-      # After the tournament, whose final ranking names the network to
-      # benchmark, and on resume too, so a checkpoint finishes its benchmark.
-      benchmarked = keep?(generation.to_i) && CheckpointBenchmark.call(generation.to_i, settings, pool, store)
-      # A generation that played no game is done, and a one-generation run
-      # moves on to the next one; one that finished its benchmark is not.
-      benchmarked ? nil : result
+    # The generation's state is saved once its population is set up, so a
+    # generation with state was begun by an earlier session.
+    @timings = GenerationTimings.new(generation.to_i, partial: !data.empty?, clock:)
+    result = timings.time(:total) do
+      setup do
+        played = play_games
+        # After the tournament, whose final ranking names the network to
+        # benchmark, and on resume too, so a checkpoint finishes its benchmark.
+        benchmarked = keep?(generation.to_i) &&
+                      timings.time(:benchmark) { CheckpointBenchmark.call(generation.to_i, settings, pool, store) }
+        # A generation that played no game is done, and a one-generation run
+        # moves on to the next one; one that finished its benchmark is not.
+        benchmarked ? nil : played
+      end
     end
+    # A generation this session had nothing left to do in (a one-generation
+    # run re-enters the last finished one) prints nothing, so the timing
+    # lines are those of generations that ran.
+    timings.report unless result == :already_done
+    result
   end
 
   private
 
   attr_accessor :generation, :settings, :pool, :store
+
+  # The generation's GenerationTimings, set by call; tests of a part alone
+  # get one when they first use it.
+  def timings
+    @timings ||= GenerationTimings.new(generation.to_i, partial: false, clock:)
+  end
+
+  # Tests set @clock to a FakeClock.
+  def clock
+    @clock || GenerationTimings::MONOTONIC
+  end
 
   # The scratch directory the generation works in. It is emptied at the
   # start of every generation; everything worth keeping is in the database.
@@ -46,13 +69,15 @@ class RunGeneration
     FileUtils.rm_rf(WORK)
     FileUtils.mkdir(WORK)
     Dir.chdir(WORK) do
-      if generation == '0'
-        setup_initial_population
-      else
-        evolve_from_previous_population
+      timings.time(:setup) do
+        if generation == '0'
+          setup_initial_population
+        else
+          evolve_from_previous_population
+        end
+        # On resume the networks come from the database, not from breeding.
+        store.export_networks(generation.to_i, '.')
       end
-      # On resume the networks come from the database, not from breeding.
-      store.export_networks(generation.to_i, '.')
       yield
     end
   end
@@ -61,8 +86,10 @@ class RunGeneration
     return :already_done if data['round'] >= settings['tournament_rounds']
 
     loop do
-      play_round
-      setup_next_round
+      timings.round(data['round'] + 1) do
+        play_round
+        setup_next_round
+      end
 
       break if data['round'] >= settings['tournament_rounds']
     end
@@ -118,7 +145,8 @@ class RunGeneration
     end
 
     (jobs.size + gogui.size).times do
-      finished, duration, status = pool.next_finished
+      finished, duration, status = timings.wait { pool.next_finished }
+      timings.job(duration)
       # Ctrl-C also stops the running games. Leave them unscored so that
       # resuming plays them again instead of counting a killed game. The
       # game can be back before the trap has set the flag; its status tells.
@@ -143,6 +171,7 @@ class RunGeneration
   def finish_game(game, duration)
     result = GameResult.read(prefix_from(game))
     scored = score_game(game, result)
+    timings.game(scored['failure'])
     store_game(game, result, scored, duration)
     update_data(game, scored)
     refresh_progress
@@ -193,6 +222,7 @@ class RunGeneration
     chunk.games.each do |id, game|
       result = results.fetch(id)
       scored = score_game(game, result)
+      timings.game(scored['failure'])
       store_arena_game(game, result, scored, (result.duration || 0) + share, stderr)
       update_data(game, scored)
       refresh_progress
