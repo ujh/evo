@@ -1,6 +1,7 @@
 require 'fileutils'
 require 'optparse'
 require_relative 'experiment_database'
+require_relative 'experiment_lock'
 require_relative 'feature_groups'
 require_relative 'seeds'
 require_relative 'run_generation'
@@ -11,6 +12,10 @@ class SetupExperiment
   # The prompts were cut short; nothing was saved. Its own class, so the
   # runner can report this without catching errors from the run itself.
   class PromptAborted < StandardError; end
+
+  # The experiment cannot run: another process holds its lock, or it was
+  # archived. Raised before the database is opened for writing.
+  class Refused < StandardError; end
 
   # A setting's type: a whole number, an even whole number, a number, or a
   # multiple of 0.5, and its allowed range. Parsing is strict, so a typo is
@@ -170,10 +175,25 @@ class SetupExperiment
   DEFAULT_SCORING = { 'rules' => RunGeneration::SCORING_RULES, 'win' => 1, 'draw' => 0, 'bye' => 0 }.freeze
 
   # Opens the experiment's database and yields its settings and the database.
+  # The runner takes the experiment's lock first and holds it until the
+  # block returns, so it never opens a database an archive is replacing,
+  # and refuses an archived experiment before migrating it.
   def self.call(experiment_dir)
     puts "Setting up ... ✔"
     FileUtils.mkdir_p(experiment_dir)
-    database = ExperimentDatabase.new(File.expand_path(DATABASE, experiment_dir))
+    lock = ExperimentLock.acquire(experiment_dir)
+    unless lock
+      raise Refused, "#{experiment_dir} is in use: another runner, or an archive, holds #{File.join(experiment_dir, ExperimentLock::FILE)}"
+    end
+
+    path = File.expand_path(DATABASE, experiment_dir)
+    archived = archived_on(path)
+    if archived
+      raise Refused, "#{experiment_dir} was archived on #{archived}: it keeps only the champions of its kept generations " \
+                     'and cannot run again; stats and ranking still read it'
+    end
+
+    database = ExperimentDatabase.new(path)
     # The settings come first, so aborting their prompts leaves nothing.
     settings = settings(database)
     check_scoring(database)
@@ -181,6 +201,25 @@ class SetupExperiment
     Dir.chdir(experiment_dir) { yield settings, database }
   ensure
     database&.close
+    lock&.close
+  end
+
+  # When the experiment at `path` was archived (its `archived` setting), or
+  # nil: read without migrating, and only if the database exists. A
+  # read-only connection cannot roll back the hot journal a runner killed
+  # mid-transaction leaves, and refuses to read; a read-write connection
+  # then rolls it back on its first read, as the runner's own open always
+  # did, still without migrating.
+  def self.archived_on(path)
+    return nil unless File.exist?(path)
+
+    begin
+      ExperimentDatabase.archived_on(path, readonly: true)
+    rescue Sequel::DatabaseError => e
+      raise unless e.cause.is_a?(SQLite3::ReadOnlyException)
+
+      ExperimentDatabase.archived_on(path, readonly: false)
+    end
   end
 
   # Creates an experiment from command-line options, so it can be started

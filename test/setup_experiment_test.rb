@@ -5,8 +5,11 @@ require 'stringio'
 require 'tmpdir'
 require_relative '../ruby/setup_experiment'
 require_relative '../ruby/run_generation'
+require_relative 'hot_journal'
 
 class SetupExperimentTest < Minitest::Test
+  include HotJournal
+
   REQUIRED = %w[--board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5
                 --game-length 10 --max-moves 200 --tournament-rounds 1].freeze
 
@@ -654,6 +657,116 @@ class SetupExperimentTest < Minitest::Test
       database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED))
       assert_equal 9, SetupExperiment.settings(database)['board_size']
       assert File.exist?('settings.json')
+    end
+  end
+
+  ENV_VARS = { 'BUNDLE_GEMFILE' => File.expand_path('../Gemfile', __dir__) }.freeze
+
+  # Starts a process that holds the experiment's lock until its stdin
+  # closes, as a running runner does, and yields once it holds it.
+  def holding_the_lock_elsewhere(experiment_dir)
+    script = "require 'bundler/setup'; require #{File.expand_path('../ruby/experiment_lock', __dir__).inspect}; " \
+             "lock = ExperimentLock.acquire(#{experiment_dir.inspect}) or abort 'not locked'; " \
+             'puts :locked; $stdout.flush; $stdin.read'
+    IO.popen(ENV_VARS, ['ruby', '-e', script], 'r+') do |io|
+      assert_equal "locked\n", io.gets
+      yield
+      io.close_write
+    end
+  end
+
+  def test_the_runner_holds_the_lock_while_it_runs
+    in_tmpdir do
+      fake_checkout
+      held = nil
+      capture_io { SetupExperiment.call('experiments/x') { held = ExperimentLock.acquire('.') } }
+      assert_nil held, 'a second lock while the runner runs'
+      lock = ExperimentLock.acquire('experiments/x')
+      assert lock, 'the lock is released once the runner ends'
+      lock.close
+    end
+  end
+
+  # A runner that opened the database before locking could keep writing
+  # to it after an archive replaced it, so a held lock stops the runner
+  # before it opens anything.
+  def test_a_held_lock_refuses_the_runner_before_it_opens_the_database
+    in_tmpdir do
+      FileUtils.mkdir_p('experiments/y')
+      holding_the_lock_elsewhere('experiments/y') do
+        error = assert_raises(SetupExperiment::Refused) { capture_io { SetupExperiment.call('experiments/y') { flunk } } }
+        assert_includes error.message, 'experiments/y'
+        assert_includes error.message, ExperimentLock::FILE
+      end
+      refute File.exist?('experiments/y/experiment.sqlite3')
+    end
+  end
+
+  # Ruby opens files close-on-exec, so the games the runner starts do not
+  # keep its lock after it ends.
+  def test_a_child_process_does_not_inherit_the_lock
+    in_tmpdir do
+      FileUtils.mkdir_p('experiments/x')
+      lock = ExperimentLock.acquire('experiments/x')
+      child = Process.spawn('sleep 30')
+      lock.close
+      again = ExperimentLock.acquire('experiments/x')
+      assert again, 'the child holds the lock'
+      again.close
+    ensure
+      Process.kill(:KILL, child) if child
+      Process.wait(child) if child
+    end
+  end
+
+  # The check comes before the migrations, so an archived experiment is
+  # left exactly as the archive wrote it.
+  def test_an_archived_experiment_is_refused_before_migrating
+    in_tmpdir do
+      fake_checkout
+      db = Sequel.sqlite('experiments/y/experiment.sqlite3'.tap { |path| FileUtils.mkdir_p(File.dirname(path)) })
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 11)
+      db[:settings].insert(key: 'archived', value: '2026-09-29 10:00:00 +0200')
+      db.disconnect
+      error = assert_raises(SetupExperiment::Refused) { capture_io { SetupExperiment.call('experiments/y') { flunk } } }
+      assert_includes error.message, 'archived'
+      assert_includes error.message, '2026-09-29 10:00:00 +0200'
+      db = Sequel.sqlite('experiments/y/experiment.sqlite3', readonly: true)
+      assert_equal 11, db[:schema_info].get(:version)
+      db.disconnect
+      lock = ExperimentLock.acquire('experiments/y')
+      assert lock, 'a refused runner releases the lock'
+      lock.close
+    end
+  end
+
+  # A runner killed during a transaction leaves a hot journal, which a
+  # read-only connection cannot roll back. The runner must still start and
+  # roll it back, as it did before the archived check.
+  def test_a_hot_journal_is_rolled_back_rather_than_refused
+    in_tmpdir do
+      fake_checkout
+      path = 'experiments/x/experiment.sqlite3'
+      leave_hot_journal(path, "update settings set value = 'broken'")
+      settings = nil
+      capture_io { SetupExperiment.call('experiments/x') { |s, _| settings = s } }
+      assert_equal 9, settings['board_size']
+      refute File.exist?("#{path}-journal")
+    end
+  end
+
+  # The rolled-back transaction had deleted the `archived` setting, which
+  # only the roll-back brings back.
+  def test_an_archived_experiment_with_a_hot_journal_is_still_refused
+    in_tmpdir do
+      fake_checkout
+      path = 'experiments/x/experiment.sqlite3'
+      db = Sequel.sqlite(path)
+      db[:settings].insert(key: 'archived', value: 'yesterday')
+      db.disconnect
+      leave_hot_journal(path, "delete from settings where key = 'archived'")
+      error = assert_raises(SetupExperiment::Refused) { capture_io { SetupExperiment.call('experiments/x') { flunk } } }
+      assert_includes error.message, 'yesterday'
     end
   end
 end
