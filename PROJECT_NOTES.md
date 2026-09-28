@@ -18,6 +18,8 @@ Move **all tournament games**, including network–bot and bot–bot games, into
 
 **Next step: benchmark against more past champions.** A checkpoint's benchmark plays only two networks: generation 0's champion (`initial_champion`) and the previous checkpoint's (`previous_checkpoint`). That makes progress hard to see (owner, 27 Sep 2026): a win against the previous checkpoint says little about the run as a whole, and a loss can hide steady gains against older champions. Play the top network against more of the earlier checkpoints' champions, or all of them, so each checkpoint gets a row of results against the whole line of its ancestors. Only checkpoint champions count, since theirs are the networks kept (owner, 27 Sep 2026). Open questions, to decide later:
 
+Start by comparing the retained champions within each of `bigrun` and `even-bigger` out of band, across several openings with both colors, to see whether later checkpoints beat older ones consistently or cycle between strengths. Keep AmiGo and GNU Go as external anchors. Do not infer steady progress from the previous-checkpoint result alone, which has stayed near even while AmiGo results have risen and fallen.
+
 - How many champions: all, or the last N, given the benchmark's cost.
 - Whether games against past champions go to the arena instead of GoGui, which would make them nearly free. The scoring differs little: the referee's Chinese rules are area scoring too, and differ from the arena's Tromp–Taylor only where dead stones stay on the board (GNU Go removes them, Tromp–Taylor counts them), which happens often while networks pass early and less once they finish games. The arena lacks openings, though, which the benchmark needs because networks play deterministically; it would have to learn to start games from one.
 - Whether to play these games inline at all. The checkpoint champions are kept anyway, so a separate analysis tool could play them later, out of band. The one reason to play them inline is that the results then show in the stats viewer (see [Replace `stats` with a graphical viewer](#replace-stats-with-a-graphical-viewer)) as the run goes.
@@ -34,7 +36,7 @@ The tournament has a useful idea: match roughly comparable players while includi
 
 Parents are chosen by tournament selection with a default size of 3 (`tournament_size`). Nothing yet shows whether that keeps enough variation or selects too weakly to make progress.
 
-**Proposed response:** measure it with the [recorded data](#6-test-the-assumptions-with-the-recorded-data) below, compare a few tournament sizes, and consider preserving a small number of elites.
+**Proposed response:** measure it with the [recorded data](#6-test-the-assumptions-with-the-recorded-data) below, compare a few tournament sizes, and consider preserving a small number of elites. Re-evaluate top-ranked networks and some lower-ranked ones on the same independent openings to estimate how much the ten-game tournament schedule misorders parents and checkpoint champions.
 
 ### 3. Mutation and crossover deserve separate experiments
 
@@ -71,6 +73,8 @@ That makes a compact policy an interesting learning experiment, with substantial
 
 None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. Generation 0's sizes and activations are experiment settings and defaults; from there, activations and sizes evolve as genes of each network. Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
 
+**Check whether the dense network still influences move choice.** In late `bigrun`, the population has tanh outputs (bounded by −1 and 1) while some added feature weights are around 7–10. This may make the feature terms decide many moves, even as the dense weights mutate. On a saved bank of positions, measure move agreement with the feature terms removed and with the dense output removed; inspect score margins and test the resulting policies on held-out games. Large feature weights alone do not establish that they hurt play.
+
 Search remains a choice to discuss.
 
 ### 5. Long runs need recoverable evidence
@@ -82,6 +86,8 @@ Networks and SGFs are kept only for every `keep_every`-th generation. That saves
 ### 6. Test the assumptions with the recorded data
 
 Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The experiment database records what is needed (`games`, `births`, and `rankings` in `experiment.sqlite3`), and `stats` reports it, including children per parent and where the bots rank. Still to do: run a few seeded experiments that vary one setting at a time.
+
+**Investigate the color gap before tuning around it.** Against AmiGo after generation 0, `bigrun`'s checkpoint champions won 444/1,140 games as Black and 688/1,140 as White; `even-bigger` showed the same direction in its first four checkpoints (11/40 and 20/40). The benchmark pairs colors, so its combined rate is still useful, but these results call for checking outcomes by opening, game length, passing, and komi. Do not assume yet whether the cause is the policy, the openings, or the opponent.
 
 ### 7. Move choice is deterministic
 
@@ -190,7 +196,7 @@ These are candidate milestones for discussion, rather than an implementation com
 2. **Measure the features' effect.** Compare a feature run with a stones-only run and with random search using the same inputs and game budget, with the same breeding procedure. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
 3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.
 
-Repeated deterministic games from the same starting position do not provide independent evidence. Evaluation needs controlled variation in openings or opponent seeds, with color-balanced comparisons. Compare methods by games and compute consumed, not merely generation count.
+Repeated deterministic games from the same starting position do not provide independent evidence. Evaluation needs controlled variation in openings or opponent seeds, with color-balanced comparisons. Report progress at equal generations as well as equal games and compute consumed: `even-bigger` reached similar AmiGo benchmark performance in only 300 generations, but it also changed population size and architecture, so those effects need separate comparisons.
 
 A useful success statement would be: “Within an agreed CPU/time budget, evolution consistently beats equally budgeted random search and the initial population on opponents or positions not used to select parents.” A later milestone could name a particular external bot and a target win rate once baseline results exist.
 
