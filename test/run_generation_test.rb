@@ -1487,11 +1487,18 @@ class GenerationTimingsReportTest < Minitest::Test
       pool = FakePool.new(arena: ->(id, _game) { id == 'axbR0' ? nil : arena_played(id) }, clock: @clock)
       gen = with_clock(build_generation(settings: { 'tournament_rounds' => 2, 'concurrency' => 2 }))
       gen.instance_variable_set(:@pool, pool)
+      # Saving the state takes 0.125 s: after each of a round's 4 games and
+      # once more for the next round's pairing, all of it Ruby time.
+      clock = @clock
+      database.define_singleton_method(:save_state) do |*args, **options|
+        clock.advance(0.125)
+        super(*args, **options)
+      end
       capture_io { gen.send(:play_games) }
       assert_equal 'timings generation=1 partial=0 ' \
-                   'round_1=3.000 worker_round_1=3.000 ruby_round_1=0.000 games_round_1=4 failures_round_1=1 ' \
-                   'round_2=3.000 worker_round_2=3.000 ruby_round_2=0.000 games_round_2=4 failures_round_2=0 ' \
-                   'tournament=6.000 worker=6.000 ruby=0.000 games=8 failures=1',
+                   'round_1=3.625 worker_round_1=3.000 ruby_round_1=0.625 games_round_1=4 failures_round_1=1 ' \
+                   'round_2=3.625 worker_round_2=3.000 ruby_round_2=0.625 games_round_2=4 failures_round_2=0 ' \
+                   'tournament=7.250 worker=6.000 ruby=1.250 games=8 failures=1',
                    gen.send(:timings).line
     end
   end
@@ -1564,14 +1571,19 @@ class GenerationTimingsReportTest < Minitest::Test
       gen.instance_variable_set(:@pool, FakePool.new(clock: @clock) do |game|
         copy_dat('black_wins', "#{File.basename(game['black'], '.*')}x#{File.basename(game['white'], '.*')}R0")
       end)
+      # Storing a game's row takes 0.25 s of Ruby time.
+      database.define_singleton_method(:record) do |**row|
+        clock.advance(0.25)
+        super(**row)
+      end
       out, = with_benchmark(lambda { |*_args|
         clock.advance(5.0)
         true
       }) { capture_io { gen.call } }
       assert_includes out.lines.map(&:chomp),
-                      'timings generation=0 partial=0 setup=2.000 round_1=12.000 worker_round_1=12.000 ' \
-                      'ruby_round_1=0.000 games_round_1=8 failures_round_1=0 tournament=12.000 worker=12.000 ' \
-                      'ruby=0.000 games=8 failures=0 benchmark=5.000 total=19.000'
+                      'timings generation=0 partial=0 setup=2.000 round_1=14.000 worker_round_1=12.000 ' \
+                      'ruby_round_1=2.000 games_round_1=8 failures_round_1=0 tournament=14.000 worker=12.000 ' \
+                      'ruby=2.000 games=8 failures=0 benchmark=5.000 total=21.000'
       refute_includes out, 'Resumed'
     end
   end
