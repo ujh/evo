@@ -253,7 +253,7 @@ On 9×9 with a hidden layer of 50:
 
 The features multiply the arena's move time by about ten, but a game still
 takes a few milliseconds, against about 0.3 s for a game with a bot through
-GoGui, as the tournament played those before #83 (the arena plays them now).
+GoGui, as the tournament played those before #84 (the arena plays them now).
 The storage grows with the weights: a kept checkpoint of 20 such networks
 takes about 8.5 MB instead of 1.3 MB. On 19×19 a network
 with all groups has 4,334 inputs, and 1×50 is 235,212 weights (1.9 MB).
