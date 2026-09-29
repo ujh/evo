@@ -730,12 +730,18 @@ class RunGeneration
     previous_data = store.state(previous_generation)
     candidates = parent_candidates(previous_data)
     prepare_partial
-    # Generate the new population
     total = settings['population_size']
     timings.time(:setup_breed) do
-      total.times do |i|
-        print "\rGenerating population ... #{i + 1}/#{total}"
-        breed_child(previous_generation, candidates, i)
+      # Every child's parents are drawn first, in child order, so the order
+      # the children finish in cannot change them.
+      jobs = Array.new(total) { |i| evolve_job(previous_generation, i, Array.new(2) { select_parent(candidates) }) }
+      print "\rGenerating population ... 0/#{total}"
+      jobs.each { |job| pool.submit(job.pool_command, job) }
+      total.times do |finished|
+        job, _duration, status = pool.next_finished
+        stop_breeding(job, status)
+        record_child(job, status)
+        print "\rGenerating population ... #{finished + 1}/#{total}"
       end
     end
     puts "\rGenerating population ... done         "
@@ -746,39 +752,75 @@ class RunGeneration
     timings.time(:setup_retire) { retire_networks(previous_generation) }
   end
 
-  # Writes one child into networks/N.partial/, which setup emptied, so a
-  # child exists only if this evolve wrote it. The parents are read from
-  # networks/N-1/. On failure, breeding stops before the parents are deleted.
-  def breed_child(previous_generation, candidates, index)
+  # One child's evolve run: `command` breeds `child` from `parents` (names
+  # in networks/N-1/) into networks/N.partial/ as `path`. The pool runs it
+  # exec'd, so WorkerPool#terminate reaches evolve, with its stdout and
+  # stderr in work/ (the pool captures neither).
+  EvolveJob = Struct.new(:child, :parents, :seed, :path, :command) do
+    def out = "#{File.basename(child, '.ann')}.out"
+    def err = "#{File.basename(child, '.ann')}.err"
+    def pool_command = "exec #{command} > #{out} 2> #{err}"
+  end
+
+  def evolve_job(previous_generation, index, parents)
     child = "#{index}.ann"
     path = File.join(partial_dir, child)
-    parents = Array.new(2) { select_parent(candidates) }
     seed = Seeds.derive(experiment_seed, 'birth', generation.to_i, index)
     parent_paths = parents.map { |parent| File.join(network_dir(previous_generation), parent) }
     command = "../evolve #{evolve_arguments.join(' ')} #{parent_paths.join(' ')} #{path} #{seed}"
-    success, output, status = run_evolve(command)
-    stop_breeding(child, status) unless success
-    raise "evolve failed to breed #{child}: #{command}" unless success && File.exist?(path)
+    EvolveJob.new(child, parents, seed, path, command)
+  end
 
+  # Records the birth of a child evolve finished: it wrote the child into
+  # networks/N.partial/, which setup emptied, so a child exists only if this
+  # evolve wrote it. Then deletes the job's output files. Output breeding
+  # cannot use stops it (breeding_failed).
+  def record_child(job, status)
+    breeding_failed(job, status, "evolve failed to breed #{job.child}") unless status&.success? && File.exist?(job.path)
+
+    output = read_utf8(job.out)
     summary = output.match(EVOLVE_SUMMARY)
-    raise "evolve printed no summary for #{child}: #{command}" unless summary
+    breeding_failed(job, status, "evolve printed no summary for #{job.child}") unless summary
 
     genes_lines = output.lines.select { |line| line.start_with?('genes') }
-    raise "evolve printed #{genes_lines.size} genes lines for #{child}: #{command}" unless genes_lines.size == 1
+    unless genes_lines.size == 1
+      breeding_failed(job, status, "evolve printed #{genes_lines.size} genes lines for #{job.child}")
+    end
 
-    genes = parse_genes(genes_lines.first, command)
-    unless genes[:features] == experiment_features
-      raise "evolve printed genes of the feature set #{genes[:features]} for #{child}, " \
-            "but the experiment's is #{experiment_features}: #{command}"
-    end
-    genome = timings.time(:setup_hash) { Digest::SHA256.file(path).hexdigest }
+    genes = parse_child_genes(job, status, genes_lines.first)
+    genome = timings.time(:setup_hash) { Digest::SHA256.file(job.path).hexdigest }
     timings.time(:setup_store) do
-      store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
-                         operator: summary[:operator], differs_from_first: differs(summary[:first]),
-                         differs_from_second: differs(summary[:second]), seed:, genome:, parent: summary[:parent],
-                         structure: summary[:structure], activation_changed: summary[:activation_changed] == '1',
-                         **genes)
+      store.record_birth(generation: generation.to_i, child: job.child, first_parent: job.parents[0],
+                         second_parent: job.parents[1], operator: summary[:operator],
+                         differs_from_first: differs(summary[:first]), differs_from_second: differs(summary[:second]),
+                         seed: job.seed, genome:, parent: summary[:parent], structure: summary[:structure],
+                         activation_changed: summary[:activation_changed] == '1', **genes)
     end
+    FileUtils.rm_f([job.out, job.err])
+  end
+
+  def parse_child_genes(job, status, line)
+    genes = parse_genes_fields(line.chomp)
+    breeding_failed(job, status, "malformed genes line #{line.chomp.inspect}") if genes.nil? || genes.value?(nil)
+    unless genes[:features] == experiment_features
+      breeding_failed(job, status, "evolve printed genes of the feature set #{genes[:features]} for #{job.child}, " \
+                                   "but the experiment's is #{experiment_features}")
+    end
+    genes
+  end
+
+  # Stops breeding for a child evolve did not breed as it should: first
+  # sends SIGTERM to the other evolves still running (exec'd, so the signal
+  # reaches them), whose children would not be recorded, then raises with
+  # the command, its exit status, and its stderr. The setup is not saved,
+  # so a resume breeds every child again, with the same seeds; the job's
+  # files stay in work/ until then.
+  def breeding_failed(job, status, reason)
+    pool.terminate
+    stderr = read_utf8(job.err)
+    raise "#{reason}: #{job.command}\n" \
+          "evolve #{exit_reason(status)}. " \
+          "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}"
   end
 
   # evolve's summary line. differs is -1 when the child's shape differs from
@@ -807,19 +849,15 @@ class RunGeneration
     count == '-1' ? nil : count.to_i
   end
 
-  # Returns [success, stdout, Process::Status]; evolve's last stdout line is its summary.
-  def run_evolve(command)
-    output, status = Open3.capture2(command)
-    [status.success?, output, status]
-  end
-
-  # Ctrl-C reaches the running evolve too. Stop as the tournament does,
+  # Ctrl-C reaches the running evolves too. Stop as the tournament does,
   # without an error: the generation's setup is saved only after the last
-  # child, so a resume breeds every child again, with the same seeds. evolve
-  # can be back before the trap has set the flag; its status tells.
-  def stop_breeding(child, status)
+  # child, so a resume breeds every child again, with the same seeds. An
+  # evolve can be back before the trap has set the flag; its status tells.
+  def stop_breeding(job, status)
     exit if $stop_now
-    WorkerPool.exit_interrupted("breeding #{child}", 'breeding starts over on resume') if WorkerPool.interrupted?(status)
+    return unless WorkerPool.interrupted?(status)
+
+    WorkerPool.exit_interrupted("breeding #{job.child}", 'breeding starts over on resume')
   end
 
   def parent_candidates(previous_data)

@@ -150,11 +150,14 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
 
   # Writes generation 0's networks into networks/0/ and its state into the
   # database, then runs the breeding step for generation 1 in the current
-  # directory (work/) with `../evolve` replaced by the given block. The
-  # block returns what run_evolve does: [success, stdout]. `stale_child` is
+  # directory (work/) with `../evolve` replaced by the given block, run on
+  # an evolve_pool (`pool` are its options). The block returns [success,
+  # stdout, status, stderr] (the last two optional). `stale_child` is
   # left in networks/1.partial/0.ann, as an interrupted earlier run would.
-  def breed(scores:, settings: {}, stale_child: nil, &evolve)
+  def breed(scores:, settings: {}, stale_child: nil, pool: {}, &evolve)
     settings = { 'keep_every' => 0 }.merge(settings)
+    # A database of its own, so a test can breed more than once.
+    @database = nil
     in_experiment do
       if stale_child
         FileUtils.mkdir_p('../networks/1.partial')
@@ -169,19 +172,23 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
       commands = []
       store = database
       gen = build_generation(settings: settings, store:)
-      gen.define_singleton_method(:run_evolve) do |cmd|
+      fake = evolve_pool(**pool) do |cmd|
         commands << cmd
         evolve ? evolve.call(cmd) : [true, SUMMARY]
       end
+      gen.instance_variable_set(:@pool, fake)
       error = nil
       err = nil
+      out = nil
       begin
-        _, err = capture_io { gen.send(:evolve_from_previous_population) }
+        out, err = capture_io { gen.send(:evolve_from_previous_population) }
       rescue StandardError, SystemExit => e
         error = e
       end
       {
         commands: commands,
+        pool: fake,
+        out: out,
         error: error,
         err: err,
         children: files_in('../networks/1'),
@@ -247,6 +254,70 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
     assert_includes state[:parents], '0001.ann'
     assert_nil state[:data]
+  end
+
+  # Each child is one pool job: evolve exec'd, so WorkerPool#terminate
+  # reaches it, with its stdout and stderr in work/, deleted once read.
+  def test_each_child_is_a_pool_job_whose_output_files_are_deleted
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
+    assert_nil state[:error]
+    assert_equal(state[:commands].each_with_index.map { |cmd, i| "exec #{cmd} > #{i}.out 2> #{i}.err" },
+                 state[:pool].commands)
+    assert_empty state[:work]
+  end
+
+  # Every child's parents are drawn before any evolve runs, two per child in
+  # child order, as serial breeding drew them, so the order children finish
+  # in changes neither their parents nor their bytes.
+  def test_children_finishing_in_any_order_get_the_same_parents_and_bytes
+    scores = (1..6).to_h { |i| [format('%04d.ann', i), i % 3] }
+    settings = { 'population_size' => 5 }
+    in_order = breed(scores:, settings:) { |cmd| write_child(cmd) }
+    reversed = breed(scores:, settings:, pool: { reverse: true }) { |cmd| write_child(cmd) }
+    assert_nil reversed[:error]
+    assert_equal in_order[:births], reversed[:births]
+    assert_equal in_order[:children], reversed[:children]
+    assert_equal %w[4.ann 3.ann 2.ann 1.ann 0.ann], reversed[:commands].map { |cmd| File.basename(cmd.split[-2]) }
+
+    gen = build_generation(settings:)
+    candidates = gen.send(:parent_candidates, database.state(0))
+    draws = Array.new(5) { Array.new(2) { gen.send(:select_parent, candidates) } }
+    assert_equal draws, in_order[:births].map { |birth| birth.values_at(:first_parent, :second_parent) }
+  end
+
+  # The progress line counts the children that finished.
+  def test_the_progress_line_counts_finished_children
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 3 },
+                  pool: { reverse: true }) { |cmd| write_child(cmd) }
+    assert_equal ['0/3', '1/3', '2/3', '3/3'], state[:out].scan(%r{\d+/3})
+  end
+
+  # A failed evolve stops the others still running (WorkerPool#terminate)
+  # and names its exit status and stderr; its setup is not saved.
+  def test_a_failed_evolve_terminates_the_others_and_reports_its_stderr
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 3 }) do |cmd|
+      cmd.split[-2].end_with?('/0.ann') ? [false, '', exit_status(3), "cannot read parent\n"] : write_child(cmd)
+    end
+    message = state[:error].message
+    assert_match(/evolve failed to breed 0\.ann/, message)
+    assert_includes message, 'exited with status 3'
+    assert_includes message, 'cannot read parent'
+    assert_equal 2, state[:pool].terminated.size
+    assert_equal 1, state[:commands].size
+    assert_includes state[:parents], '0001.ann'
+    assert_empty state[:children]
+    assert_nil state[:data]
+  end
+
+  # Output breeding cannot use stops the other evolves too.
+  def test_evolve_output_without_a_summary_terminates_the_others
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 3 }) do |cmd|
+      File.write(cmd.split[-2], cmd)
+      [true, "Loading ...\n", nil, 'a warning']
+    end
+    assert_match(/no summary/, state[:error].message)
+    assert_includes state[:error].message, 'a warning'
+    assert_equal 2, state[:pool].terminated.size
   end
 
   # Ctrl-C reaches evolve too. Breeding stops like the tournament does, with
@@ -472,9 +543,99 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     in_experiment do
       write_data('setup_complete' => true)
       gen = build_generation
-      gen.define_singleton_method(:run_evolve) { |*| flunk 'evolve should not run' }
+      gen.instance_variable_set(:@pool, evolve_pool { flunk 'evolve should not run' })
       gen.send(:evolve_from_previous_population)
+      assert_empty gen.instance_variable_get(:@pool).commands
     end
+  end
+end
+
+# Breeding on a real WorkerPool, with ../evolve a shell script that writes
+# each child from its parents' bytes and its seed, as evolve would the same
+# child from the same draws.
+class BreedOnWorkerPoolTest < Minitest::Test
+  include RunGenerationHelpers
+
+  PARENTS = (1..6).to_h { |i| [format('%04d.ann', i), "parent #{i}\n"] }.freeze
+
+  # The first children are the slowest, so at concurrency 4 they finish
+  # after later ones. $6 and $7 are the parents, $8 the child, $9 its seed.
+  BREEDS = <<~SH.freeze
+    case "$8" in
+      */0.ann) sleep 0.4 ;;
+      */1.ann) sleep 0.2 ;;
+    esac
+    cat "$6" "$7" > "$8"
+    echo "$9" >> "$8"
+    echo "a warning about $8" >&2
+    cat <<'EOF'
+    #{EvolveFromPreviousPopulationTest::SUMMARY.chomp}
+    EOF
+  SH
+
+  # Child 0 fails at once; the others would run for a minute.
+  FAILS = <<~SH.freeze
+    case "$8" in
+      */0.ann) echo "cannot read $6" >&2; exit 3 ;;
+    esac
+    exec sleep 60
+  SH
+
+  # Breeds generation 1 of 8 children at `concurrency` with `script` as
+  # ../evolve; returns the births in the order they were recorded, the
+  # births, the children, the error, and the seconds it took.
+  def breed_on(concurrency, script)
+    @database = nil
+    in_experiment do
+      File.write('../evolve', "#!/bin/sh\n#{script}")
+      File.chmod(0o755, '../evolve')
+      write_networks(0, PARENTS)
+      write_data({ 'players' => PARENTS.keys.to_h { |name| [name, {}] },
+                   'ranking' => PARENTS.keys.map.with_index { |name, i| { 'name' => name, 'score' => i % 3 } } },
+                 generation: 0)
+      recorded = []
+      database.define_singleton_method(:record_birth) do |**birth|
+        recorded << birth[:child]
+        super(**birth)
+      end
+      gen = build_generation(settings: { 'population_size' => 8, 'keep_every' => 0, 'concurrency' => concurrency })
+      pool = WorkerPool.new(concurrency)
+      gen.instance_variable_set(:@pool, pool)
+      error = nil
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      begin
+        capture_io { gen.send(:evolve_from_previous_population) }
+      rescue StandardError => e
+        error = e
+      ensure
+        pool.stop
+      end
+      { recorded:, births: database.births(1), children: files_in('../networks/1'), error:,
+        seconds: Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, work: Dir.children('.') }
+    end
+  end
+
+  def test_the_same_births_and_networks_at_any_concurrency
+    serial = breed_on(1, BREEDS)
+    parallel = breed_on(4, BREEDS)
+    assert_nil serial[:error]
+    assert_nil parallel[:error]
+    assert_equal (0...8).map { |i| "#{i}.ann" }, serial[:recorded]
+    # Finished out of order, and still the same.
+    refute_equal serial[:recorded], parallel[:recorded]
+    assert_equal serial[:births], parallel[:births]
+    assert_equal serial[:children], parallel[:children]
+    assert_equal 8, serial[:children].size
+    assert_empty parallel[:work]
+  end
+
+  def test_a_failed_evolve_terminates_the_running_ones
+    state = breed_on(4, FAILS)
+    assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
+    assert_includes state[:error].message, 'cannot read ../networks/0/'
+    assert_operator state[:seconds], :<, 20
+    assert_empty state[:children]
+    assert_empty state[:births]
   end
 end
 
@@ -1811,11 +1972,10 @@ class GenerationTimingsReportTest < Minitest::Test
       clock = @clock
       # Each child takes evolve 1 s and storing its birth 0.25 s; syncing
       # the networks takes 0.5 s and saving the state 0.75 s.
-      gen.define_singleton_method(:run_evolve) do |cmd|
+      gen.instance_variable_set(:@pool, evolve_pool(clock:, duration: 1.0) do |cmd|
         File.write(cmd.split[-2], cmd)
-        clock.advance(1.0)
         [true, EvolveFromPreviousPopulationTest::SUMMARY]
-      end
+      end)
       database.define_singleton_method(:record_birth) do |**birth|
         clock.advance(0.25)
         super(**birth)
@@ -2118,11 +2278,11 @@ class NetworksOnDiskTest < Minitest::Test
     @evolved = []
     evolved = @evolved
     gen = build_generation(settings:)
-    gen.define_singleton_method(:run_evolve) do |cmd|
+    gen.instance_variable_set(:@pool, evolve_pool do |cmd|
       evolved << cmd
       File.write(cmd.split[-2], "child #{cmd.split[-1]} of #{cmd.split[6, 2].map { |path| File.basename(path) }.join(' ')}")
       [true, EvolveFromPreviousPopulationTest::SUMMARY]
-    end
+    end)
     gen
   end
 
