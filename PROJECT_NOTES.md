@@ -6,8 +6,6 @@ This file lists only work still to do: defects, cleanup, proposed experiments, a
 
 **Current recommendation:** the longer `bigrun` and `even-bigger` experiments show improvement against AmiGo but leave a large gap to GNU Go level 0. Next, find and calibrate a fast intermediate opponent and test whether low mutation rates limit further progress. Improve checkpoint comparisons and repeat controlled runs with several seeds before attributing a gain to a setting. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
 
-**Setup is now the largest part of a large generation.** On the large workload `setup` (breeding or creating 1,000 networks, storing them, and exporting their 4.6 GB to `work/`) took 33–60 s of a 97–129 s generation, about as long as or longer than the 35–43 s tournament, and varied a lot between runs (`docs/performance.md`). Time breeding, storing, and exporting separately before choosing a remedy.
-
 **Reduce the Ruby side of a tournament round for large populations.** The runner's Ruby side is still O(population) work per game, about 10 s of the large workload's 35–40 s tournament once every game runs in the arena (`docs/performance.md`): `RunGeneration#update_data` re-sorts the whole ranking, `in_order?` and `ranking_moves` walk it, and the rank shift in `ExperimentDatabase#raise_in_ranking` scans the generation's `rankings` rows, which have no index on `rank`. Candidates: move only the changed players in memory instead of re-sorting (the order must stay `update_data`'s), and an index on `(generation, rank)` (a new migration). Measure again on the large workload after any change; with 50 networks Ruby is under 1 s and not worth changing.
 
 **Next step: benchmark against more past champions.** A checkpoint's benchmark plays only two networks: generation 0's champion (`initial_champion`) and the previous checkpoint's (`previous_checkpoint`). That makes progress hard to see (owner, 27 Sep 2026): a win against the previous checkpoint says little about the run as a whole, and a loss can hide steady gains against older champions. Play the top network against more of the earlier checkpoints' champions, or all of them, so each checkpoint gets a row of results against the whole line of its ancestors. Only checkpoint champions count, since theirs are the networks kept (owner, 27 Sep 2026). Open questions, to decide later:
@@ -73,7 +71,7 @@ Search remains a choice to discuss.
 
 ### 5. Long runs need recoverable evidence
 
-Networks and SGFs are kept only for every `keep_every`-th generation, and an archived experiment (`mise run archive-experiment`) keeps only one network, the champion, of each of those generations. That saves space but limits comparisons with early ancestors to those champions. Each experiment keeps copies of its executables and records the code revision they came from.
+SGFs are kept only for every `keep_every`-th generation, and of its networks only one, the champion; the other networks of a generation are deleted once the next generation is bred, and an archived experiment (`mise run archive-experiment`) keeps the same champions. That saves space but limits comparisons with early ancestors to those champions. Each experiment keeps copies of its executables and records the code revision they came from.
 
 **Proposed response:** also keep each generation's top-ranked network, if the `keep_every` generations turn out too sparse.
 
