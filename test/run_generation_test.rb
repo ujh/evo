@@ -871,8 +871,8 @@ class PlayRoundTest < Minitest::Test
            'GnuGo2' => 'gnugo --level 0 --mode gtp' }.freeze
 
   # A round with the given games among the networks and bots above.
-  def setup_round(games, generation: 1, round: 0, bots: BOTS)
-    players = NETWORKS.to_h { |name| [name, { 'command' => "../evo #{name}" }] }
+  def setup_round(games, generation: 1, round: 0, bots: BOTS, networks: NETWORKS)
+    players = networks.to_h { |name| [name, { 'command' => "../evo #{name}" }] }
     bots.each { |name, command| players[name] = { 'command' => command, 'external' => true } }
     write_data(generation:, 'round' => round, 'players' => players,
                'games' => games.map { |black, white| { 'black' => black, 'white' => white } },
@@ -882,15 +882,18 @@ class PlayRoundTest < Minitest::Test
   # a.ann against b.ann, c.ann against Brown1, and d.ann sits out.
   MIXED = [%w[a.ann b.ann], ['c.ann', 'Brown1'], ['d.ann', nil]].freeze
 
-  def build_with(pool, generation: '1', settings: {}, store: nil)
+  # Most tests here are about what one chunk does, or a few, so they deal
+  # one chunk per worker; the dealing tests pass the real number.
+  def build_with(pool, generation: '1', settings: {}, store: nil, chunks_per_worker: 1)
     gen = build_generation(generation:, settings:)
+    gen.define_singleton_method(:chunks_per_worker) { chunks_per_worker }
     gen.instance_variable_set(:@pool, pool)
     gen.instance_variable_set(:@store, store || database)
     gen
   end
 
-  def play(games, pool, **options)
-    setup_round(games, generation: options.fetch(:generation, '1').to_i)
+  def play(games, pool, networks: NETWORKS, **options)
+    setup_round(games, generation: options.fetch(:generation, '1').to_i, networks:)
     gen = build_with(pool, **options)
     capture_io { gen.send(:play_round) }
     gen
@@ -1063,15 +1066,21 @@ class PlayRoundTest < Minitest::Test
     end
   end
 
-  def test_games_go_into_at_most_concurrency_chunks_covering_each_game_once
-    games = NETWORKS.each_slice(2).to_a + [%w[Brown1 Brown2]]
-    { 1 => 1, 2 => 2, 3 => 3, 6 => 6, 8 => 6 }.each do |concurrency, expected|
+  # Four chunks per worker, so a worker that finishes early takes the next
+  # chunk instead of idling; never more chunks than games.
+  def test_games_go_into_four_chunks_per_worker_covering_each_game_once
+    networks = (1..24).map { |i| "n#{i}.ann" }
+    games = networks.each_slice(2).to_a + [%w[Brown1 Brown2]]
+    { 1 => 4, 2 => 8, 3 => 12, 4 => 13, 8 => 13 }.each do |concurrency, expected|
       in_experiment do
         @database = nil
         pool = FakePool.new
-        gen = play(games + [['GnuGo1', nil]], pool, settings: { 'concurrency' => concurrency })
+        gen = play(games + [['GnuGo1', nil]], pool, networks:, settings: { 'concurrency' => concurrency },
+                                                  chunks_per_worker: RunGeneration::CHUNKS_PER_WORKER)
         assert_equal expected, chunks(pool).size, "concurrency #{concurrency}"
         assert_equal expected, pool.commands.size
+        assert_equal expected, chunks(pool).map(&:name).uniq.size
+        assert_equal expected, chunks(pool).map(&:err).uniq.size
         sizes = chunks(pool).map { |chunk| chunk.games.size }
         assert_operator sizes.max - sizes.min, :<=, 1
         scheduled = chunks(pool).flat_map { |chunk| chunk.games.values.map { |g| g.values_at('black', 'white') } }
@@ -1083,15 +1092,16 @@ class PlayRoundTest < Minitest::Test
   end
 
   # Wherever the bots stand in the ranking, a chunk gets at most one bot
-  # game more than another, so the slow games run side by side.
+  # game more than another, so the slow games run side by side; being dealt
+  # first, they land in the first chunks queued, which start first.
   def test_bot_games_are_dealt_out_in_turn_like_the_others
     in_experiment do
       pool = FakePool.new
       play([%w[a.ann Brown1], %w[b.ann c.ann], %w[d.ann e.ann], %w[f.ann Brown2], %w[g.ann h.ann], %w[i.ann j.ann]],
-           pool, settings: { 'concurrency' => 3 })
+           pool, settings: { 'concurrency' => 1 }, chunks_per_worker: RunGeneration::CHUNKS_PER_WORKER)
       bot_games = chunks(pool).map { |chunk| chunk.games.keys.count { |id| id.include?('Brown') } }
-      assert_equal [1, 1, 0], bot_games
-      assert_equal [2, 2, 2], chunks(pool).map { |chunk| chunk.games.size }
+      assert_equal [1, 1, 0, 0], bot_games
+      assert_equal [2, 2, 1, 1], chunks(pool).map { |chunk| chunk.games.size }
     end
   end
 
@@ -2102,7 +2112,7 @@ class GenerationTimingsReportTest < Minitest::Test
   def test_each_round_is_timed_with_its_worker_time_and_games
     in_experiment do
       setup_eight
-      # Two chunks a round, 1.5 s each.
+      # Four chunks a round, one game and 1.5 s each.
       pool = FakePool.new(clock: @clock)
       gen = with_clock(build_generation(settings: { 'tournament_rounds' => 2, 'concurrency' => 2 }))
       gen.instance_variable_set(:@pool, pool)
@@ -2117,9 +2127,9 @@ class GenerationTimingsReportTest < Minitest::Test
       end
       capture_io { gen.send(:play_games) }
       assert_equal 'timings generation=1 partial=0 ' \
-                   'round_1=3.625 worker_round_1=3.000 ruby_round_1=0.625 games_round_1=4 failures_round_1=0 ' \
-                   'round_2=3.625 worker_round_2=3.000 ruby_round_2=0.625 games_round_2=4 failures_round_2=0 ' \
-                   'tournament=7.250 worker=6.000 ruby=1.250 games=8 failures=0',
+                   'round_1=6.625 worker_round_1=6.000 ruby_round_1=0.625 games_round_1=4 failures_round_1=0 ' \
+                   'round_2=6.625 worker_round_2=6.000 ruby_round_2=0.625 games_round_2=4 failures_round_2=0 ' \
+                   'tournament=13.250 worker=12.000 ruby=1.250 games=8 failures=0',
                    gen.send(:timings).line
     end
   end
@@ -2150,14 +2160,15 @@ class GenerationTimingsReportTest < Minitest::Test
       gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
       out, = capture_io { gen.call }
       lines = out.lines.map(&:chomp)
-      assert_equal ['Generation 1 took 4.00 s: setup 0.75 s, tournament 3.25 s, no benchmark.',
+      # Four chunks, one game and 1.5 s each.
+      assert_equal ['Generation 1 took 7.00 s: setup 0.75 s, tournament 6.25 s, no benchmark.',
                     'Setup: emptying work/ 0.25 s, deleting old networks 0.00 s, verifying 0.50 s.',
-                    'Tournament: 1 round, 4 games, none failed; workers 3.00 s, Ruby 0.25 s outside waiting for them.',
+                    'Tournament: 1 round, 4 games, none failed; workers 6.00 s, Ruby 0.25 s outside waiting for them.',
                     'Resumed: the times cover only what this session ran.',
                     'timings generation=1 partial=1 setup=0.750 setup_clear=0.250 setup_retire=0.000 setup_verify=0.500 ' \
-                    'round_1=3.250 worker_round_1=3.000 ' \
-                    'ruby_round_1=0.250 games_round_1=4 failures_round_1=0 tournament=3.250 worker=3.000 ' \
-                    'ruby=0.250 games=4 failures=0 total=4.000'], lines.last(5)
+                    'round_1=6.250 worker_round_1=6.000 ' \
+                    'ruby_round_1=0.250 games_round_1=4 failures_round_1=0 tournament=6.250 worker=6.000 ' \
+                    'ruby=0.250 games=4 failures=0 total=7.000'], lines.last(5)
     end
   end
 
@@ -2311,9 +2322,9 @@ class InMemoryStateTest < Minitest::Test
     game.value?('Brown1') ? arena_played(id, **BOT.fetch(network[0])) : ARENA.call(id, game)
   end
 
-  def build(store)
-    gen = build_generation(settings: { 'tournament_rounds' => ROUNDS, 'concurrency' => 2 }, store:)
-    pool = FakePool.new(arena: PLAY)
+  def build(store, concurrency: 2, **pool_options)
+    gen = build_generation(settings: { 'tournament_rounds' => ROUNDS, 'concurrency' => concurrency }, store:)
+    pool = FakePool.new(arena: PLAY, **pool_options)
     gen.instance_variable_set(:@pool, pool)
     gen
   end
@@ -2363,6 +2374,20 @@ class InMemoryStateTest < Minitest::Test
     # Draws and byes moved players: not every score is a multiple of the win.
     assert(store.ranking(1).any? { |row| (row[:score] % 3).nonzero? })
     assert_operator store.games(1).map { |row| row[:end_reason] }.uniq.size, :>, 1
+  end
+
+  # However many chunks a round is dealt into, and in whatever order their
+  # games finish, a seeded tournament ends with the same games and ranking.
+  def test_the_same_games_and_ranking_at_any_concurrency
+    runs = [[1, {}], [2, { interleave: true }], [3, { reverse: true }], [8, { interleave: true, reverse: true }]]
+    ends = runs.map do |concurrency, pool_options|
+      store = fresh_store
+      in_experiment { play(build(store, concurrency:, **pool_options)) }
+      final(store)
+    end
+    # Every game but the byes, which have no row.
+    assert_equal GAMES - ROUNDS, ends.first[1].size
+    ends.drop(1).each { |other| assert_equal ends.first, other }
   end
 
   def test_the_state_is_loaded_once_per_generation
@@ -2691,7 +2716,7 @@ class NetworksOnDiskTest < Minitest::Test
       @manifests = []
       manifests = @manifests
       gen.instance_variable_set(:@pool, FakePool.new(arena: lambda { |id, _game|
-        manifests << File.read('arena-0.txt')
+        manifests << Dir['arena-*.txt'].sort.map { |manifest| File.read(manifest) }.join
         arena_played(id)
       }))
       verified = 0

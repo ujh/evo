@@ -249,8 +249,8 @@ class RunGeneration
   end
 
   # Byes are scored at once. Every other game is played in the arena
-  # (`arena --mixed`), in at most `concurrency` chunks, one streaming pool
-  # job each, and each game is scored as its record arrives.
+  # (`arena --mixed`), in chunks of a few games, one streaming pool job
+  # each, and each game is scored as its record arrives.
   def play_round
     byes, games = data['games'].partition { |game| game['white'].nil? }
     # The odd player out sits the round out and gets the bye points.
@@ -285,19 +285,29 @@ class RunGeneration
     def files = [manifest, err]
   end
 
-  # Deals the games out in turn, so chunks differ by at most one game; the
-  # games with a bot are dealt first, so chunks also differ by at most one
-  # of those, wherever the bots stand in the ranking, and the slow games run
-  # side by side. A game's ID is its file prefix, which has no whitespace
-  # and, since each player plays once a round, is distinct within the round.
+  # Chunks per worker. More, smaller chunks let a worker that finishes early
+  # take the next one instead of idling; each costs only a process start,
+  # as each network still plays once a round and so is loaded once.
+  CHUNKS_PER_WORKER = 4
+
+  # Deals the games out in turn into chunks_per_worker chunks per worker
+  # (fewer if there are fewer games), so chunks differ by at most one game;
+  # the games with a bot are dealt first, so chunks also differ by at most
+  # one of those, wherever the bots stand in the ranking, and they land in
+  # the first chunks queued, which start first. A game's ID is its file
+  # prefix, which has no whitespace and, since each player plays once a
+  # round, is distinct within the round.
   def arena_chunks(games)
-    count = [settings['concurrency'], games.size].min
+    count = [chunks_per_worker * settings['concurrency'], games.size].min
     with_bot, without = games.partition { |game| external?(game['black']) || external?(game['white']) }
     (with_bot + without).each_with_index.group_by { |_, i| i % count }.values.each_with_index.map do |dealt, k|
       chunk_games = dealt.to_h { |game, _| [prefix_from(game), game] }
       ArenaChunk.new("arena-#{k}", chunk_games, ArenaResult::MixedStream.new(chunk_games.keys))
     end
   end
+
+  # Tests of what a single chunk does deal one chunk per worker.
+  def chunks_per_worker = CHUNKS_PER_WORKER
 
   # How long the arena waits for a bot's answer to any command but genmove,
   # and past a bot's main time for its genmove answer, in seconds. Both are
