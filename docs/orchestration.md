@@ -80,8 +80,8 @@ Stop and ask only:
 
 - before the plan, for every decision that is the owner's (step 1);
 - for approval of the plan, unless given in advance (step 4);
-- when a finding of any review (plan, commit, or branch) needs a decision only the owner can make, such as changing scope, approach, or something the plan says must not change; the number of rounds alone is no reason to ask (`docs/pull-requests.md`, the loop);
-- before each [quiet] measurement, to pause other work ([Measurements](#measurements));
+- when a finding of any review (plan, commit, or branch) needs a decision only the owner can make, such as changing scope, approach, or something the plan says must not change; the number of rounds alone is no reason to ask (`docs/pull-requests.md`, the loop), unless the owner granted such decisions ([While the owner is away](#while-the-owner-is-away));
+- before each [quiet] measurement, to pause other work ([Measurements](#measurements)), unless the owner said the machine stays quiet ([While the owner is away](#while-the-owner-is-away));
 - which triaged out-of-scope items go into `PROJECT_NOTES.md` (step 6);
 - for parallel work, and before merging, unless the owner granted merging ([While the owner is away](#while-the-owner-is-away)).
 
@@ -137,7 +137,7 @@ Each check earns its cost only where it can find something the others do not.
 The machine runs other work that can take much CPU and memory, so a timing taken while it runs is unreliable. A measurement whose numbers the plan or the docs rely on is therefore marked **[quiet]** in the plan and split:
 
 - The step agent writes the measurement's command or script, and where the code needs the number, uses a provisional value.
-- The orchestrator asks the owner to pause the other work and whether that work needs the disk, and waits for the answer. It checks free disk with `df` before a large workload, records the load average, runs only the measurement, and tells the owner they can resume.
+- The orchestrator asks the owner to pause the other work and whether that work needs the disk, and waits for the answer, unless the owner said the machine stays quiet ([While the owner is away](#while-the-owner-is-away)). It checks free disk with `df` before a large workload, records the load average, runs only the measurement, and tells the owner they can resume.
 - The step, or a follow-up commit, records the numbers or sets the value.
 
 Builds, test suites, smoke runs, and real runs for correctness need no quiet machine. A hang guard (a deadline of which one miss stops a run) is the opposite case: set it from the worst case under the machine's normal load with a wide margin, since a quiet measurement gives only a floor.
