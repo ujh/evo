@@ -36,6 +36,8 @@ These are not findings:
 - **Important:** a real defect that someone hits in normal use, without corrupting results.
 - **Nit:** anything else that is still true and worth saying.
 
+In a plan review, a finding is important only if it would plausibly make a step build the wrong behavior or break something the plan says must not change, and a step agent would not settle it anyway while writing the tests the step asks for. Other edge cases are nits: the step's tests settle them.
+
 Tests follow the risk. In experiment code (the engine, `evolve`, `initial-population`, the runner, scoring), a behavior change with no test that would fail when it breaks is important. In developer tooling (the `pr-*` scripts, mise tasks), ask for a test only where a break would produce a false pass. A test counts only if it fails when the behavior breaks: before relying on a new test, the author undoes or breaks the fix and checks that the test fails. The reviewer checks this too, in its own worktree: it breaks the behavior the change adds or fixes with a few mutants (flip a condition, drop a call, change a constant) and runs the tests; a mutant no test catches is a missing test, rated as above. A few well-aimed mutants are enough; do not mutate every line.
 
 ### The loop
@@ -59,5 +61,6 @@ Give the reviewer:
 - the path to this file, and the instruction to apply its rules
 - in a planned run, the plan's owner decisions and declined findings, for a whole-branch review the per-commit findings and what happened to each, and the request to report out-of-scope items (`docs/orchestration.md`, step brief): problems outside the change, such as on lines it did not touch, that are not findings here
 - for later rounds, the earlier findings and what happened to each
+- for a change to the worker pool, the processes it runs, or a signal path, the instruction to walk an interrupt (Ctrl-C) through every stage: the review of `bb13ed6` found that a halted pool never answered, a hang that also existed on `main`
 - the checks it should run (see "Checks and their cost" in `docs/orchestration.md`), each in the foreground with a time limit, and the instruction to report as soon as it is done
 - that it writes the command for a timing whose number would be recorded or set a constant, and does not run it: those are [quiet] measurements (`docs/orchestration.md`, Measurements)
