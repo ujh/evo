@@ -161,4 +161,30 @@
     - So storing the networks was the largest part of `setup`, and it grows with the database: 14–16 s into a fresh one, 52 s into `even-bigger2`'s. The two exports (`setup_parents` and `setup_export`) took another 11 s fresh and 21 s in `even-bigger2`. `evolve` itself, breeding minus storing, took about 25–30 s one child after another (generation 0's `initial-population`, one process, about 17 s).
     - Limits: one run of each; RSS sampled every second; the large run started at a load average of 4.8, left by the `even-bigger2` run that had just finished.
   - Networks on disk, parallel breeding, births in one transaction (`46462db`, `bb13ed6`, `3e4794a`, 29 Sep 2026): a generation's networks are files in `networks/N/`, the database stores only each checkpoint's champion, breeding runs `concurrency` `evolve`s at a time, and the births go in one transaction (`docs/experiment-reference.md`). Nothing is exported any more and the database no longer grows by a generation's networks. Seeded runs give the same births, games, rankings, and benchmark rows as before (`docs/experiment-reference.md`).
-    - **Placeholder: the "after" numbers of the large workload are not measured yet.** They come from a quiet machine with `mise run profile-workload large --results FILE` (at least 15 GiB free for `experiments/`, `df`), and a follow-up commit fills in the table above's rows for them, with `setup`'s new parts (`setup_breed`, `setup_hash`, `setup_store`, `setup_sync`: about 1,000 plain `fsync`s, `setup_save`, `setup_retire`), `champion`, the re-entry time, and the disk use.
+    - The large workload after it (29 Sep 2026, git `48c52f5`, same machine and command; one run each; other work paused, load average 3.03 just before the start and 10.4 at the end, from the run itself). Same rows as the before table; "before" is that table's L0 / L1.
+
+      | | L0 | L1 | before (L0 / L1) |
+      | --- | --- | --- | --- |
+      | wall (`/usr/bin/time`) | 89.5 | 83.1 | 100.8 / 128.3 |
+      | timings `total` | 89.2 | 82.7 | 100.5 / 122.7 |
+      | `setup` | 20.8 | 8.4 | 40.2 / 52.6 |
+      | parts: clear, breed (hash, store within it), sync, save, retire | 0.0, 20.8 (4.0, 0.04), 0.01, 0.01, 0.0 | 0.0, 8.2 (6.4, 0.04), 0.01, 0.01, 0.17 | see the before table |
+      | `champion` | 0.02 | 0.02 | – |
+      | `tournament` (10 rounds) | 43.5 | 44.6 | 36.4 / 40.8 |
+      | a round | 3.91–4.84 | 4.19–5.02 | – |
+      | `ruby` | 11.6 | 10.8 | 10.7 / 10.5 |
+      | `worker` | 273.4 | 285.2 | 219.1 / 255.8 |
+      | `benchmark` | 25.0 | 29.7 | 24.0 / 29.4 |
+      | benchmark games (none failed): count, summed `duration` | 60, 179.3 | 80, 213.6 | – |
+      | runner CPU, user + sys | 10.7 + 2.8 | 11.3 + 3.8 | – |
+      | peak RSS, process tree summed (1 s samples), MiB | 2,952 | 3,407 | 4,066 / 4,005 |
+      | peak RSS, runner (1 s samples), MiB | 93 | 99 | 200 / 225 |
+      | largest single process (`/usr/bin/time`), MiB | 507 | 486 | 559 / 560 |
+      | stored networks (champions): count, bytes | 1, 4,586,398 | 2, 9,172,796 | every network: 4.59 GB a generation |
+      | experiment on disk after it, GiB (database, `networks/`, `work/`) | 4.28 (0.01, 4.27, 0.00) | 4.30 (0.02, 4.27, 0.01) | 8.56 / 17.12 (database and `work/`) |
+      | arena load of all networks, three runs: wall; max RSS | 3.03–3.73; 2,447–3,474 MiB | 2.91–3.54; 2,773–3,544 MiB | 2.25–2.29 / 2.27–2.29; 4,351–4,408 MiB |
+
+    - `setup` fell from 52.6 to 8.4 s in generation 1 (6.3×) and a generation's `total` from 122.7 to 82.7 s (33% less): no network is stored or exported, `evolve` runs 8 at a time (`setup_breed` 8.2 s, of it 6.4 s hashing on the main thread), and syncing the 1,000 files took 0.01 s. Generation 0's `setup` fell from 40.2 to 20.8 s, less, since `initial-population` is still one process. L1's re-entry into generation 0 took about 0 s (5 s before). The database holds about 0.02 GiB instead of 8.56 GiB, and the experiment took 4.3 GiB on disk after each invocation (8.56 and 17.12 GiB before).
+    - Hashing is now most of generation 1's `setup` (6.4 of 8.4 s, one read and SHA-256 a network on the main thread while the pool breeds), so it is the next thing to move off the main thread if setup matters again.
+    - Not improved: the tournament took 43.5 and 44.6 s against 36.4 and 40.8 s, its worker time 273 and 285 s against 219 and 256 s, and the arena load of all networks 2.9–3.7 s against about 2.25 s. Nothing in this change touches the arena or the bytes it loads: the files are the same, read from `networks/N/` instead of `work/`, both written just before and read once untimed before the timed runs. The run shows a busier machine instead: involuntary context switches under `/usr/bin/time` rose from 0.55 M to 1.24 M in generation 1, the arena's games alone, which load nothing, took 0.175–0.178 s against 0.162–0.164 s, and the load runs' maximum RSS varied between 2.4 and 3.5 GiB, where every earlier run over the same 4.59 GB read 4.3 GiB. One run each cannot tell load from a cause in the change; repeat the profile before drawing a conclusion about the tournament or loading.
+    - Limits: one run of each; RSS sampled every second; load average 3.03 at the start.
