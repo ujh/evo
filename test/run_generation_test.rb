@@ -1,4 +1,5 @@
 require_relative 'test_helper'
+require 'timeout'
 
 # Characterization tests: they pin down what the runner does today, including
 # the defects listed in PROJECT_NOTES.md. A test that documents a defect says
@@ -148,15 +149,23 @@ end
 class EvolveFromPreviousPopulationTest < Minitest::Test
   include RunGenerationHelpers
 
-  # Stores generation 0's networks and state in the database, then runs the breeding step for
-  # generation 1 in the current directory (the scratch directory) with `../evolve` replaced by the
-  # given block. The block returns what run_evolve does: [success, stdout]. `stale_child` is left in
-  # 0.ann, as an interrupted earlier run would. keep_every 0 retires generation 0 after breeding.
-  def breed(scores:, settings: {}, stale_child: nil, &evolve)
+  # Writes generation 0's networks into networks/0/ and its state into the
+  # database, then runs the breeding step for generation 1 in the current
+  # directory (work/) with `../evolve` replaced by the given block, run on
+  # an evolve_pool (`pool` are its options). The block returns [success,
+  # stdout, status, stderr] (the last two optional). `stale_child` is
+  # left in networks/1.partial/0.ann, as an interrupted earlier run would.
+  # `prepare` gets the database before breeding, to stub it.
+  def breed(scores:, settings: {}, stale_child: nil, pool: {}, prepare: nil, &evolve)
     settings = { 'keep_every' => 0 }.merge(settings)
+    # A database of its own, so a test can breed more than once.
+    @database = nil
     in_experiment do
-      File.write('0.ann', stale_child) if stale_child
-      scores.each_key { |name| database.record_network(0, name, name) }
+      if stale_child
+        FileUtils.mkdir_p('../networks/1.partial')
+        File.write('../networks/1.partial/0.ann', stale_child)
+      end
+      write_networks(0, scores.keys.to_h { |name| [name, name] })
       write_data({
                    'players' => scores.keys.to_h { |name| [name, {}] },
                    'ranking' => scores.map { |name, score| { 'name' => name, 'score' => score } }
@@ -164,26 +173,32 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
 
       commands = []
       store = database
+      prepare&.call(store)
       gen = build_generation(settings: settings, store:)
-      gen.define_singleton_method(:run_evolve) do |cmd|
+      fake = evolve_pool(**pool) do |cmd|
         commands << cmd
         evolve ? evolve.call(cmd) : [true, SUMMARY]
       end
+      gen.instance_variable_set(:@pool, fake)
       error = nil
       err = nil
+      out = nil
       begin
-        _, err = capture_io { gen.send(:evolve_from_previous_population) }
+        out, err = capture_io { gen.send(:evolve_from_previous_population) }
       rescue StandardError, SystemExit => e
         error = e
       end
       {
         commands: commands,
+        pool: fake,
+        out: out,
         error: error,
         err: err,
-        children: Dir['*.ann'].sort.to_h { |f| [f, File.read(f)] },
-        parent_files: Dir['parents/*'].sort,
-        previous_networks: database.network_names(0),
-        networks: database.network_names(1),
+        children: files_in('../networks/1'),
+        partial: files_in('../networks/1.partial'),
+        parents: files_in('../networks/0').keys,
+        rows: database.network_names(0) + database.network_names(1),
+        work: Dir.children('.').sort,
         data: database.state(1),
         memory: gen.send(:data),
         births: store.births(1)
@@ -205,17 +220,26 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   # The crossover rate, the meta rate, the bounds on the child's shape
   # (max_hidden_layers, max_layer_size), and the width of a layer added to
   # a network without one, then the parents.
-  PARENTS = %r{\A\.\./evolve 0\.5 0\.2 4 200 10 parents/000[12]\.ann parents/000[12]\.ann}
+  # The parents are read from networks/0/, beside work/.
+  PARENTS = %r{\A\.\./evolve 0\.5 0\.2 4 200 10 \.\./networks/0/000[12]\.ann \.\./networks/0/000[12]\.ann}
 
+  # Each child is written into networks/1.partial/, which becomes
+  # networks/1/ once every child is there; the parents' networks/0/ is
+  # deleted once the setup is saved. No network goes into the database.
   def test_breeds_children_from_selected_parents_and_deletes_the_parents
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
     assert_nil state[:error]
     assert_equal 2, state[:commands].size
-    state[:commands].each_with_index { |cmd, i| assert_match(/#{PARENTS} #{i}\.ann #{Seeds.derive(1, 'birth', 1, i)}\z/, cmd) }
+    state[:commands].each_with_index do |cmd, i|
+      assert_match(%r{#{PARENTS} \.\./networks/1\.partial/#{i}\.ann #{Seeds.derive(1, 'birth', 1, i)}\z}, cmd)
+    end
     assert_equal %w[0.ann 1.ann], state[:children].keys
-    assert_equal %w[0.ann 1.ann], state[:networks]
-    assert_equal %w[parents/0001.ann parents/0002.ann], state[:parent_files]
-    assert_empty state[:previous_networks]
+    assert_empty state[:partial]
+    assert_empty state[:parents]
+    assert_empty state[:rows]
+    assert_empty state[:work]
+    assert_equal({ '0.ann' => '../evo ../networks/1/0.ann', '1.ann' => '../evo ../networks/1/1.ann' },
+                 state[:data]['players'].select { |name, _| name.end_with?('.ann') }.transform_values { |p| p['command'] })
     assert state[:data]['setup_complete']
     assert_equal 0, state[:data]['round']
     # The runner goes on with the state it saved, not a reload.
@@ -231,8 +255,83 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   def test_evolve_failing_stops_breeding_before_the_parents_are_deleted
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [false, ''] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
-    assert_includes state[:previous_networks], '0001.ann'
+    assert_includes state[:parents], '0001.ann'
     assert_nil state[:data]
+  end
+
+  # Each child is one pool job: evolve exec'd, so WorkerPool#terminate
+  # reaches it, with its stdout and stderr in work/, deleted once read.
+  def test_each_child_is_a_pool_job_whose_output_files_are_deleted
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
+    assert_nil state[:error]
+    assert_equal(state[:commands].each_with_index.map { |cmd, i| "exec #{cmd} > #{i}.out 2> #{i}.err" },
+                 state[:pool].commands)
+    assert_empty state[:work]
+  end
+
+  # evolve writing the child and its output does not make up for a failing exit.
+  def test_evolve_exiting_with_an_error_stops_breeding_though_it_wrote_the_child
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) do |cmd|
+      _, stdout = write_child(cmd)
+      [false, stdout, exit_status(1)]
+    end
+    assert_match(/evolve failed to breed 0\.ann/, state[:error]&.message)
+    assert_includes state[:error].message, 'exited with status 1'
+    assert_nil state[:data]
+  end
+
+  # Every child's parents are drawn before any evolve runs, two per child in
+  # child order, as serial breeding drew them, so the order children finish
+  # in changes neither their parents nor their bytes.
+  def test_children_finishing_in_any_order_get_the_same_parents_and_bytes
+    scores = (1..6).to_h { |i| [format('%04d.ann', i), i % 3] }
+    settings = { 'population_size' => 5 }
+    in_order = breed(scores:, settings:) { |cmd| write_child(cmd) }
+    reversed = breed(scores:, settings:, pool: { reverse: true }) { |cmd| write_child(cmd) }
+    assert_nil reversed[:error]
+    assert_equal in_order[:births], reversed[:births]
+    assert_equal in_order[:children], reversed[:children]
+    assert_equal %w[4.ann 3.ann 2.ann 1.ann 0.ann], reversed[:commands].map { |cmd| File.basename(cmd.split[-2]) }
+
+    gen = build_generation(settings:)
+    candidates = gen.send(:parent_candidates, database.state(0))
+    draws = Array.new(5) { Array.new(2) { gen.send(:select_parent, candidates) } }
+    assert_equal draws, in_order[:births].map { |birth| birth.values_at(:first_parent, :second_parent) }
+  end
+
+  # The progress line counts the children that finished.
+  def test_the_progress_line_counts_finished_children
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 3 },
+                  pool: { reverse: true }) { |cmd| write_child(cmd) }
+    assert_equal ['0/3', '1/3', '2/3', '3/3'], state[:out].scan(%r{\d+/3})
+  end
+
+  # A failed evolve stops the others still running (WorkerPool#terminate)
+  # and names its exit status and stderr; its setup is not saved.
+  def test_a_failed_evolve_terminates_the_others_and_reports_its_stderr
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 3 }) do |cmd|
+      cmd.split[-2].end_with?('/0.ann') ? [false, '', exit_status(3), "cannot read parent\n"] : write_child(cmd)
+    end
+    message = state[:error].message
+    assert_match(/evolve failed to breed 0\.ann/, message)
+    assert_includes message, 'exited with status 3'
+    assert_includes message, 'cannot read parent'
+    assert_equal 2, state[:pool].terminated.size
+    assert_equal 1, state[:commands].size
+    assert_includes state[:parents], '0001.ann'
+    assert_empty state[:children]
+    assert_nil state[:data]
+  end
+
+  # Output breeding cannot use stops the other evolves too.
+  def test_evolve_output_without_a_summary_terminates_the_others
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 3 }) do |cmd|
+      File.write(cmd.split[-2], cmd)
+      [true, "Loading ...\n", nil, 'a warning']
+    end
+    assert_match(/no summary/, state[:error].message)
+    assert_includes state[:error].message, 'a warning'
+    assert_equal 2, state[:pool].terminated.size
   end
 
   # Ctrl-C reaches evolve too. Breeding stops like the tournament does, with
@@ -247,7 +346,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_instance_of SystemExit, state[:error]
     assert_equal 0, state[:error].status
     assert_equal 1, state[:commands].size
-    assert_includes state[:previous_networks], '0001.ann'
+    assert_includes state[:parents], '0001.ann'
     assert_nil state[:data]
   ensure
     $stop_now = false
@@ -259,7 +358,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
       state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [false, '', status] }
       assert_instance_of SystemExit, state[:error], how
       assert_equal 130, state[:error].status, how
-      assert_includes state[:previous_networks], '0001.ann', how
+      assert_includes state[:parents], '0001.ann', how
       assert_nil state[:data], how
     end
   end
@@ -267,12 +366,13 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   def test_evolve_writing_nothing_stops_breeding
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [true, SUMMARY] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
-    assert_includes state[:previous_networks], '0001.ann'
+    assert_includes state[:parents], '0001.ann'
   end
 
   def test_child_left_by_an_interrupted_run_is_not_reused
     state = breed(scores: { '0001.ann' => 1 }, settings: { 'population_size' => 1 }, stale_child: 'stale') { [true, SUMMARY] }
     assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
+    assert_empty state[:partial]
     assert_empty state[:children]
   end
 
@@ -286,6 +386,42 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
                     birth[:differs_from_first], birth[:differs_from_second], birth[:seed]]
       assert_equal Digest::SHA256.hexdigest(state[:children]["#{i}.ann"]), birth[:genome]
     end
+  end
+
+  # The births are stored together once the last child is back, not one
+  # commit each as the children finish.
+  def test_births_are_stored_once_every_child_finished
+    stored = []
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 3 }) do |cmd|
+      stored << database.births(1).size
+      write_child(cmd)
+    end
+    assert_nil state[:error]
+    assert_equal [0, 0, 0], stored
+    assert_equal %w[0.ann 1.ann 2.ann], state[:births].map { |b| b[:child] }
+  end
+
+  # A birth that cannot be stored leaves none: they share one transaction.
+  def test_a_birth_that_cannot_be_stored_leaves_none
+    calls = 0
+    prepare = lambda do |store|
+      store.define_singleton_method(:record_birth) do |**birth|
+        raise Sequel::Error, 'disk full' if (calls += 1) == 2
+
+        super(**birth)
+      end
+    end
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, prepare:) { |cmd| write_child(cmd) }
+    assert_match(/disk full/, state[:error].message)
+    assert_empty state[:births]
+    assert_nil state[:data]
+  end
+
+  # A breeding failure stops the run with its report, as an arena stop does.
+  def test_a_breeding_failure_is_a_stop
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [false, '', exit_status(2), "bad parent\n"] }
+    assert_kind_of RunGeneration::Stopped, state[:error]
+    assert_instance_of RunGeneration::BreedingFailed, state[:error]
   end
 
   # The summary and the child's genes line fill the rest of its birth.
@@ -318,8 +454,8 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
         [true, "Loading ...\n#{summary}#{genes}"]
       end
       assert_match(/genes/, state[:error]&.message, genes)
-      assert_includes state[:previous_networks], '0001.ann'
-      assert_empty state[:networks]
+      assert_includes state[:parents], '0001.ann'
+      assert_empty state[:children]
     end
   end
 
@@ -361,8 +497,8 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     end
     assert_match(/evolve printed genes of the feature set tactics for 0\.ann, but the experiment's is none/,
                  state[:error]&.message)
-    assert_includes state[:previous_networks], '0001.ann'
-    assert_empty state[:networks]
+    assert_includes state[:parents], '0001.ann'
+    assert_empty state[:children]
   end
 
   def test_the_meta_rate_comes_from_the_settings
@@ -381,7 +517,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   def test_the_bounds_on_the_shape_come_from_the_settings
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 },
                   settings: { 'max_hidden_layers' => 3, 'max_layer_size' => 20 }) { |cmd| write_child(cmd) }
-    state[:commands].each { |cmd| assert_match(%r{\A\.\./evolve 0\.5 0\.2 3 20 10 parents/}, cmd) }
+    state[:commands].each { |cmd| assert_match(%r{\A\.\./evolve 0\.5 0\.2 3 20 10 \.\./networks/0/}, cmd) }
   end
 
   # A network without hidden layers that gains one gets the generation-0
@@ -391,7 +527,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
                   settings: { 'hidden_layers' => 0, 'layer_size' => 500, 'max_layer_size' => 200 }) do |cmd|
       write_child(cmd)
     end
-    state[:commands].each { |cmd| assert_match(%r{\A\.\./evolve 0\.5 0\.2 4 200 200 parents/}, cmd) }
+    state[:commands].each { |cmd| assert_match(%r{\A\.\./evolve 0\.5 0\.2 4 200 200 \.\./networks/0/}, cmd) }
   end
 
   # Each structural change is stored with the child's new shape; a parent
@@ -436,29 +572,133 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   def test_evolve_without_a_summary_stops_breeding
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) && [true, "Loading ...\n"] }
     assert_match(/no summary/, state[:error].message)
-    assert_includes state[:previous_networks], '0001.ann'
+    assert_includes state[:parents], '0001.ann'
   end
 
-  def test_parents_of_a_kept_generation_stay_in_the_database
+  # A checkpoint keeps only its champion, stored when its tournament ends,
+  # so its networks go like any other generation's.
+  def test_the_parents_of_a_kept_generation_are_deleted_too
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'keep_every' => 10 }) { |cmd| write_child(cmd) }
-    assert_equal %w[0001.ann 0002.ann], state[:previous_networks]
+    assert_nil state[:error]
+    assert_empty state[:parents]
+    assert_empty state[:rows]
   end
 
-  def test_children_are_stored_with_their_bytes
+  def test_children_are_kept_with_the_bytes_evolve_wrote
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { |cmd| write_child(cmd) }
-    Dir.mktmpdir do |dir|
-      database.export_networks(1, dir)
-      assert_equal state[:children]['0.ann'], File.read(File.join(dir, '0.ann'))
-    end
+    assert_equal state[:commands][0], state[:children]['0.ann']
   end
 
   def test_skips_breeding_once_setup_is_complete
     in_experiment do
       write_data('setup_complete' => true)
       gen = build_generation
-      gen.define_singleton_method(:run_evolve) { |*| flunk 'evolve should not run' }
+      gen.instance_variable_set(:@pool, evolve_pool { flunk 'evolve should not run' })
       gen.send(:evolve_from_previous_population)
+      assert_empty gen.instance_variable_get(:@pool).commands
     end
+  end
+end
+
+# Breeding on a real WorkerPool, with ../evolve a shell script that writes
+# each child from its parents' bytes and its seed, as evolve would the same
+# child from the same draws.
+class BreedOnWorkerPoolTest < Minitest::Test
+  include RunGenerationHelpers
+
+  PARENTS = (1..6).to_h { |i| [format('%04d.ann', i), "parent #{i}\n"] }.freeze
+
+  # The first children are the slowest, so at concurrency 4 they finish
+  # after later ones. $6 and $7 are the parents, $8 the child, $9 its seed.
+  BREEDS = <<~SH.freeze
+    case "$8" in
+      */0.ann) sleep 0.4 ;;
+      */1.ann) sleep 0.2 ;;
+    esac
+    cat "$6" "$7" > "$8"
+    echo "$9" >> "$8"
+    echo "a warning about $8" >&2
+    cat <<'EOF'
+    #{EvolveFromPreviousPopulationTest::SUMMARY.chomp}
+    EOF
+  SH
+
+  # Child 0 fails at once; the others would run for a minute.
+  FAILS = <<~SH.freeze
+    case "$8" in
+      */0.ann) echo "cannot read $6" >&2; exit 3 ;;
+    esac
+    exec sleep 60
+  SH
+
+  # Breeds generation 1 of 8 children at `concurrency` with `script` as
+  # ../evolve; returns the births in the order they were recorded, the
+  # births, the children, the error, and the seconds it took.
+  def breed_on(concurrency, script, pool: WorkerPool.new(concurrency))
+    @database = nil
+    in_experiment do
+      File.write('../evolve', "#!/bin/sh\n#{script}")
+      File.chmod(0o755, '../evolve')
+      write_networks(0, PARENTS)
+      write_data({ 'players' => PARENTS.keys.to_h { |name| [name, {}] },
+                   'ranking' => PARENTS.keys.map.with_index { |name, i| { 'name' => name, 'score' => i % 3 } } },
+                 generation: 0)
+      recorded = []
+      database.define_singleton_method(:record_birth) do |**birth|
+        recorded << birth[:child]
+        super(**birth)
+      end
+      gen = build_generation(settings: { 'population_size' => 8, 'keep_every' => 0, 'concurrency' => concurrency })
+      gen.instance_variable_set(:@pool, pool)
+      error = nil
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      begin
+        capture_io { gen.send(:evolve_from_previous_population) }
+      rescue StandardError, SystemExit => e
+        error = e
+      ensure
+        pool.stop
+      end
+      { recorded:, births: database.births(1), children: files_in('../networks/1'), error:,
+        seconds: Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, work: Dir.children('.') }
+    end
+  end
+
+  def test_the_same_births_and_networks_at_any_concurrency
+    serial = breed_on(1, BREEDS)
+    parallel = breed_on(4, BREEDS)
+    assert_nil serial[:error]
+    assert_nil parallel[:error]
+    assert_equal (0...8).map { |i| "#{i}.ann" }, serial[:recorded]
+    # Finished out of order, and still the same.
+    refute_equal serial[:recorded], parallel[:recorded]
+    assert_equal serial[:births], parallel[:births]
+    assert_equal serial[:children], parallel[:children]
+    assert_equal 8, serial[:children].size
+    assert_empty parallel[:work]
+  end
+
+  # Ctrl-C just before breeding: the trap halted the pool before the
+  # evolves were queued. None runs, and the runner exits quietly.
+  def test_ctrl_c_before_the_evolves_are_queued_exits_quietly
+    $stop_now = true
+    pool = WorkerPool.new(2)
+    pool.halt
+    state = Timeout.timeout(10) { breed_on(2, BREEDS, pool:) }
+    assert_instance_of SystemExit, state[:error]
+    assert_equal 0, state[:error].status
+    assert_empty state[:recorded]
+  ensure
+    $stop_now = false
+  end
+
+  def test_a_failed_evolve_terminates_the_running_ones
+    state = breed_on(4, FAILS)
+    assert_match(/evolve failed to breed 0\.ann/, state[:error].message)
+    assert_includes state[:error].message, 'cannot read ../networks/0/'
+    assert_operator state[:seconds], :<, 20
+    assert_empty state[:children]
+    assert_empty state[:births]
   end
 end
 
@@ -523,7 +763,7 @@ class GenesLineTest < Minitest::Test
       ALL.sub('fw_capture=9.75', 'fw_capture='),
       ALL.sub('liberties feature_step', 'liberties  feature_step')
     ].each do |line|
-      error = assert_raises(RuntimeError, line) { parse(line) }
+      error = assert_raises(RunGeneration::BreedingFailed, line) { parse(line) }
       assert_match(/malformed genes line/, error.message)
     end
   end
@@ -562,7 +802,7 @@ class GamesFromRankingTest < Minitest::Test
   # generation's wall time.
   def test_tournament_has_no_gnu_go_player
     in_experiment do
-      File.write('0001.ann', '')
+      write_networks(1, { '0001.ann' => '' })
       commands = build_generation.send(:setup_tournament)['players'].values.map { |player| player['command'] }
       assert_includes commands, 'amigogtp'
       refute(commands.any? { |command| command.start_with?('gnugo') })
@@ -574,14 +814,14 @@ class GamesFromRankingTest < Minitest::Test
   # an experiment keeps its panel when the defaults change.
   def test_the_opponents_come_from_the_experiment
     in_experiment do
-      File.write('0001.ann', '')
       store = ExperimentDatabase.new(':memory:')
+      write_networks(1, { '0001.ann' => '' }, store:)
       store.save_opponents([{ name: 'Pachi', command: 'pachi --playouts 10', copies: 2 }])
       store.save_scoring(SetupExperiment::DEFAULT_SCORING)
       players = build_generation(store:).send(:setup_players)
       assert_equal({ 'Pachi1' => { 'command' => 'pachi --playouts 10', 'external' => true },
                      'Pachi2' => { 'command' => 'pachi --playouts 10', 'external' => true },
-                     '0001.ann' => { 'command' => '../evo 0001.ann' } }, players)
+                     '0001.ann' => { 'command' => '../evo ../networks/1/0001.ann' } }, players)
     end
   end
 
@@ -610,13 +850,13 @@ class GamesFromRankingTest < Minitest::Test
 
   def test_tournament_includes_every_external_player_and_a_bye_for_odd_counts
     in_experiment do
-      %w[0001.ann 0002.ann 0003.ann 0004.ann].each { |name| File.write(name, '') }
+      write_networks(1, %w[0001.ann 0002.ann 0003.ann 0004.ann].to_h { |name| [name, name] })
       tournament = build_generation.send(:setup_tournament)
       # 4 networks, 5 Brown, and 10 AmiGo.
       assert_equal 19, tournament['players'].size
       assert_equal 10, tournament['games'].size
       assert_equal 1, tournament['games'].count { |game| game['white'].nil? }
-      assert_equal '../evo 0001.ann', tournament['players']['0001.ann']['command']
+      assert_equal '../evo ../networks/1/0001.ann', tournament['players']['0001.ann']['command']
     end
   end
 end
@@ -705,8 +945,8 @@ class PlayRoundTest < Minitest::Test
       capture_io { build_with(pool).send(:play_round) }
       seed = ->(black, white) { Seeds.gnugo(1, 'game', 1, 2, black, white) }
       assert_equal [
-        %w[bot GnuGo1], %w[network c.ann c.ann], %w[network d.ann d.ann], %w[bot Brown1], %w[bot Brown2],
-        %w[bot GnuGo2], %w[network a.ann a.ann], %w[network b.ann b.ann],
+        %w[bot GnuGo1], %w[network c.ann ../networks/1/c.ann], %w[network d.ann ../networks/1/d.ann], %w[bot Brown1],
+        %w[bot Brown2], %w[bot GnuGo2], %w[network a.ann ../networks/1/a.ann], %w[network b.ann ../networks/1/b.ann],
         %w[game GnuGo1xcR2 GnuGo1 c.ann], ['command', 'GnuGo1xcR2', 'black', "gnugo --level 0 --mode gtp --seed #{seed.('GnuGo1', 'c.ann')}"],
         %w[game dxBrown1R2 d.ann Brown1], %w[command dxBrown1R2 white brown],
         %w[game Brown2xGnuGo2R2 Brown2 GnuGo2], %w[command Brown2xGnuGo2R2 black brown],
@@ -850,6 +1090,25 @@ class PlayRoundTest < Minitest::Test
       bot_games = chunks(pool).map { |chunk| chunk.games.keys.count { |id| id.include?('Brown') } }
       assert_equal [1, 1, 0], bot_games
       assert_equal [2, 2, 2], chunks(pool).map { |chunk| chunk.games.size }
+    end
+  end
+
+  # Ctrl-C just before a round: the trap halted the pool before its chunks
+  # were queued. No arena runs, and the runner exits quietly.
+  def test_ctrl_c_before_the_chunks_are_queued_exits_quietly
+    in_experiment do
+      setup_round([['a.ann', 'Brown1'], %w[b.ann c.ann]])
+      $stop_now = true
+      pool = WorkerPool.new(2)
+      pool.halt
+      gen = build_with(pool, settings: { 'concurrency' => 2 })
+      error = Timeout.timeout(10) { assert_raises(SystemExit) { capture_io { gen.send(:play_round) } } }
+      pool.stop
+      assert_equal 0, error.status
+      assert_empty database.games(1)
+      assert_equal [['a.ann', 'Brown1'], %w[b.ann c.ann]], pending
+    ensure
+      $stop_now = false
     end
   end
 
@@ -1308,7 +1567,7 @@ class ReproducibleRoundsTest < Minitest::Test
   def test_tournaments_are_the_same_for_the_same_seed
     tournament = lambda do |seed|
       in_experiment do
-        %w[0001.ann 0002.ann 0003.ann].each { |name| File.write(name, '') }
+        write_networks(1, %w[0001.ann 0002.ann 0003.ann].to_h { |name| [name, name] })
         build_generation(settings: { 'seed' => seed }).send(:setup_tournament).values_at('ranking', 'games')
       end
     end
@@ -1323,15 +1582,18 @@ class ReproducibleRoundsTest < Minitest::Test
   end
 
   # Runs setup_initial_population with initial-population replaced: it
-  # writes `networks` and prints `output` (by default a genes line for each
-  # network), and returns `result`.
-  def populate(gen, networks: %w[0001.ann 0002.ann], output: nil, result: true)
+  # writes `networks` into the directory it runs in and prints `output` (by
+  # default a genes line for each network), and returns `result`. Returns
+  # the commands, each with the directory it ran in.
+  def populate(gen, networks: %w[0001.ann 0002.ann], output: nil, result: true, status: nil, stop: false)
     commands = []
     output ||= "population_size = 2\n#{initial_genes_line * networks.size}"
     gen.define_singleton_method(:run_initial_population) do |cmd|
       commands << cmd
+      @ran_in = File.basename(Dir.pwd)
       networks.each { |name| File.write(name, name) }
-      [result, output]
+      $stop_now = true if stop
+      [result, output, status]
     end
     capture_io { gen.send(:setup_initial_population) }
     commands
@@ -1351,11 +1613,16 @@ def test_the_initial_population_gets_its_seed_and_is_recorded
       gen = build_generation(generation: '0', store:)
       commands = populate(gen)
       seed = Seeds.derive(1, 'initial-population')
-      assert_equal ["../initial-population 2 9 1 10 0.01 1.0 0.5 0.02 0.02 none 0.3 0.01 #{seed}"], commands
+      # It runs in networks/0.partial/, which becomes networks/0/.
+      assert_equal ["../../initial-population 2 9 1 10 0.01 1.0 0.5 0.02 0.02 none 0.3 0.01 #{seed}"], commands
+      assert_equal '0.partial', gen.instance_variable_get(:@ran_in)
       assert_equal [%w[0001.ann initial], %w[0002.ann initial]], store.births(0).map { |b| b.values_at(:child, :operator) }
       assert_equal [seed, seed], store.births(0).map { |b| b[:seed] }
       assert_equal Digest::SHA256.hexdigest('0001.ann'), store.births(0).first[:genome]
-      assert_equal %w[0001.ann 0002.ann], store.network_names(0)
+      assert_equal({ '0001.ann' => '0001.ann', '0002.ann' => '0002.ann' }, files_in('../networks/0'))
+      assert_equal %w[0], Dir.children('../networks')
+      assert_empty store.network_names(0)
+      assert_equal '../evo ../networks/0/0001.ann', store.state(0)['players']['0001.ann']['command']
       # The runner goes on with the state it saved, not a reload.
       assert_equal store.state(0), gen.send(:data)
     end
@@ -1428,10 +1695,10 @@ def test_the_initial_population_gets_its_seed_and_is_recorded
       in_experiment(generation: '0') do
         store = database
         gen = build_generation(generation: '0', store:)
-        error = assert_raises(RuntimeError, output) { populate(gen, output:) }
+        error = assert_raises(RunGeneration::BreedingFailed, output) { populate(gen, output:) }
         assert_match(/genes/, error.message)
         assert_empty store.births(0)
-        assert_empty store.network_names(0)
+        refute Dir.exist?('../networks/0')
       end
       @database = nil
     end
@@ -1452,12 +1719,66 @@ def test_the_initial_population_gets_its_seed_and_is_recorded
     in_experiment(generation: '0') do
       store = database
       gen = build_generation(generation: '0', store:)
-      error = assert_raises(RuntimeError) { populate(gen, networks:, result:) }
+      error = assert_raises(RunGeneration::BreedingFailed) { populate(gen, networks:, result:) }
       assert_empty store.births(0)
-      assert_empty store.network_names(0)
+      refute Dir.exist?('../networks/0')
       assert_nil store.state(0)
       error.message
     end
+  end
+
+  # Generation 0's births share one transaction too: one that cannot be
+  # stored leaves none, and no saved setup.
+  def test_an_initial_birth_that_cannot_be_stored_leaves_none
+    in_experiment(generation: '0') do
+      store = database
+      calls = 0
+      store.define_singleton_method(:record_birth) do |**birth|
+        raise Sequel::Error, 'disk full' if (calls += 1) == 2
+
+        super(**birth)
+      end
+      gen = build_generation(generation: '0', store:)
+      assert_raises(Sequel::Error) { populate(gen) }
+      assert_empty store.births(0)
+      assert_nil store.state(0)
+    end
+  end
+
+  # Ctrl-C reaches initial-population too. The run stops as breeding does,
+  # quietly, or with 130 when its status shows the interrupt before the trap
+  # ran, not as a failure; nothing is stored, so a resume runs it again.
+  def test_ctrl_c_during_initial_population_exits_quietly
+    in_experiment(generation: '0') do
+      store = database
+      gen = build_generation(generation: '0', store:)
+      error = assert_raises(SystemExit) { populate(gen, result: false, stop: true) }
+      assert_equal 0, error.status
+      assert_empty store.births(0)
+      assert_nil store.state(0)
+    end
+  ensure
+    $stop_now = false
+  end
+
+  def test_initial_population_interrupted_before_the_trap_ran_exits_with_130
+    PlayRoundTest::INTERRUPTED.each do |how, status|
+      in_experiment(generation: '0') do
+        store = database
+        gen = build_generation(generation: '0', store:)
+        error = assert_raises(SystemExit, how) { populate(gen, result: false, status:) }
+        assert_equal 130, error.status, how
+        assert_empty store.births(0), how
+      end
+    end
+  end
+
+  # The status tells an interrupt from a failure.
+  def test_running_initial_population_returns_its_status
+    success, output, status = build_generation(generation: '0').send(:run_initial_population, 'echo hi; kill -INT $$')
+    refute success
+    assert_equal "hi\n", output
+    assert WorkerPool.interrupted?(status)
   end
 
   def test_a_failed_initial_population_stops_the_run
@@ -1479,16 +1800,17 @@ def test_the_initial_population_gets_its_seed_and_is_recorded
     end
   end
 
-  def test_a_resumed_generation_plays_with_its_stored_networks_in_a_fresh_work_directory
+  # Its networks stay in networks/2/; work/ starts empty.
+  def test_a_resumed_generation_plays_in_a_fresh_work_directory
     in_experiment do
       FileUtils.mkdir_p('work')
       File.write('work/stale.ann', 'left over')
-      database.record_network(2, '0.ann', 'weights of 0')
-      database.record_network(2, '1.ann', 'weights of 1')
+      write_networks(2, { '0.ann' => 'weights of 0', '1.ann' => 'weights of 1' }, experiment: '.')
       write_data({ 'setup_complete' => true, 'round' => 0 }, generation: 2)
       seen = nil
-      build_generation(generation: '2').send(:setup) { seen = Dir.children('.').sort.to_h { |f| [f, File.read(f)] } }
-      assert_equal({ '0.ann' => 'weights of 0', '1.ann' => 'weights of 1' }, seen)
+      build_generation(generation: '2').send(:setup) { seen = [File.basename(Dir.pwd), Dir.children('.')] }
+      assert_equal ['work', []], seen
+      assert_equal({ '0.ann' => 'weights of 0', '1.ann' => 'weights of 1' }, files_in('networks/2'))
     end
   end
 
@@ -1547,7 +1869,9 @@ class GenerationBenchmarkTest < Minitest::Test
     in_experiment do
       store = ExperimentDatabase.new(':memory:')
       store.save_benchmark_opponents([{ name: 'Brown', kind: 'bot', command: 'brown' }])
-      %w[a.ann b.ann].each { |name| store.record_network(generation, name, name) }
+      write_networks(generation, { 'a.ann' => 'a.ann', 'b.ann' => 'b.ann' }, experiment: '.', store:)
+      # A finished checkpoint stored its champion with its last round.
+      store.record_network(generation, 'b.ann', 'b.ann') if round.positive? && keep?(generation, settings)
       store.save_state(generation, { 'setup_complete' => true, 'round' => round, 'games' => [],
                                      'players' => { 'a.ann' => {}, 'b.ann' => {} },
                                      'ranking' => [{ 'name' => 'b.ann', 'score' => 1 }, { 'name' => 'a.ann', 'score' => 0 }] })
@@ -1564,6 +1888,12 @@ class GenerationBenchmarkTest < Minitest::Test
     end
   end
 
+  def keep?(generation, settings)
+    every = settings.fetch('keep_every', SETTINGS['keep_every'])
+    every.positive? && (generation % every).zero?
+  end
+
+  # The benchmark reads the champion the tournament's end stored.
   def test_a_checkpoint_benchmarks_its_top_network_after_the_tournament
     assert_equal [nil, [%w[b.ann black network], %w[b.ann white opponent]]], run_generation(10, round: 0)
   end
@@ -1575,7 +1905,7 @@ class GenerationBenchmarkTest < Minitest::Test
       store = ExperimentDatabase.new(':memory:')
       store.save_scoring(SetupExperiment::DEFAULT_SCORING)
       store.save_benchmark_opponents([{ name: 'Brown', kind: 'bot', command: 'brown' }])
-      %w[a.ann b.ann].each { |name| store.record_network(10, name, name) }
+      write_networks(10, { 'a.ann' => 'a.ann', 'b.ann' => 'b.ann' }, experiment: '.', store:)
       store.save_state(10, { 'setup_complete' => true, 'round' => 0, 'games' => [{ 'black' => 'a.ann', 'white' => 'b.ann' }],
                              'players' => { 'a.ann' => { 'command' => '../evo a.ann' }, 'b.ann' => { 'command' => '../evo b.ann' } },
                              'ranking' => [{ 'name' => 'b.ann', 'score' => 0 }, { 'name' => 'a.ann', 'score' => 0 }] })
@@ -1623,7 +1953,10 @@ class GenerationTimingsReportTest < Minitest::Test
     gen
   end
 
+  # Eight networks with their files in networks/N/ and their births, and
+  # round 0 of their tournament.
   def setup_eight(generation: 1, **state)
+    write_networks(generation, EIGHT.to_h { |name| [name, name] }, experiment: '.')
     write_data({ 'round' => 0, 'players' => EIGHT.to_h { |name| [name, { 'command' => "../evo #{name}" }] },
                  'games' => EIGHT.each_slice(2).map { |black, white| { 'black' => black, 'white' => white } },
                  'ranking' => EIGHT.map { |name| { 'name' => name, 'score' => 0 } } }.merge(state), generation:)
@@ -1664,13 +1997,17 @@ class GenerationTimingsReportTest < Minitest::Test
     end
   end
 
-  # Exporting the networks takes 0.5 s of setup, and pairing the next round
-  # 0.25 s of the round's Ruby time.
+  # Emptying work/ takes 0.25 s and verifying the networks 0.5 s of setup,
+  # and pairing the next round 0.25 s of the round's Ruby time.
   def slow_bookkeeping(gen)
     clock = @clock
-    database.define_singleton_method(:export_networks) do |*args|
+    gen.define_singleton_method(:empty_work) do
+      clock.advance(0.25)
+      super()
+    end
+    gen.define_singleton_method(:verify_networks) do
       clock.advance(0.5)
-      super(*args)
+      super()
     end
     gen.define_singleton_method(:setup_next_round) do
       clock.advance(0.25)
@@ -1686,12 +2023,14 @@ class GenerationTimingsReportTest < Minitest::Test
       gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
       out, = capture_io { gen.call }
       lines = out.lines.map(&:chomp)
-      assert_equal ['Generation 1 took 3.75 s: setup 0.50 s, tournament 3.25 s, no benchmark.',
+      assert_equal ['Generation 1 took 4.00 s: setup 0.75 s, tournament 3.25 s, no benchmark.',
+                    'Setup: emptying work/ 0.25 s, deleting old networks 0.00 s, verifying 0.50 s.',
                     'Tournament: 1 round, 4 games, none failed; workers 3.00 s, Ruby 0.25 s outside waiting for them.',
                     'Resumed: the times cover only what this session ran.',
-                    'timings generation=1 partial=1 setup=0.500 round_1=3.250 worker_round_1=3.000 ' \
+                    'timings generation=1 partial=1 setup=0.750 setup_clear=0.250 setup_retire=0.000 setup_verify=0.500 ' \
+                    'round_1=3.250 worker_round_1=3.000 ' \
                     'ruby_round_1=0.250 games_round_1=4 failures_round_1=0 tournament=3.250 worker=3.000 ' \
-                    'ruby=0.250 games=4 failures=0 total=3.750'], lines.last(4)
+                    'ruby=0.250 games=4 failures=0 total=4.000'], lines.last(5)
     end
   end
 
@@ -1731,20 +2070,67 @@ class GenerationTimingsReportTest < Minitest::Test
       end
       # The 2 networks and the 15 bots: 8 games, one chunk of 1.5 s each, and a bye.
       gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
-      # Storing a game's row takes 0.25 s of Ruby time.
+      # Storing a game's row takes 0.25 s of Ruby time, storing a birth
+      # 0.25 s of setup, within breeding, and the last round's save with
+      # the champion 0.125 s, within that round.
       database.define_singleton_method(:record) do |**row|
         clock.advance(0.25)
         super(**row)
+      end
+      database.define_singleton_method(:record_birth) do |**birth|
+        clock.advance(0.25)
+        super(**birth)
+      end
+      database.define_singleton_method(:save_state) do |*args, **options|
+        clock.advance(0.125) if options[:champion]
+        super(*args, **options)
       end
       out, = with_benchmark(lambda { |*_args|
         clock.advance(5.0)
         true
       }) { capture_io { gen.call } }
       assert_includes out.lines.map(&:chomp),
-                      'timings generation=0 partial=0 setup=2.000 round_1=14.000 worker_round_1=12.000 ' \
-                      'ruby_round_1=2.000 games_round_1=8 failures_round_1=0 tournament=14.000 worker=12.000 ' \
-                      'ruby=2.000 games=8 failures=0 benchmark=5.000 total=21.000'
+                      'timings generation=0 partial=0 setup=2.500 setup_clear=0.000 setup_breed=2.500 ' \
+                      'setup_hash=0.000 setup_store=0.500 setup_sync=0.000 setup_save=0.000 setup_retire=0.000 ' \
+                      'round_1=14.125 worker_round_1=12.000 ruby_round_1=2.125 games_round_1=8 failures_round_1=0 ' \
+                      'tournament=14.125 worker=12.000 ruby=2.125 games=8 failures=0 champion=0.125 benchmark=5.000 ' \
+                      'total=21.625'
       refute_includes out, 'Resumed'
+    end
+  end
+
+  def test_a_bred_generation_times_the_parts_of_its_setup
+    in_experiment do
+      write_networks(0, { '0001.ann' => '0001.ann', '0002.ann' => '0002.ann' }, experiment: '.')
+      write_data({ 'players' => { '0001.ann' => {}, '0002.ann' => {} },
+                   'ranking' => [{ 'name' => '0001.ann', 'score' => 1 }, { 'name' => '0002.ann', 'score' => 0 }] },
+                 generation: 0)
+      gen = slow_bookkeeping(with_clock(build_generation(settings: { 'keep_every' => 0 })))
+      clock = @clock
+      # Each child takes evolve 1 s and storing its birth 0.25 s; syncing
+      # the networks takes 0.5 s and saving the state 0.75 s.
+      gen.instance_variable_set(:@pool, evolve_pool(clock:, duration: 1.0) do |cmd|
+        File.write(cmd.split[-2], cmd)
+        [true, EvolveFromPreviousPopulationTest::SUMMARY]
+      end)
+      database.define_singleton_method(:record_birth) do |**birth|
+        clock.advance(0.25)
+        super(**birth)
+      end
+      gen.define_singleton_method(:publish_networks) do
+        clock.advance(0.5)
+        super()
+      end
+      database.define_singleton_method(:save_state) do |*args, **options|
+        clock.advance(0.75)
+        super(*args, **options)
+      end
+      capture_io { gen.send(:setup) {} }
+      assert_equal 'timings generation=1 partial=0 setup=4.000 setup_clear=0.250 setup_breed=2.500 setup_hash=0.000 ' \
+                   'setup_store=0.500 setup_sync=0.500 setup_save=0.750 setup_retire=0.000',
+                   gen.send(:timings).line
+      assert_equal 'Setup: emptying work/ 0.25 s, breeding 2.50 s (hashing 0.00 s and storing 0.50 s during it), ' \
+                   'syncing 0.50 s, saving 0.75 s, deleting old networks 0.00 s.', gen.send(:timings).summary[1]
     end
   end
 end
@@ -2001,5 +2387,274 @@ class InMemoryStateTest < Minitest::Test
                        ['f.ann', 0]), moved
     moved = after_one_game(sorted_with('a.ann', 1), { 'black' => 'a.ann', 'white' => 'e.ann' }, { 'winner' => 'a.ann' })
     assert_equal ranks(*SORTED), moved
+  end
+end
+
+# A generation's networks live in networks/N/ beside work/: setup writes
+# them into networks/N.partial/, syncs and renames it, saves the setup, and
+# only then deletes the parents' networks/N-1/. A crash at any point
+# resumes to the same networks and leaves no stale directory; a resumed
+# generation checks its networks against their births before it plays.
+class NetworksOnDiskTest < Minitest::Test
+  include RunGenerationHelpers
+
+  PARENTS = { '0001.ann' => 'parent 1', '0002.ann' => 'parent 2' }.freeze
+  Crash = Class.new(StandardError)
+
+  # Generation 0 finished, with its networks in networks/0/.
+  def finished_generation_zero
+    write_networks(0, PARENTS, experiment: '.')
+    write_data({ 'round' => 1, 'setup_complete' => true, 'players' => PARENTS.keys.to_h { |name| [name, {}] },
+                 'games' => [], 'ranking' => [{ 'name' => '0001.ann', 'score' => 1 }, { 'name' => '0002.ann', 'score' => 0 }] },
+               generation: 0)
+  end
+
+  # Generation 1, whose evolve writes each child from its seed and parents,
+  # so the same draws give the same bytes. The commands go to @evolved.
+  def generation_one(settings: {})
+    @evolved = []
+    evolved = @evolved
+    gen = build_generation(settings:)
+    gen.instance_variable_set(:@pool, evolve_pool do |cmd|
+      evolved << cmd
+      File.write(cmd.split[-2], "child #{cmd.split[-1]} of #{cmd.split[6, 2].map { |path| File.basename(path) }.join(' ')}")
+      [true, EvolveFromPreviousPopulationTest::SUMMARY]
+    end)
+    gen
+  end
+
+  # Runs the generation's setup; returns the directory the block ran in.
+  def set_up(gen)
+    seen = nil
+    capture_io { gen.send(:setup) { seen = File.basename(Dir.pwd) } }
+    seen
+  end
+
+  def outcome
+    [files_in('networks/1'), database.births(1), database.state(1)]
+  end
+
+  def uninterrupted
+    in_experiment do
+      finished_generation_zero
+      set_up(generation_one)
+      outcome
+    end
+  ensure
+    @database = nil
+  end
+
+  # A new session sets generation 1 up again and ends as if uninterrupted,
+  # with only networks/1/ left.
+  def assert_resumes_to(expected)
+    assert_equal 'work', set_up(generation_one)
+    assert_equal %w[1], Dir.children('networks')
+    assert_equal expected, outcome
+  end
+
+  def test_a_bred_generation_moves_its_networks_into_place_and_deletes_the_parents
+    in_experiment do
+      finished_generation_zero
+      assert_equal 'work', set_up(generation_one)
+      assert_equal %w[1], Dir.children('networks')
+      networks = files_in('networks/1')
+      assert_equal %w[0.ann 1.ann], networks.keys
+      assert_equal(networks.transform_values { |bytes| Digest::SHA256.hexdigest(bytes) },
+                   database.births(1).to_h { |birth| birth.values_at(:child, :genome) })
+      assert_equal '../evo ../networks/1/0.ann', database.state(1)['players']['0.ann']['command']
+      assert_empty database.network_names(0) + database.network_names(1)
+      assert_empty Dir.children('work')
+    end
+  end
+
+  # Every child, then networks/1.partial/, is synced before the rename, and
+  # networks/ and the experiment directory after it.
+  def test_the_networks_are_synced_around_the_rename
+    in_experiment do
+      finished_generation_zero
+      gen = generation_one
+      synced = []
+      gen.define_singleton_method(:fsync) { |path| synced << [path, Dir.exist?('../networks/1')] }
+      set_up(gen)
+      assert_equal [['../networks/1.partial/0.ann', false], ['../networks/1.partial/1.ann', false],
+                    ['../networks/1.partial', false], ['../networks', true], ['..', true]], synced
+    end
+  end
+
+  def test_a_crash_before_the_rename_breeds_again
+    expected = uninterrupted
+    in_experiment do
+      finished_generation_zero
+      gen = generation_one
+      gen.define_singleton_method(:publish_networks) { raise Crash }
+      assert_raises(Crash) { set_up(gen) }
+      assert_equal %w[0 1.partial], Dir.children('networks').sort
+      assert_nil database.state(1)
+      assert_resumes_to(expected)
+      assert_equal 2, @evolved.size
+    end
+  end
+
+  # The stale networks/1/ is deleted before breeding, so the rename works.
+  def test_a_crash_after_the_rename_before_the_save_breeds_again
+    expected = uninterrupted
+    in_experiment do
+      finished_generation_zero
+      gen = generation_one
+      gen.define_singleton_method(:save_data) { |*| raise Crash }
+      assert_raises(Crash) { set_up(gen) }
+      assert_equal %w[0 1], Dir.children('networks').sort
+      assert_nil database.state(1)
+      assert_resumes_to(expected)
+      assert_equal 2, @evolved.size
+    end
+  end
+
+  # The saved setup keeps networks/1/; the parents left behind go.
+  def test_a_crash_after_the_save_before_deleting_the_parents_keeps_the_setup
+    expected = uninterrupted
+    in_experiment do
+      finished_generation_zero
+      gen = generation_one
+      gen.define_singleton_method(:retire_networks) { |*| raise Crash }
+      assert_raises(Crash) { set_up(gen) }
+      assert_equal %w[0 1], Dir.children('networks').sort
+      assert database.state(1)['setup_complete']
+      assert_resumes_to(expected)
+      assert_empty @evolved
+    end
+  end
+
+  def test_directories_no_setup_needs_are_deleted_first
+    in_experiment do
+      finished_generation_zero
+      %w[networks/3 networks/7.partial networks/1.partial networks/1.partial.old].each { |dir| FileUtils.mkdir_p(dir) }
+      File.write('networks/1.partial/5.ann', 'left over')
+      # Entries not named as a generation's directory are not the runner's.
+      File.write('networks/keep-me', 'mine')
+      set_up(generation_one)
+      assert_equal %w[1 1.partial.old keep-me], Dir.children('networks').sort
+      assert_equal %w[0.ann 1.ann], files_in('networks/1').keys
+    end
+  end
+
+  def test_a_new_generation_zero_is_written_into_place
+    in_experiment(generation: '0') do
+      FileUtils.mkdir_p('networks/0.partial')
+      File.write('networks/0.partial/0003.ann', 'left over')
+      gen = build_generation(generation: '0')
+      gen.define_singleton_method(:run_initial_population) do |_cmd|
+        %w[0001.ann 0002.ann].each { |name| File.write(name, name) }
+        genes = 'genes layers=1 width=10 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 ' \
+                "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=none feature_step=0.01\n"
+        [true, genes * 2]
+      end
+      set_up(gen)
+      assert_equal %w[0], Dir.children('networks')
+      assert_equal({ '0001.ann' => '0001.ann', '0002.ann' => '0002.ann' }, files_in('networks/0'))
+      assert database.state(0)['setup_complete']
+    end
+  end
+
+  def test_a_resumed_generation_verifies_its_networks_and_plays_them_where_they_are
+    in_experiment do
+      finished_generation_zero
+      set_up(generation_one)
+      gen = build_generation
+      @manifests = []
+      manifests = @manifests
+      gen.instance_variable_set(:@pool, FakePool.new(arena: lambda { |id, _game|
+        manifests << File.read('arena-0.txt')
+        arena_played(id)
+      }))
+      verified = 0
+      gen.define_singleton_method(:verify_networks) do
+        verified += 1
+        super()
+      end
+      capture_io { gen.call }
+      assert_equal 1, verified
+      assert_equal 1, database.state(1)['round']
+      assert_includes manifests.first, "network\t0.ann\t../networks/1/0.ann\n"
+    end
+  end
+
+  def damaged_networks_stop_the_run
+    in_experiment do
+      finished_generation_zero
+      set_up(generation_one)
+      yield
+      gen = build_generation
+      pool = FakePool.new
+      gen.instance_variable_set(:@pool, pool)
+      error = assert_raises(RunGeneration::NetworksDamaged) { capture_io { gen.call } }
+      assert_empty pool.commands
+      assert_equal 0, database.state(1)['round']
+      error.message
+    end
+  end
+
+  def test_a_changed_or_missing_network_stops_the_run_naming_it
+    message = damaged_networks_stop_the_run do
+      File.write('networks/1/0.ann', 'changed')
+      File.delete('networks/1/1.ann')
+    end
+    assert_includes message, 'networks/1/'
+    assert_includes message, 'missing: 1.ann'
+    assert_includes message, 'changed: 0.ann'
+    assert_includes message, 'The run stopped'
+  end
+
+  def test_a_missing_networks_directory_stops_the_run
+    message = damaged_networks_stop_the_run { FileUtils.rm_rf('networks/1') }
+    assert_includes message, 'networks/1/ is missing'
+  end
+
+  # A one-generation run re-enters the last finished generation, which
+  # plays nothing, so its networks are not needed.
+  def test_a_finished_generation_is_re_entered_without_its_networks
+    in_experiment do
+      finished_generation_zero
+      FileUtils.rm_rf('networks/0')
+      gen = build_generation(generation: '0', settings: { 'keep_every' => 0 })
+      gen.instance_variable_set(:@pool, FakePool.new)
+      result = nil
+      capture_io { result = gen.call }
+      assert_equal :already_done, result
+    end
+  end
+
+  # The champion (the first network of the final ranking that is not a bot)
+  # is stored with the state the last round saves, and only at checkpoints.
+  def champion_rows(keep_every)
+    in_experiment do
+      finished_generation_zero
+      set_up(generation_one)
+      saves = []
+      database.define_singleton_method(:save_state) do |generation, state, **options|
+        saves << [state['round'], options[:champion]&.first]
+        super(generation, state, **options)
+      end
+      gen = build_generation(settings: { 'keep_every' => keep_every, 'tournament_rounds' => 2 })
+      gen.instance_variable_set(:@pool, FakePool.new)
+      capture_io { gen.send(:setup) { gen.send(:play_games) } }
+      champion = database.ranking(1).find { |row| !row[:external] }[:name]
+      rows = database.network_names(1).to_h do |name|
+        [name, File.binread(database.export_network(1, name, "row-#{name}"))]
+      end
+      [saves, champion, rows, files_in('networks/1')]
+    end
+  end
+
+  def test_a_checkpoint_stores_its_champion_with_its_last_rounds_state
+    saves, champion, rows, files = champion_rows(1)
+    assert_equal [[1, nil], [2, champion]], saves
+    assert_equal({ champion => files.fetch(champion) }, rows)
+  end
+
+  def test_other_generations_store_no_network
+    saves, _champion, rows, = champion_rows(10)
+    assert_equal [[1, nil], [2, nil]], saves
+    assert_empty rows
   end
 end

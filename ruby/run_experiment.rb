@@ -31,8 +31,9 @@ class RunExperiment
       generation += 1
       break if settings['one_generation'] && (r != :already_done)
     end
-  rescue RunGeneration::ArenaStopped => e
-    # The other chunks were sent SIGTERM already; the ensure waits for them.
+  rescue RunGeneration::Stopped => e
+    # An arena stop sent the other chunks SIGTERM already; the ensure waits
+    # for them.
     warn "\n#{e.message}"
     exit 1
   ensure

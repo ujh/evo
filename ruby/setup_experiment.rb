@@ -101,7 +101,7 @@ class SetupExperiment
     'max_moves' => ['Max moves', nil, integer(1)],
     'tournament_rounds' => ['Rounds (tournament)', nil, integer(1)],
     'tournament_size' => ['Tournament size for parent selection', '3', integer(1)],
-    'keep_every' => ['Keep the SGFs and networks of every Nth generation (0 for never)', '10', integer(0)],
+    'keep_every' => ['Keep the SGFs and the champion network of every Nth generation (0 for never)', '10', integer(0)],
     'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }, integer(0, (2**63) - 1)],
     # Half of a benchmark's games are played with each color.
     'benchmark_games' => ['Benchmark games per opponent', '20', even(2)],

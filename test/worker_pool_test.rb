@@ -113,11 +113,32 @@ class WorkerPoolTest < Minitest::Test
       4.times { |i| pool.submit("sleep 0.3; touch #{dir}/#{i}", i) }
       sleep 0.1 # both threads are running a job
       Process.kill('INT', Process.pid)
-      2.times { pool.next_finished }
+      statuses = Timeout.timeout(5) { Array.new(4) { pool.next_finished.last } }
       pool.stop
       assert_equal %w[0 1], Dir.children(dir).sort
+      assert_equal 2, statuses.count { |status| status.equal?(WorkerPool::NOT_STARTED) }
     ensure
       trap('INT', previous || 'DEFAULT')
+    end
+  end
+
+  # Ctrl-C can come just before the runner queues a batch of jobs: a
+  # halted pool starts none of them, and still hands each back, as not
+  # started, so waiting for them never blocks.
+  def test_a_halted_pool_hands_back_the_jobs_it_does_not_start
+    Dir.mktmpdir do |dir|
+      pool = WorkerPool.new(2)
+      pool.halt
+      3.times { |i| pool.submit("touch #{dir}/#{i}", i) }
+      finished = Timeout.timeout(5) { Array.new(3) { pool.next_finished } }
+      pool.stop
+      assert_equal [0, 1, 2], finished.map(&:first).sort
+      finished.each do |_, seconds, status|
+        assert_equal 0, seconds
+        assert_same WorkerPool::NOT_STARTED, status
+        assert WorkerPool.interrupted?(status)
+      end
+      assert_empty Dir.children(dir)
     end
   end
 

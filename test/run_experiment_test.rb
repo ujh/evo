@@ -61,6 +61,34 @@ class RunExperimentTest < Minitest::Test
     assert stopped.stopped?
   end
 
+  # Damaged networks stop the run the same way.
+  def test_damaged_networks_exit_1_with_the_report
+    generation = lambda do |_generation, _settings, _pool, _store|
+      raise RunGeneration::NetworksDamaged, 'networks/3/ does not match the database.'
+    end
+    err = nil
+    with_generation(generation) do
+      _, err = capture_io do
+        assert_equal 1, assert_raises(SystemExit) { RunExperiment.call(SETTINGS, ExperimentDatabase.new(':memory:')) }.status
+      end
+    end
+    assert_equal "\nnetworks/3/ does not match the database.\n", err
+  end
+
+  # So does a breeding failure.
+  def test_a_breeding_failure_exits_1_with_the_report
+    generation = lambda do |_generation, _settings, _pool, _store|
+      raise RunGeneration::BreedingFailed, 'evolve failed to breed 0.ann.'
+    end
+    err = nil
+    with_generation(generation) do
+      _, err = capture_io do
+        assert_equal 1, assert_raises(SystemExit) { RunExperiment.call(SETTINGS, ExperimentDatabase.new(':memory:')) }.status
+      end
+    end
+    assert_equal "\nevolve failed to breed 0.ann.\n", err
+  end
+
   def test_ctrl_c_starts_no_queued_game
     previous = trap('INT', 'DEFAULT')
     Dir.mktmpdir do |dir|

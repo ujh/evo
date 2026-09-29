@@ -61,24 +61,135 @@ class RunGeneration
   end
 
   # The scratch directory the generation works in. It is emptied at the
-  # start of every generation; everything worth keeping is in the database.
+  # start of every generation; everything worth keeping is in the database
+  # and in NETWORKS.
   WORK = 'work'.freeze
 
+  # Each generation's networks, in the experiment directory beside work/:
+  # networks/N/ once complete, networks/N.partial/ while setup writes them.
+  # As the generation sees it from work/, where it runs.
+  NETWORKS = '../networks'.freeze
+  EXPERIMENT = '..'.freeze
+
+  # Raised when a run cannot go on; the message is the report the run stops
+  # with (RunExperiment prints it and exits 1).
+  Stopped = Class.new(StandardError)
+
+  # Raised when a generation's saved setup lacks networks/N/ or a network
+  # that matches its birth. Its parents are gone, so it cannot be bred again.
+  NetworksDamaged = Class.new(Stopped)
+
+  # Raised when evolve or initial-population did not breed the population.
+  # The setup is not saved, so a resume breeds it again with the same seeds.
+  BreedingFailed = Class.new(Stopped)
+
   def setup
-    FileUtils.rm_rf(WORK)
-    FileUtils.mkdir(WORK)
-    Dir.chdir(WORK) do
-      timings.time(:setup) do
+    timings.time(:setup) do
+      timings.time(:setup_clear) { empty_work }
+      Dir.chdir(WORK) do
+        resumed = data['setup_complete']
+        timings.time(:setup_retire) { sweep_networks }
         if generation == '0'
           setup_initial_population
         else
           evolve_from_previous_population
         end
-        # On resume the networks come from the database, not from breeding.
-        store.export_networks(generation.to_i, '.')
+        # A generation set up by an earlier session plays networks it did
+        # not write; one whose tournament is over plays nothing.
+        timings.time(:setup_verify) { verify_networks } if resumed && data['round'] < settings['tournament_rounds']
       end
-      yield
     end
+    Dir.chdir(WORK) { yield }
+  end
+
+  def network_dir(number) = File.join(NETWORKS, number.to_s)
+
+  def partial_dir = "#{network_dir(generation)}.partial"
+
+  def network_path(name) = File.join(network_dir(generation), name)
+
+  # Deletes every networks/K/ and networks/K.partial/ but the one this
+  # setup needs: networks/N/ once N's setup is saved, else the parents'
+  # networks/N-1/. So a partial or complete networks/N/ of a setup that was
+  # never saved goes (it is bred again), and so do parents a crash or Ctrl-C
+  # left after the save.
+  def sweep_networks
+    return unless Dir.exist?(NETWORKS)
+
+    needed = data['setup_complete'] ? generation : (generation.to_i - 1).to_s
+    Dir.children(NETWORKS).each do |entry|
+      next unless entry.match?(/\A\d+(\.partial)?\z/) && entry != needed
+
+      FileUtils.rm_rf(File.join(NETWORKS, entry))
+    end
+  end
+
+  # An empty networks/N.partial/ for setup to write into.
+  def prepare_partial
+    FileUtils.rm_rf(partial_dir)
+    FileUtils.mkdir_p(partial_dir)
+  end
+
+  # Makes networks/N.partial/ networks/N/ for good: syncs every network and
+  # the directory, renames it, and syncs networks/ and the experiment
+  # directory (which holds networks/ since the first generation), so the
+  # rename is on disk before the setup that relies on it is saved.
+  def publish_networks
+    Dir.children(partial_dir).sort.each { |name| fsync(File.join(partial_dir, name)) }
+    fsync(partial_dir)
+    File.rename(partial_dir, network_dir(generation))
+    fsync(NETWORKS)
+    fsync(EXPERIMENT)
+  end
+
+  def fsync(path)
+    File.open(path) { |file| file.fsync }
+  end
+
+  # Deletes the parents' networks once the generation bred from them is saved.
+  def retire_networks(number)
+    FileUtils.rm_rf(network_dir(number))
+  end
+
+  # Checks networks/N/ against the generation's births: each is there and
+  # has the SHA-256 its birth recorded.
+  def verify_networks
+    directory = network_dir(generation)
+    shown = "networks/#{generation}/"
+    unless Dir.exist?(directory)
+      raise NetworksDamaged, "#{shown} is missing, but generation #{generation}'s setup is saved. " \
+                             "#{cannot_breed_again}"
+    end
+
+    missing = []
+    changed = []
+    store.births(generation.to_i).each do |birth|
+      path = File.join(directory, birth[:child])
+      if !File.file?(path) then missing << birth[:child]
+      elsif Digest::SHA256.file(path).hexdigest != birth[:genome] then changed << birth[:child]
+      end
+    end
+    return if missing.empty? && changed.empty?
+
+    problems = { 'missing' => missing, 'changed' => changed }.reject { |_, names| names.empty? }
+    raise NetworksDamaged, "#{shown} does not match generation #{generation}'s births " \
+                           "(#{problems.map { |kind, names| "#{kind}: #{listed(names)}" }.join('; ')}). " \
+                           "#{cannot_breed_again}"
+  end
+
+  # Names up to 20, then how many more.
+  def listed(names)
+    shown = names.first(20).join(', ')
+    names.size > 20 ? "#{shown} and #{names.size - 20} more" : shown
+  end
+
+  def cannot_breed_again
+    'Its parents are gone, so it cannot be bred again. The run stopped.'
+  end
+
+  def empty_work
+    FileUtils.rm_rf(WORK)
+    FileUtils.mkdir(WORK)
   end
 
   def play_games
@@ -95,16 +206,28 @@ class RunGeneration
     puts "\rPlaying ... done".ljust(70)
   end
 
+  # After the last round, a checkpoint's champion is stored with the state
+  # that ends its tournament.
   def setup_next_round
     round = data['round'] + 1
     ranking = shuffle_ties(data['ranking'], round)
-    games = if round >= settings['tournament_rounds']
-              []
-            else
-              games_from_ranking(ranking, colors_rng(round))
-            end
+    state = data.merge('round' => round, 'ranking' => ranking)
+    if round < settings['tournament_rounds']
+      save_data(state.merge('games' => games_from_ranking(ranking, colors_rng(round))))
+    elsif keep?(generation.to_i)
+      timings.time(:champion) { save_data(state.merge('games' => []), champion: champion(ranking)) }
+    else
+      save_data(state.merge('games' => []))
+    end
+  end
 
-    save_data(data.merge('round' => round, 'games' => games, 'ranking' => ranking))
+  # [name, bytes] of the first network of the ranking that is not a bot,
+  # as CheckpointBenchmark#top_network and ArchiveExperiment pick it.
+  def champion(ranking)
+    name = ranking.map { |entry| entry['name'] }.find { |player| !external?(player) }
+    raise "generation #{generation} has no ranked network to keep" unless name
+
+    [name, File.binread(network_path(name))]
   end
 
   # Orders tied players with a generator seeded for this round, so the same
@@ -193,11 +316,11 @@ class RunGeneration
       "#{chunk.manifest} > #{chunk.out} 2> #{chunk.err}"
   end
 
-  # The chunk's players, a network by its file in work/ and a bot by its
-  # name, then each game, followed by the command of each of its bots.
+  # The chunk's players, a network by its file in networks/N/ and a bot by
+  # its name, then each game, followed by the command of each of its bots.
   def manifest(chunk)
     players = chunk.games.values.flat_map { |game| game.values_at('black', 'white') }.uniq
-    lines = players.map { |player| external?(player) ? ['bot', player] : ['network', player, player] }
+    lines = players.map { |player| external?(player) ? ['bot', player] : ['network', player, network_path(player)] }
     chunk.games.each do |id, game|
       lines << ['game', id, game['black'], game['white']]
       seed = gnugo_seed(game)
@@ -232,7 +355,7 @@ class RunGeneration
   # without a record. The chunk's other games are stored; the rest stay
   # pending, so a resume replays them. The message is the report the run
   # stops with (RunExperiment prints it and exits 1).
-  ArenaStopped = Class.new(StandardError)
+  ArenaStopped = Class.new(Stopped)
 
   # Scores and stores every game of the chunk the arena finished, then
   # deletes the chunk's files; stops the run (ArenaStopped) if any game has
@@ -440,8 +563,8 @@ class RunGeneration
     keep?(generation.to_i)
   end
 
-  # SGFs and networks are kept for every keep_every-th generation (0 keeps
-  # none), so lineages can be revisited at regular points.
+  # SGFs and the champion are kept for every keep_every-th generation (0
+  # keeps none), so lineages can be revisited at regular points.
   def keep?(generation_number)
     every = settings['keep_every']
     every.positive? && (generation_number % every).zero?
@@ -465,9 +588,9 @@ class RunGeneration
   # Replaces the state in one transaction, so a crash leaves the old state or
   # the new one, never half of it, and keeps it as the state in memory. Used
   # at setup and at each round's pairing; a game saves only what it changed
-  # (save_game).
-  def save_data(hash, retire_networks_of: nil)
-    store.save_state(generation.to_i, hash, retire_networks_of:)
+  # (save_game). `champion` goes into the same transaction (save_state).
+  def save_data(hash, champion: nil)
+    store.save_state(generation.to_i, hash, champion:)
     @data = hash
     exit if $stop_now
   end
@@ -476,27 +599,54 @@ class RunGeneration
     return if data['setup_complete']
 
     puts 'Generating initial population ...'
+    timings.time(:setup_breed) { create_initial_population }
+    timings.time(:setup_sync) { publish_networks }
+    tournament = setup_tournament
+    timings.time(:setup_save) { save_data(tournament) }
+  end
+
+  # Runs initial-population in networks/0.partial/ and records the births,
+  # all in one transaction.
+  def create_initial_population
     seed = Seeds.derive(experiment_seed, 'initial-population')
-    command = "../initial-population #{self.class.initial_population_arguments(settings).join(' ')}"
-    # Stop before storing anything, so generation 0 never starts short of
-    # networks, as breeding does when evolve fails.
-    success, output = run_initial_population(command)
-    raise "initial-population failed: #{command}" unless success
+    command = "../../initial-population #{self.class.initial_population_arguments(settings).join(' ')}"
+    prepare_partial
+    Dir.chdir(partial_dir) do
+      # Stop before storing anything, so generation 0 never starts short of
+      # networks, as breeding does when evolve fails.
+      success, output, status = run_initial_population(command)
+      stop_initial_population(status)
+      initial_population_failed("initial-population failed: #{command}") unless success
 
-    networks = Dir['*.ann'].sort
-    expected = settings['population_size']
-    raise "initial-population wrote #{networks.size} networks, expected #{expected}: #{command}" unless networks.size == expected
+      networks = Dir['*.ann'].sort
+      expected = settings['population_size']
+      unless networks.size == expected
+        initial_population_failed("initial-population wrote #{networks.size} networks, expected #{expected}: #{command}")
+      end
 
-    births = networks.zip(initial_genes(output, networks.size, command)).map do |network, network_genes|
-      { generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
-        differs_from_first: nil, differs_from_second: nil, seed:, genome: Digest::SHA256.file(network).hexdigest,
-        **network_genes }
+      births = networks.zip(initial_genes(output, networks.size, command)).map do |network, network_genes|
+        genome = timings.time(:setup_hash) { Digest::SHA256.file(network).hexdigest }
+        { generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
+          differs_from_first: nil, differs_from_second: nil, seed:, genome:, **network_genes }
+      end
+      timings.time(:setup_store) { store.record_births(births) }
     end
-    networks.zip(births) do |network, birth|
-      store.record_network(0, network, File.binread(network))
-      store.record_birth(**birth)
-    end
-    save_data(setup_tournament)
+  end
+
+  # Ctrl-C reaches initial-population too: stop as breeding does
+  # (stop_breeding), not as a failure. Nothing is stored yet, so a resume
+  # runs it again.
+  def stop_initial_population(status)
+    exit if $stop_now
+    return unless WorkerPool.interrupted?(status)
+
+    WorkerPool.exit_interrupted('initial-population', 'it runs again on resume')
+  end
+
+  # Stops the run for an initial-population run that failed or printed
+  # output the runner cannot use. Nothing is stored, so a resume runs it again.
+  def initial_population_failed(reason)
+    raise BreedingFailed, "#{reason}\nThe run stopped; resume after fixing the cause."
   end
 
   # The settings with the genes of generation 0, in initial-population's
@@ -515,10 +665,10 @@ class RunGeneration
      settings['initial_feature_step'], Seeds.derive(settings.fetch('seed'), 'initial-population')].map(&:to_s)
   end
 
-  # Returns [success, stdout]; stdout has a genes line per network.
+  # Returns [success, stdout, status]; stdout has a genes line per network.
   def run_initial_population(command)
     output, status = Open3.capture2(command)
-    [status.success?, output]
+    [status.success?, output, status]
   end
 
   # The genes of each generation-0 network, in file order (0001.ann,
@@ -527,15 +677,19 @@ class RunGeneration
   # experiment's feature set.
   def initial_genes(output, count, command)
     lines = output.lines.select { |line| line.start_with?('genes') }
-    raise "initial-population printed #{lines.size} genes lines for #{count} networks: #{command}" unless lines.size == count
+    unless lines.size == count
+      initial_population_failed("initial-population printed #{lines.size} genes lines for #{count} networks: #{command}")
+    end
 
     shape = [settings['hidden_layers'], settings['hidden_layers'].zero? ? 0 : settings['layer_size']]
     lines.map do |line|
       genes = parse_genes(line, command)
-      raise "initial-population printed genes of another shape: #{line.chomp}" unless genes.values_at(:layers, :width) == shape
+      unless genes.values_at(:layers, :width) == shape
+        initial_population_failed("initial-population printed genes of another shape: #{line.chomp}")
+      end
       unless genes[:features] == experiment_features
-        raise "initial-population printed genes of the feature set #{genes[:features]}, " \
-              "but the experiment's is #{experiment_features}: #{line.chomp}"
+        initial_population_failed("initial-population printed genes of the feature set #{genes[:features]}, " \
+                                  "but the experiment's is #{experiment_features}: #{line.chomp}")
       end
 
       genes
@@ -551,10 +705,10 @@ class RunGeneration
   # A genes line of initial-population or evolve (ann_print_genes_line in
   # lib/ann.h) as a birth's gene columns, plus :features (the feature set as
   # written), :feature_step, and :fw_NAME for each move feature of the set.
-  # Anything else raises.
+  # Anything else stops the run (BreedingFailed).
   def parse_genes(line, command)
     genes = parse_genes_fields(line.chomp)
-    raise "malformed genes line #{line.chomp.inspect}: #{command}" if genes.nil? || genes.value?(nil)
+    initial_population_failed("malformed genes line #{line.chomp.inspect}: #{command}") if genes.nil? || genes.value?(nil)
 
     genes
   end
@@ -602,55 +756,99 @@ class RunGeneration
     previous_generation = generation.to_i - 1
     previous_data = store.state(previous_generation)
     candidates = parent_candidates(previous_data)
-    FileUtils.mkdir_p(PARENTS)
-    store.export_networks(previous_generation, PARENTS)
-    # Generate the new population
+    prepare_partial
     total = settings['population_size']
-    total.times do |i|
-      print "\rGenerating population ... #{i + 1}/#{total}"
-      breed_child(previous_generation, candidates, i)
+    timings.time(:setup_breed) do
+      # Every child's parents are drawn first, in child order, so the order
+      # the children finish in cannot change them.
+      jobs = Array.new(total) { |i| evolve_job(previous_generation, i, Array.new(2) { select_parent(candidates) }) }
+      print "\rGenerating population ... 0/#{total}"
+      jobs.each { |job| pool.submit(job.pool_command, job) }
+      births = Array.new(total) do |finished|
+        job, _duration, status = pool.next_finished
+        stop_breeding(job, status)
+        read_child(job, status).tap { print "\rGenerating population ... #{finished + 1}/#{total}" }
+      end
+      # One transaction for all, not a commit per birth. A stop before this
+      # stores none; the setup is not saved then either, so a resume breeds
+      # every child again.
+      timings.time(:setup_store) { store.record_births(births) }
     end
     puts "\rGenerating population ... done         "
-    # The parents are dropped in the same transaction that saves the new
-    # generation, unless their generation is one to keep.
-    save_data(setup_tournament, retire_networks_of: keep?(previous_generation) ? nil : previous_generation)
+    timings.time(:setup_sync) { publish_networks }
+    tournament = setup_tournament
+    timings.time(:setup_save) { save_data(tournament) }
+    # Only once the new setup is saved: until then a resume breeds again.
+    timings.time(:setup_retire) { retire_networks(previous_generation) }
   end
 
-  # The previous generation's networks, written out for evolve. They are
-  # named like this generation's children, so they need their own directory.
-  PARENTS = 'parents'.freeze
+  # One child's evolve run: `command` breeds `child` from `parents` (names
+  # in networks/N-1/) into networks/N.partial/ as `path`. The pool runs it
+  # exec'd, so WorkerPool#terminate reaches evolve, with its stdout and
+  # stderr in work/ (the pool captures neither).
+  EvolveJob = Struct.new(:child, :parents, :seed, :path, :command) do
+    def out = "#{File.basename(child, '.ann')}.out"
+    def err = "#{File.basename(child, '.ann')}.err"
+    def pool_command = "exec #{command} > #{out} 2> #{err}"
+  end
 
-  # Writes one child straight to `child`. A file left there by an interrupted
-  # run is removed first, so a child exists only if this evolve wrote it. On
-  # failure, breeding stops before the parents are deleted.
-  def breed_child(previous_generation, candidates, index)
+  def evolve_job(previous_generation, index, parents)
     child = "#{index}.ann"
-    FileUtils.rm_f(child)
-    parents = Array.new(2) { select_parent(candidates) }
+    path = File.join(partial_dir, child)
     seed = Seeds.derive(experiment_seed, 'birth', generation.to_i, index)
-    command = "../evolve #{evolve_arguments.join(' ')} #{parents.map { |p| "#{PARENTS}/#{p}" }.join(' ')} #{child} #{seed}"
-    success, output, status = run_evolve(command)
-    stop_breeding(child, status) unless success
-    raise "evolve failed to breed #{child}: #{command}" unless success && File.exist?(child)
+    parent_paths = parents.map { |parent| File.join(network_dir(previous_generation), parent) }
+    command = "../evolve #{evolve_arguments.join(' ')} #{parent_paths.join(' ')} #{path} #{seed}"
+    EvolveJob.new(child, parents, seed, path, command)
+  end
 
+  # The birth of a child evolve finished, to be stored with the others: it
+  # wrote the child into networks/N.partial/, which setup emptied, so a
+  # child exists only if this evolve wrote it. Deletes the job's output
+  # files. Output breeding cannot use stops it (breeding_failed).
+  def read_child(job, status)
+    breeding_failed(job, status, "evolve failed to breed #{job.child}") unless status&.success? && File.exist?(job.path)
+
+    output = read_utf8(job.out)
     summary = output.match(EVOLVE_SUMMARY)
-    raise "evolve printed no summary for #{child}: #{command}" unless summary
+    breeding_failed(job, status, "evolve printed no summary for #{job.child}") unless summary
 
     genes_lines = output.lines.select { |line| line.start_with?('genes') }
-    raise "evolve printed #{genes_lines.size} genes lines for #{child}: #{command}" unless genes_lines.size == 1
-
-    genes = parse_genes(genes_lines.first, command)
-    unless genes[:features] == experiment_features
-      raise "evolve printed genes of the feature set #{genes[:features]} for #{child}, " \
-            "but the experiment's is #{experiment_features}: #{command}"
+    unless genes_lines.size == 1
+      breeding_failed(job, status, "evolve printed #{genes_lines.size} genes lines for #{job.child}")
     end
-    store.record_network(generation.to_i, child, File.binread(child))
-    store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
-                       operator: summary[:operator], differs_from_first: differs(summary[:first]),
-                       differs_from_second: differs(summary[:second]), seed:,
-                       genome: Digest::SHA256.file(child).hexdigest, parent: summary[:parent],
-                       structure: summary[:structure], activation_changed: summary[:activation_changed] == '1',
-                       **genes)
+
+    genes = parse_child_genes(job, status, genes_lines.first)
+    genome = timings.time(:setup_hash) { Digest::SHA256.file(job.path).hexdigest }
+    FileUtils.rm_f([job.out, job.err])
+    { generation: generation.to_i, child: job.child, first_parent: job.parents[0], second_parent: job.parents[1],
+      operator: summary[:operator], differs_from_first: differs(summary[:first]),
+      differs_from_second: differs(summary[:second]), seed: job.seed, genome:, parent: summary[:parent],
+      structure: summary[:structure], activation_changed: summary[:activation_changed] == '1', **genes }
+  end
+
+  def parse_child_genes(job, status, line)
+    genes = parse_genes_fields(line.chomp)
+    breeding_failed(job, status, "malformed genes line #{line.chomp.inspect}") if genes.nil? || genes.value?(nil)
+    unless genes[:features] == experiment_features
+      breeding_failed(job, status, "evolve printed genes of the feature set #{genes[:features]} for #{job.child}, " \
+                                   "but the experiment's is #{experiment_features}")
+    end
+    genes
+  end
+
+  # Stops breeding for a child evolve did not breed as it should: first
+  # sends SIGTERM to the other evolves still running (exec'd, so the signal
+  # reaches them), whose children would not be recorded, then raises with
+  # the command, its exit status, and its stderr. The setup is not saved,
+  # so a resume breeds every child again, with the same seeds; the job's
+  # files stay in work/ until then.
+  def breeding_failed(job, status, reason)
+    pool.terminate
+    stderr = read_utf8(job.err)
+    raise BreedingFailed, "#{reason}: #{job.command}\n" \
+                          "evolve #{exit_reason(status)}. " \
+                          "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}\n" \
+                          'The run stopped; a resume breeds every child again.'
   end
 
   # evolve's summary line. differs is -1 when the child's shape differs from
@@ -679,19 +877,15 @@ class RunGeneration
     count == '-1' ? nil : count.to_i
   end
 
-  # Returns [success, stdout, Process::Status]; evolve's last stdout line is its summary.
-  def run_evolve(command)
-    output, status = Open3.capture2(command)
-    [status.success?, output, status]
-  end
-
-  # Ctrl-C reaches the running evolve too. Stop as the tournament does,
+  # Ctrl-C reaches the running evolves too. Stop as the tournament does,
   # without an error: the generation's setup is saved only after the last
-  # child, so a resume breeds every child again, with the same seeds. evolve
-  # can be back before the trap has set the flag; its status tells.
-  def stop_breeding(child, status)
+  # child, so a resume breeds every child again, with the same seeds. An
+  # evolve can be back before the trap has set the flag; its status tells.
+  def stop_breeding(job, status)
     exit if $stop_now
-    WorkerPool.exit_interrupted("breeding #{child}", 'breeding starts over on resume') if WorkerPool.interrupted?(status)
+    return unless WorkerPool.interrupted?(status)
+
+    WorkerPool.exit_interrupted("breeding #{job.child}", 'breeding starts over on resume')
   end
 
   def parent_candidates(previous_data)
@@ -749,16 +943,15 @@ class RunGeneration
     games
   end
 
-  # The experiment's opponents, each copy numbered from 1, then the networks.
+  # The experiment's opponents, each copy numbered from 1, then the
+  # networks in networks/N/.
   def setup_players
     players = store.opponents.each_with_object({}) do |opponent, hash|
       (1..opponent[:copies]).each do |i|
         hash["#{opponent[:name]}#{i}"] = { 'command' => opponent[:command], 'external' => true }
       end
     end
-    players.merge!(Dir['*.ann'].each_with_object({}) do |player, hash|
-                     hash[player] = { 'command' => "../evo #{player}" }
-                   end)
-    players
+    networks = Dir.children(network_dir(generation)).select { |name| name.end_with?('.ann') }.sort
+    players.merge!(networks.to_h { |player| [player, { 'command' => "../evo #{network_path(player)}" }] })
   end
 end

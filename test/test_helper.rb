@@ -74,6 +74,27 @@ module RunGenerationHelpers
     database.save_state(generation, hash.merge(state))
   end
 
+  # Writes a generation's networks (name => bytes) into networks/N/ in
+  # `experiment`, each with a birth whose genome is its SHA-256, as a saved
+  # setup leaves them. The default, '..', is the experiment directory of
+  # tests that run in the current directory as work/.
+  def write_networks(generation, networks, experiment: '..', store: database)
+    directory = File.join(experiment, 'networks', generation.to_s)
+    FileUtils.mkdir_p(directory)
+    networks.each do |name, bytes|
+      File.binwrite(File.join(directory, name), bytes)
+      store.record_birth(generation:, child: name, operator: 'initial', seed: 1, genome: Digest::SHA256.hexdigest(bytes))
+    end
+  end
+
+  # The files in `directory` by name, with their contents; {} when it does
+  # not exist.
+  def files_in(directory)
+    return {} unless Dir.exist?(directory)
+
+    Dir.children(directory).sort.to_h { |name| [name, File.binread(File.join(directory, name))] }
+  end
+
   # Copies a result fixture and, when there is one, the twogtp stderr it came with.
   def copy_dat(fixture, prefix)
     %w[dat err].each do |ext|
@@ -132,13 +153,15 @@ end
 # FakeClock), waiting for a job advances it by the job's duration.
 # `terminate` stands in for WorkerPool#terminate: the jobs not yet handed
 # back count as running and are never handed back; `on_terminate` runs
-# first.
+# first. `reverse` hands the jobs back last queued first, as a pool whose
+# later jobs finish sooner would.
 class FakePool
   attr_reader :commands, :identifiers, :terminated
 
   def initialize(arena: ->(id, _game) { arena_played(id) }, arena_output: ->(text) { text }, arena_stderr: '',
-                 duration: 1.5, status: exit_status(0), clock: nil, on_terminate: nil, &run)
+                 duration: 1.5, status: exit_status(0), clock: nil, on_terminate: nil, reverse: false, &run)
     @run = run
+    @reverse = reverse
     @on_terminate = on_terminate
     @terminated = []
     @clock = clock
@@ -167,7 +190,7 @@ class FakePool
 
   # Every job "takes" 1.5 seconds unless told otherwise.
   def next_finished
-    identifier = @queued.shift
+    identifier = @reverse ? @queued.pop : @queued.shift
     if identifier.respond_to?(:manifest)
       lines = identifier.games.filter_map { |id, game| @arena.call(id, game) }
       output = @arena_output.call(([ArenaResult::HEADER] + lines + ["done #{lines.size}"]).map { |l| "#{l}\n" }.join)
@@ -178,6 +201,21 @@ class FakePool
     end
     @clock&.advance(@duration)
     [identifier, @duration, @status.respond_to?(:call) ? @status.call(identifier) : @status]
+  end
+end
+
+# A FakePool that "runs" each evolve job (a RunGeneration::EvolveJob) by
+# calling the block with the job's evolve command, as the shell would run
+# it, and writing what the block returns: [success, stdout, status,
+# stderr], where status defaults to exit 0 or 1 by success and stderr to
+# nothing. The pool's options are FakePool's.
+def evolve_pool(**options, &evolve)
+  statuses = {}.compare_by_identity
+  FakePool.new(status: ->(job) { statuses.fetch(job) }, **options) do |job|
+    success, stdout, status, stderr = evolve.call(job.command)
+    File.write(job.out, stdout)
+    File.write(job.err, stderr || '')
+    statuses[job] = status || exit_status(success ? 0 : 1)
   end
 end
 

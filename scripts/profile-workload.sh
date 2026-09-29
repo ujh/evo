@@ -66,7 +66,9 @@ case $workload in
     ;;
   large)
     seed=5318103715471647440
-    min_free_gib=25
+    # Peak about 9 GiB: while generation 1 is bred, networks/0/ and
+    # networks/1.partial/ (4.3 GiB each) plus a small database.
+    min_free_gib=15
     settings="--board-size 9 --population-size 1000 --hidden-layers 10 --layer-size 200
       --max-hidden-layers 100 --max-layer-size 1000 --features shapes,tactics,last_move,liberties
       --cross-over-rate 0.4 --game-length 10 --max-moves 200 --tournament-rounds 10
@@ -188,6 +190,30 @@ sampler='
 # field KEY LINE: the value of KEY=VALUE in LINE.
 field() { printf '%s\n' "$2" | tr ' ' '\n' | awk -F= -v k="$1" '$1 == k { print $2 }'; }
 
+# setup_parts LINE: the parts of setup in LINE that ran, as
+# "clear 0.1 s, breed 30.2 s (hash 3.0 s, store 5.0 s within it), ...".
+# hash and store are within breed, so they are not listed as parts of
+# their own.
+setup_parts() {
+  printf '%s\n' "$1" | tr ' ' '\n' | awk -F= '
+    $1 ~ /^setup_/ { sub(/^setup_/, "", $1); name[++n] = $1; value[$1] = $2 }
+    END {
+      for (i = 1; i <= n; i++) {
+        k = name[i]
+        if (k == "hash" || k == "store") continue
+        s = k " " value[k] " s"
+        if (k == "breed") {
+          w = ""
+          if ("hash" in value) w = "hash " value["hash"] " s"
+          if ("store" in value) w = w (w ? ", " : "") "store " value["store"] " s"
+          if (w) s = s " (" w " within it)"
+        }
+        p = p (p ? ", " : "") s
+      }
+      print p
+    }'
+}
+
 summary=''
 run_generation() {
   generation=$1
@@ -217,14 +243,15 @@ run_generation() {
   reentry=''
   if [ "$generation" -gt 0 ]; then
     # A one-generation run first re-enters the last finished generation:
-    # it empties work/ and exports that generation's networks, then finds
-    # nothing left to play. That is in this invocation's wall time,
-    # /usr/bin/time, and runner profile, but not in its timings line. Its
-    # length comes from the two generation headers' clock times, to the
-    # second.
+    # it empties work/ and deletes the network directories it no longer
+    # needs (its networks/N/ stays; a finished tournament skips verifying
+    # it), then finds nothing left to play. That is in this invocation's
+    # wall time, /usr/bin/time, and runner profile, but not in its timings
+    # line. Its length comes from the two generation headers' clock times,
+    # to the second.
     reentry=$(awk '/^\*\*\* GENERATION / { split($5, t, ":"); s[++n] = t[1] * 3600 + t[2] * 60 + t[3] }
       END { if (n >= 2) { d = s[2] - s[1]; if (d < 0) d += 86400; print d } }' "$log")
-    out "note: this invocation first re-entered generation $((generation - 1)) (emptied work/ and exported its networks) before generation $generation; its wall time, /usr/bin/time and runner profile include that, the timings line does not. Re-entry took about ${reentry:-?} s (generation headers, 1 s resolution)."
+    out "note: this invocation first re-entered generation $((generation - 1)) (emptied work/ and deleted stale network directories) before generation $generation; its wall time, /usr/bin/time and runner profile include that, the timings line does not. Re-entry took about ${reentry:-?} s (generation headers, 1 s resolution)."
   fi
   timings=$(grep '^timings ' "$log" || true)
   out "timings line: ${timings:-none}"
@@ -248,20 +275,23 @@ run_generation() {
   out 'benchmark games: games|failures|summed duration s'
   sqlite3 "$db" "select count(*), sum(failure is not null), round(sum(duration), 3)
     from benchmark_games where generation = $generation" | sed 's/^/    /' >> "$results"
-  out 'stored networks: generation|count|bytes'
+  # Only checkpoint champions are stored; the generation's networks are
+  # files in networks/N/ (their count and bytes are in the arena load line).
+  out 'stored networks (checkpoint champions): generation|count|bytes'
   sqlite3 "$db" "select generation, count(*), sum(length(weights)) from networks group by generation" |
     sed 's/^/    /' >> "$results"
-  out "disk: experiment $(du -sk "$experiment" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), database $(du -sk "$db" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), work/ $(du -sk "$experiment/work" | awk '{ printf "%.2f GiB", $1 / 1048576 }'); df free $(df -Pk "$experiment" | awk 'NR == 2 { printf "%.1f GiB", $4 / 1048576 }')"
+  out "disk: experiment $(du -sk "$experiment" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), database $(du -sk "$db" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), networks/ $(du -sk "$experiment/networks" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), work/ $(du -sk "$experiment/work" | awk '{ printf "%.2f GiB", $1 / 1048576 }'); df free $(df -Pk "$experiment" | awk 'NR == 2 { printf "%.1f GiB", $4 / 1048576 }')"
 
   # The arena's startup and load cost: one arena over every network of the
-  # generation, each loaded once, playing one move per game (max_moves 0).
-  # An untimed first run warms the file cache, so the three timed runs
-  # compare.
+  # generation (networks/N/), each loaded once, playing one move per game
+  # (max_moves 0). An untimed first run warms the file cache, so the three
+  # timed runs compare.
   schedule="$results.gen$generation.schedule"
-  find "$experiment/work" -maxdepth 1 -name '*.ann' | sort |
+  generation_networks="$experiment/networks/$generation"
+  find "$generation_networks" -maxdepth 1 -name '*.ann' | sort |
     awk '{ n[NR] = $0 } END { for (i = 1; i <= NR; i += 2) print "g" i, n[i], n[(i < NR) ? i + 1 : 1] }' > "$schedule"
-  networks=$(find "$experiment/work" -maxdepth 1 -name '*.ann' | wc -l | tr -d ' ')
-  bytes=$(find "$experiment/work" -maxdepth 1 -name '*.ann' -exec ls -l {} + | awk '{ s += $5 } END { print s + 0 }')
+  networks=$(find "$generation_networks" -maxdepth 1 -name '*.ann' | wc -l | tr -d ' ')
+  bytes=$(find "$generation_networks" -maxdepth 1 -name '*.ann' -exec ls -l {} + | awk '{ s += $5 } END { print s + 0 }')
   out "arena load (a separate run after the invocation, after an untimed warm-up run, so a warm file cache): $networks networks, $bytes bytes, $(wc -l < "$schedule" | tr -d ' ') games at max_moves 0"
   loads=''
   ( cd "$experiment/work" && ../arena 9 6.5 0 "$schedule" > /dev/null )
@@ -285,7 +315,7 @@ run_generation() {
   out ''
 
   summary="$summary
-generation $generation: exit $status, wall $((end - start)) s$( [ -z "$reentry" ] || printf ' (including about %s s re-entering generation %s)' "$reentry" $((generation - 1))), runner total $(field total "$timings") s, tournament $(field tournament "$timings") s (ruby $(field ruby "$timings") s, worker $(field worker "$timings") s), benchmark $(field benchmark "$timings") s, games $(field games "$timings"), failures $(field failures "$timings")
+generation $generation: exit $status, wall $((end - start)) s$( [ -z "$reentry" ] || printf ' (including about %s s re-entering generation %s)' "$reentry" $((generation - 1))), runner total $(field total "$timings") s, setup $(field setup "$timings") s ($(setup_parts "$timings")), tournament $(field tournament "$timings") s (ruby $(field ruby "$timings") s, worker $(field worker "$timings") s), benchmark $(field benchmark "$timings") s, games $(field games "$timings"), failures $(field failures "$timings")
   runner CPU user $(field utime "$line") s sys $(field stime "$line") s, allocated objects $(field total_allocated_objects "$line"), GC runs $(field gc_count "$line")$( [ -z "$reentry" ] || printf ' (re-entry included)')
   peak RSS: tree sum $(echo "$peak" | cut -d' ' -f1) MiB, runner $(echo "$peak" | cut -d' ' -f2) MiB; arena load of $networks networks:$loads"
 }

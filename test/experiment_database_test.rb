@@ -210,6 +210,23 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # A generation's births go in together, replacing a rebred child's row.
+  def test_records_a_generations_births_together
+    with_store do |store|
+      store.record_birth(**BIRTH)
+      store.record_births([BIRTH.merge(operator: 'crossover'), BIRTH.merge(child: '0002.ann')])
+      assert_equal [BIRTH.merge(operator: 'crossover'), BIRTH.merge(child: '0002.ann')], store.births(2)
+    end
+  end
+
+  # One transaction: a birth that cannot be stored leaves none of them.
+  def test_records_a_generations_births_all_or_none
+    with_store do |store|
+      assert_raises(Sequel::Error) { store.record_births([BIRTH, BIRTH.merge(child: '0002.ann', genome: nil)]) }
+      assert_empty store.births(2)
+    end
+  end
+
   def test_initial_networks_are_births_without_parents
     with_store do |store|
       initial = BIRTH.merge(generation: 0, child: '0001.ann', first_parent: nil, second_parent: nil,
@@ -358,16 +375,12 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
-  def test_stores_and_exports_networks
+  def test_stores_networks_by_generation_and_name
     with_store do |store|
       store.record_network(2, '0.ann', "\x00\x01weights".b)
       store.record_network(2, '1.ann', 'other'.b)
       store.record_network(3, '0.ann', 'next'.b)
-      Dir.mktmpdir do |dir|
-        assert_equal %w[0.ann 1.ann], store.export_networks(2, dir)
-        assert_equal "\x00\x01weights".b, File.binread(File.join(dir, '0.ann'))
-        assert_equal 'other'.b, File.binread(File.join(dir, '1.ann'))
-      end
+      assert_equal %w[0.ann 1.ann], store.network_names(2)
       assert_equal %w[0.ann], store.network_names(3)
     end
   end
@@ -390,25 +403,27 @@ class ExperimentDatabaseTest < Minitest::Test
     with_store do |store|
       store.record_network(2, '0.ann', 'old'.b)
       store.record_network(2, '0.ann', 'new'.b)
-      Dir.mktmpdir { |dir| store.export_networks(2, dir) && assert_equal('new', File.binread(File.join(dir, '0.ann'))) }
+      Dir.mktmpdir { |dir| assert_equal 'new', File.binread(store.export_network(2, '0.ann', File.join(dir, 'n'))) }
     end
   end
 
-  def test_saving_a_state_can_retire_another_generations_networks_in_the_same_transaction
+  # A checkpoint's champion is stored with the state that ends its
+  # tournament, so a finished checkpoint always has it.
+  def test_saving_a_state_can_store_the_champion_in_the_same_transaction
     with_store do |store|
-      store.record_network(1, '0.ann', 'parent'.b)
-      store.record_network(2, '0.ann', 'child'.b)
-      store.save_state(2, STATE, retire_networks_of: 1)
-      assert_empty store.network_names(1)
+      store.save_state(2, STATE, champion: ['0.ann', "\x00champion".b])
+      Dir.mktmpdir do |dir|
+        assert_equal "\x00champion".b, File.binread(store.export_network(2, '0.ann', File.join(dir, 'c')))
+      end
       assert_equal %w[0.ann], store.network_names(2)
     end
   end
 
-  def test_a_failed_save_keeps_the_networks
+  def test_a_failed_save_stores_no_champion
     with_store do |store|
-      store.record_network(1, '0.ann', 'parent'.b)
-      assert_raises(StandardError) { store.save_state(2, STATE.merge('ranking' => nil), retire_networks_of: 1) }
-      assert_equal %w[0.ann], store.network_names(1)
+      assert_raises(StandardError) { store.save_state(2, STATE.merge('ranking' => nil), champion: ['0.ann', 'c'.b]) }
+      assert_empty store.network_names(2)
+      assert_nil store.state(2)
     end
   end
 

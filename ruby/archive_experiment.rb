@@ -18,7 +18,8 @@ require_relative 'experiment_lock'
 # The original is only ever read, through a read-only ATTACH, and never
 # migrated. The copy is built in a new file next to it, checked, synced,
 # and renamed over it, so an archive stopped at any point before the
-# rename leaves the original as it was. Then work/ is deleted.
+# rename leaves the original as it was. Then work/ and networks/ (the
+# last generations' networks, which the runner keeps as files) are deleted.
 class ArchiveExperiment
   # The archive cannot run, or its copy failed a check; the original is
   # unchanged.
@@ -40,6 +41,7 @@ class ArchiveExperiment
   def copy_path = File.join(dir, COPY)
   def journal = "#{path}-journal"
   def work = File.join(dir, 'work')
+  def networks = File.join(dir, 'networks')
 
   # `confirm` is called with the question and returns whether to go on.
   # Returns :archived, :declined, or :already_archived.
@@ -145,9 +147,11 @@ class ArchiveExperiment
   def already_archived(db, original)
     db.close
     out.puts "#{dir} was already archived on #{original.archived}."
-    if File.exist?(work)
-      FileUtils.rm_rf(work)
-      out.puts "Deleted the #{work} an interrupted archive left."
+    [work, networks].each do |path|
+      next unless File.exist?(path)
+
+      FileUtils.rm_rf(path)
+      out.puts "Deleted the #{path} an interrupted archive left."
     end
     :already_archived
   end
@@ -157,7 +161,7 @@ class ArchiveExperiment
     kept = generations.empty? ? 'no networks' : "#{generations.size} networks, the champions of generations " \
                                                 "#{generations.first}..#{generations.last} (every #{original.settings['keep_every']})"
     "Archive #{dir}? It keeps every table but networks, and of the #{original.network_count} networks only #{kept}; " \
-      "it deletes #{work}. This cannot be undone."
+      "it deletes #{work} and #{networks}. This cannot be undone."
   end
 
   # A zeroed-header journal of a writer killed before its first journal
@@ -274,9 +278,10 @@ class ArchiveExperiment
     File.open(copy_path) { |file| file.fsync }
     File.rename(copy_path, path)
     File.open(dir) { |directory| directory.fsync }
-    FileUtils.rm_rf(work)
+    FileUtils.rm_rf([work, networks])
     out.puts "Archived #{dir}: #{megabytes(original.size)} before, #{megabytes(File.size(path))} after; " \
-             "kept #{original.champions.size} of #{original.network_count} networks and deleted #{work}."
+             "kept #{original.champions.size} of #{original.network_count} stored networks and deleted #{work} " \
+             "and #{networks}."
     out.puts 'A stats or ranking still reading the old file holds its space until it exits.'
   end
 
