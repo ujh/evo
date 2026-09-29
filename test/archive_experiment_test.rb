@@ -55,6 +55,8 @@ class ArchiveExperimentTest < Minitest::Test
     db.close
     FileUtils.mkdir_p(File.join(dir, 'work/parents'))
     File.write(File.join(dir, 'work/parents/0.ann'), 'scratch')
+    FileUtils.mkdir_p(File.join(dir, 'networks/4'))
+    File.write(File.join(dir, 'networks/4/a.ann'), 'net-4-a.ann')
     install_arena(dir, :plays)
   end
 
@@ -121,6 +123,7 @@ class ArchiveExperimentTest < Minitest::Test
     assert_equal :archived, archive
     assert_equal CHAMPIONS, networks
     refute File.exist?(File.join(@dir, 'work')), 'work/ is deleted'
+    refute File.exist?(File.join(@dir, 'networks')), 'networks/ is deleted'
     refute File.exist?(File.join(@dir, ArchiveExperiment::COPY))
   end
 
@@ -178,6 +181,7 @@ class ArchiveExperimentTest < Minitest::Test
     assert_includes error.message, message
     assert_equal before, sha(database_path)
     assert File.exist?(File.join(@dir, 'work/parents/0.ann'))
+    assert File.exist?(File.join(@dir, 'networks/4/a.ann'))
     refute File.exist?(File.join(@dir, ArchiveExperiment::COPY))
     refute File.exist?(arena_log), 'the arena ran before the copy was checked'
   end
@@ -323,8 +327,10 @@ class ArchiveExperimentTest < Minitest::Test
     assert_equal :declined, archive(confirm: ->(text) { question = text; false })
     assert_includes question, 'generations 0..2'
     assert_includes question, 'cannot be undone'
+    assert_includes question, "it deletes #{File.join(@dir, 'work')} and #{File.join(@dir, 'networks')}"
     assert_equal before, sha(database_path)
     assert File.exist?(File.join(@dir, 'work'))
+    assert File.exist?(File.join(@dir, 'networks'))
     refute File.exist?(File.join(@dir, ArchiveExperiment::COPY))
   end
 
@@ -340,9 +346,11 @@ class ArchiveExperimentTest < Minitest::Test
     archive
     before = sha(database_path)
     FileUtils.mkdir_p(File.join(@dir, 'work'))
+    FileUtils.mkdir_p(File.join(@dir, 'networks/5'))
     assert_equal :already_archived, archive(confirm: ->(_) { flunk })
     assert_equal before, sha(database_path)
     refute File.exist?(File.join(@dir, 'work'))
+    refute File.exist?(File.join(@dir, 'networks'))
   end
 
   def test_a_directory_name_that_a_uri_would_misread

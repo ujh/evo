@@ -9,27 +9,36 @@ require_relative 'awake_clock'
 # The line is `timings` followed by key=value fields, seconds with three
 # decimals, and only the parts that ran:
 #   generation=N partial=0|1 setup=S
-#   setup_clear=S setup_parents=S setup_breed=S setup_store=S setup_save=S setup_export=S  (the parts of setup)
+#   setup_clear=S setup_breed=S setup_hash=S setup_store=S setup_sync=S setup_save=S
+#   setup_retire=S setup_verify=S  (the parts of setup)
 #   round_K=S worker_round_K=S ruby_round_K=S games_round_K=N failures_round_K=N  (each round played, K from 1)
 #   tournament=S worker=S ruby=S games=N failures=N  (over those rounds)
-#   benchmark=S total=S
+#   champion=S benchmark=S total=S
 # A round's time runs from the first game it queues to its next round's
 # pairing. Its worker time is the summed wall time of its pool jobs (arena
 # chunks), so above the round's time when jobs run in parallel. Its Ruby time is the round's time the runner spent not waiting
 # for a job: pairing, queueing, reading results, scoring, and storing.
-# The parts of setup are within `setup` and, but for setup_store, come one
-# after another: emptying work/, exporting the parents, breeding the
-# children or running initial-population and storing its networks, saving
-# the state, and exporting the networks. They leave small untimed gaps
-# (loading the previous generation's state, pairing round 1), so they add
-# up to a little less than `setup`. setup_store, the summed time of
-# hashing and storing each network and its birth, is within setup_breed.
+# The parts of setup are within `setup` and, but for setup_hash and
+# setup_store, come one after another: emptying work/, breeding the
+# children or running initial-population, syncing networks/N.partial/ and
+# renaming it to networks/N/, saving the state, deleting network
+# directories no longer needed (stale ones at the start, the parents after
+# the save; the two add up), and, on resume, verifying networks/N/ against
+# the births. They leave small untimed gaps (loading the previous
+# generation's state, pairing round 1), so they add up to a little less
+# than `setup`. setup_hash and setup_store, the summed time of hashing each
+# network and of storing its birth, are within setup_breed. `champion`,
+# at a checkpoint, is reading its champion's file and the last round's save
+# that stores it, within that round's time.
 class GenerationTimings
   AWAKE = -> { AwakeClock.now }
 
   # The parts of setup in the line's order, with their summary names.
-  SETUP_PARTS = { setup_clear: 'emptying work/', setup_parents: 'parents', setup_breed: 'breeding',
-                  setup_store: 'storing', setup_save: 'saving', setup_export: 'exporting' }.freeze
+  SETUP_PARTS = { setup_clear: 'emptying work/', setup_breed: 'breeding', setup_hash: 'hashing',
+                  setup_store: 'storing', setup_sync: 'syncing', setup_save: 'saving',
+                  setup_retire: 'deleting old networks', setup_verify: 'verifying' }.freeze
+  # The parts of setup timed within setup_breed.
+  WITHIN_BREED = %i[setup_hash setup_store].freeze
 
   Round = Struct.new(:number, :wall, :waiting, :worker, :games, :failures) do
     def ruby = wall - waiting
@@ -45,7 +54,7 @@ class GenerationTimings
   end
 
   # Times the block as the part `name` (:setup, a part of SETUP_PARTS,
-  # :benchmark, or :total). A part timed more than once adds up.
+  # :champion, :benchmark, or :total). A part timed more than once adds up.
   def time(name)
     started = @clock.call
     yield
@@ -102,7 +111,7 @@ class GenerationTimings
       fields.merge!('tournament' => seconds(tournament), 'worker' => seconds(total_of(:worker)),
                     'ruby' => seconds(total_of(:ruby)), 'games' => total_of(:games), 'failures' => total_of(:failures))
     end
-    %i[benchmark total].each { |name| fields[name.to_s] = seconds(@parts[name]) if @parts.key?(name) }
+    %i[champion benchmark total].each { |name| fields[name.to_s] = seconds(@parts[name]) if @parts.key?(name) }
     "timings #{fields.map { |key, value| "#{key}=#{value}" }.join(' ')}"
   end
 
@@ -120,13 +129,17 @@ class GenerationTimings
   private
 
   def setup_summary
-    parts = SETUP_PARTS.except(:setup_store).filter_map do |name, label|
+    parts = SETUP_PARTS.except(*WITHIN_BREED).filter_map do |name, label|
       next unless @parts.key?(name)
 
-      store = " (storing #{human(@parts[:setup_store])} during it)" if name == :setup_breed && @parts.key?(:setup_store)
-      "#{label} #{human(@parts[name])}#{store}"
+      "#{label} #{human(@parts[name])}#{within_breed if name == :setup_breed}"
     end
     "Setup: #{parts.join(', ')}."
+  end
+
+  def within_breed
+    parts = WITHIN_BREED.filter_map { |name| "#{SETUP_PARTS[name]} #{human(@parts[name])}" if @parts.key?(name) }
+    " (#{parts.join(' and ')} during it)" unless parts.empty?
   end
 
   def tournament_summary
@@ -136,8 +149,9 @@ class GenerationTimings
                else
                  "#{total_of(:failures)} failed (#{failed.map { |r| "round #{r.number}: #{r.failures}" }.join(', ')})"
                end
+    champion = "; storing the champion #{human(@parts[:champion])} of it" if @parts.key?(:champion)
     "Tournament: #{count(@rounds.size, 'round')}, #{count(total_of(:games), 'game')}, #{failures}; " \
-      "workers #{human(total_of(:worker))}, Ruby #{human(total_of(:ruby))} outside waiting for them."
+      "workers #{human(total_of(:worker))}, Ruby #{human(total_of(:ruby))} outside waiting for them#{champion}."
   end
 
   def tournament = total_of(:wall)

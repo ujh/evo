@@ -47,51 +47,74 @@ class GenerationTimingsTest < Minitest::Test
                  full_generation.summary
   end
 
-  # A breeding generation's setup: emptying work/, exporting the parents,
-  # breeding (with 0.5 s of storing inside it, in two stores), saving the
-  # state, and exporting the children.
+  # A breeding generation's setup: emptying work/, deleting stale network
+  # directories, breeding (with 0.25 s of hashing and 0.5 s of storing
+  # inside it, over two children), syncing and renaming the networks,
+  # saving the state, and deleting the parents.
   def breeding_generation
     t = timings
     t.time(:total) do
       t.time(:setup) do
         t.time(:setup_clear) { @clock.advance(0.25) }
-        t.time(:setup_parents) { @clock.advance(1.0) }
+        t.time(:setup_retire) { @clock.advance(0.125) }
         t.time(:setup_breed) do
           2.times do
             @clock.advance(2.0)
+            t.time(:setup_hash) { @clock.advance(0.125) }
             t.time(:setup_store) { @clock.advance(0.25) }
           end
         end
+        t.time(:setup_sync) { @clock.advance(1.0) }
         t.time(:setup_save) { @clock.advance(0.75) }
-        t.time(:setup_export) { @clock.advance(0.5) }
+        t.time(:setup_retire) { @clock.advance(0.375) }
       end
     end
     t
   end
 
   def test_the_parts_of_setup_follow_setup_on_the_line_and_repeated_parts_add_up
-    assert_equal 'timings generation=3 partial=0 setup=7.000 setup_clear=0.250 setup_parents=1.000 ' \
-                 'setup_breed=4.500 setup_store=0.500 setup_save=0.750 setup_export=0.500 total=7.000',
+    assert_equal 'timings generation=3 partial=0 setup=7.250 setup_clear=0.250 setup_breed=4.750 setup_hash=0.250 ' \
+                 'setup_store=0.500 setup_sync=1.000 setup_save=0.750 setup_retire=0.500 total=7.250',
                  breeding_generation.line
   end
 
   def test_the_summary_names_the_parts_of_setup_that_ran
-    assert_equal ['Generation 3 took 7.00 s: setup 7.00 s, no tournament round, no benchmark.',
-                  'Setup: emptying work/ 0.25 s, parents 1.00 s, breeding 4.50 s (storing 0.50 s during it), ' \
-                  'saving 0.75 s, exporting 0.50 s.'],
+    assert_equal ['Generation 3 took 7.25 s: setup 7.25 s, no tournament round, no benchmark.',
+                  'Setup: emptying work/ 0.25 s, breeding 4.75 s (hashing 0.25 s and storing 0.50 s during it), ' \
+                  'syncing 1.00 s, saving 0.75 s, deleting old networks 0.50 s.'],
                  breeding_generation.summary
   end
 
-  def test_a_setup_that_only_exported_names_only_that
+  def test_a_resumed_setup_names_only_what_it_did
     t = timings(partial: true)
     t.time(:total) do
       t.time(:setup) do
         t.time(:setup_clear) { @clock.advance(0.25) }
-        t.time(:setup_export) { @clock.advance(0.5) }
+        t.time(:setup_retire) { @clock.advance(0.25) }
+        t.time(:setup_verify) { @clock.advance(0.5) }
       end
     end
-    assert_equal 'timings generation=3 partial=1 setup=0.750 setup_clear=0.250 setup_export=0.500 total=0.750', t.line
-    assert_equal 'Setup: emptying work/ 0.25 s, exporting 0.50 s.', t.summary[1]
+    assert_equal 'timings generation=3 partial=1 setup=1.000 setup_clear=0.250 setup_retire=0.250 setup_verify=0.500 ' \
+                 'total=1.000', t.line
+    assert_equal 'Setup: emptying work/ 0.25 s, deleting old networks 0.25 s, verifying 0.50 s.', t.summary[1]
+  end
+
+  # Storing a checkpoint's champion is part of its last round, after the
+  # tournament's fields on the line.
+  def test_storing_the_champion_is_timed_within_the_last_round
+    t = timings
+    t.time(:total) do
+      t.round(1) do
+        t.wait { @clock.advance(1.0) }
+        t.time(:champion) { @clock.advance(0.25) }
+      end
+      t.time(:benchmark) { @clock.advance(2.0) }
+    end
+    assert_equal 'timings generation=3 partial=0 round_1=1.250 worker_round_1=0.000 ruby_round_1=0.250 games_round_1=0 ' \
+                 'failures_round_1=0 tournament=1.250 worker=0.000 ruby=0.250 games=0 failures=0 champion=0.250 ' \
+                 'benchmark=2.000 total=3.250', t.line
+    assert_equal 'Tournament: 1 round, 0 games, none failed; workers 0.00 s, Ruby 0.25 s outside waiting for them; ' \
+                 'storing the champion 0.25 s of it.', t.summary[1]
   end
 
   def test_a_resumed_generation_is_marked_partial

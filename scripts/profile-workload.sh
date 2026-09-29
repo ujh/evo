@@ -189,17 +189,23 @@ sampler='
 field() { printf '%s\n' "$2" | tr ' ' '\n' | awk -F= -v k="$1" '$1 == k { print $2 }'; }
 
 # setup_parts LINE: the parts of setup in LINE that ran, as
-# "clear 0.1 s, breed 30.2 s (store 5.0 s within it), ...". store is within
-# breed, so it is not listed as a part of its own.
+# "clear 0.1 s, breed 30.2 s (hash 3.0 s, store 5.0 s within it), ...".
+# hash and store are within breed, so they are not listed as parts of
+# their own.
 setup_parts() {
   printf '%s\n' "$1" | tr ' ' '\n' | awk -F= '
     $1 ~ /^setup_/ { sub(/^setup_/, "", $1); name[++n] = $1; value[$1] = $2 }
     END {
       for (i = 1; i <= n; i++) {
         k = name[i]
-        if (k == "store") continue
+        if (k == "hash" || k == "store") continue
         s = k " " value[k] " s"
-        if (k == "breed" && ("store" in value)) s = s " (store " value["store"] " s within it)"
+        if (k == "breed") {
+          w = ""
+          if ("hash" in value) w = "hash " value["hash"] " s"
+          if ("store" in value) w = w (w ? ", " : "") "store " value["store"] " s"
+          if (w) s = s " (" w " within it)"
+        }
         p = p (p ? ", " : "") s
       }
       print p
@@ -269,17 +275,18 @@ run_generation() {
   out 'stored networks: generation|count|bytes'
   sqlite3 "$db" "select generation, count(*), sum(length(weights)) from networks group by generation" |
     sed 's/^/    /' >> "$results"
-  out "disk: experiment $(du -sk "$experiment" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), database $(du -sk "$db" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), work/ $(du -sk "$experiment/work" | awk '{ printf "%.2f GiB", $1 / 1048576 }'); df free $(df -Pk "$experiment" | awk 'NR == 2 { printf "%.1f GiB", $4 / 1048576 }')"
+  out "disk: experiment $(du -sk "$experiment" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), database $(du -sk "$db" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), networks/ $(du -sk "$experiment/networks" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), work/ $(du -sk "$experiment/work" | awk '{ printf "%.2f GiB", $1 / 1048576 }'); df free $(df -Pk "$experiment" | awk 'NR == 2 { printf "%.1f GiB", $4 / 1048576 }')"
 
   # The arena's startup and load cost: one arena over every network of the
-  # generation, each loaded once, playing one move per game (max_moves 0).
-  # An untimed first run warms the file cache, so the three timed runs
-  # compare.
+  # generation (networks/N/), each loaded once, playing one move per game
+  # (max_moves 0). An untimed first run warms the file cache, so the three
+  # timed runs compare.
   schedule="$results.gen$generation.schedule"
-  find "$experiment/work" -maxdepth 1 -name '*.ann' | sort |
+  generation_networks="$experiment/networks/$generation"
+  find "$generation_networks" -maxdepth 1 -name '*.ann' | sort |
     awk '{ n[NR] = $0 } END { for (i = 1; i <= NR; i += 2) print "g" i, n[i], n[(i < NR) ? i + 1 : 1] }' > "$schedule"
-  networks=$(find "$experiment/work" -maxdepth 1 -name '*.ann' | wc -l | tr -d ' ')
-  bytes=$(find "$experiment/work" -maxdepth 1 -name '*.ann' -exec ls -l {} + | awk '{ s += $5 } END { print s + 0 }')
+  networks=$(find "$generation_networks" -maxdepth 1 -name '*.ann' | wc -l | tr -d ' ')
+  bytes=$(find "$generation_networks" -maxdepth 1 -name '*.ann' -exec ls -l {} + | awk '{ s += $5 } END { print s + 0 }')
   out "arena load (a separate run after the invocation, after an untimed warm-up run, so a warm file cache): $networks networks, $bytes bytes, $(wc -l < "$schedule" | tr -d ' ') games at max_moves 0"
   loads=''
   ( cd "$experiment/work" && ../arena 9 6.5 0 "$schedule" > /dev/null )

@@ -74,6 +74,27 @@ module RunGenerationHelpers
     database.save_state(generation, hash.merge(state))
   end
 
+  # Writes a generation's networks (name => bytes) into networks/N/ in
+  # `experiment`, each with a birth whose genome is its SHA-256, as a saved
+  # setup leaves them. The default, '..', is the experiment directory of
+  # tests that run in the current directory as work/.
+  def write_networks(generation, networks, experiment: '..', store: database)
+    directory = File.join(experiment, 'networks', generation.to_s)
+    FileUtils.mkdir_p(directory)
+    networks.each do |name, bytes|
+      File.binwrite(File.join(directory, name), bytes)
+      store.record_birth(generation:, child: name, operator: 'initial', seed: 1, genome: Digest::SHA256.hexdigest(bytes))
+    end
+  end
+
+  # The files in `directory` by name, with their contents; {} when it does
+  # not exist.
+  def files_in(directory)
+    return {} unless Dir.exist?(directory)
+
+    Dir.children(directory).sort.to_h { |name| [name, File.binread(File.join(directory, name))] }
+  end
+
   # Copies a result fixture and, when there is one, the twogtp stderr it came with.
   def copy_dat(fixture, prefix)
     %w[dat err].each do |ext|

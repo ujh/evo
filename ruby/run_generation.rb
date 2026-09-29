@@ -61,23 +61,126 @@ class RunGeneration
   end
 
   # The scratch directory the generation works in. It is emptied at the
-  # start of every generation; everything worth keeping is in the database.
+  # start of every generation; everything worth keeping is in the database
+  # and in NETWORKS.
   WORK = 'work'.freeze
+
+  # Each generation's networks, in the experiment directory beside work/:
+  # networks/N/ once complete, networks/N.partial/ while setup writes them.
+  # As the generation sees it from work/, where it runs.
+  NETWORKS = '../networks'.freeze
+  EXPERIMENT = '..'.freeze
+
+  # Raised when a run cannot go on; the message is the report the run stops
+  # with (RunExperiment prints it and exits 1).
+  Stopped = Class.new(StandardError)
+
+  # Raised when a generation's saved setup lacks networks/N/ or a network
+  # that matches its birth. Its parents are gone, so it cannot be bred again.
+  NetworksDamaged = Class.new(Stopped)
 
   def setup
     timings.time(:setup) do
       timings.time(:setup_clear) { empty_work }
       Dir.chdir(WORK) do
+        resumed = data['setup_complete']
+        timings.time(:setup_retire) { sweep_networks }
         if generation == '0'
           setup_initial_population
         else
           evolve_from_previous_population
         end
-        # On resume the networks come from the database, not from breeding.
-        timings.time(:setup_export) { store.export_networks(generation.to_i, '.') }
+        # A generation set up by an earlier session plays networks it did
+        # not write; one whose tournament is over plays nothing.
+        timings.time(:setup_verify) { verify_networks } if resumed && data['round'] < settings['tournament_rounds']
       end
     end
     Dir.chdir(WORK) { yield }
+  end
+
+  def network_dir(number) = File.join(NETWORKS, number.to_s)
+
+  def partial_dir = "#{network_dir(generation)}.partial"
+
+  def network_path(name) = File.join(network_dir(generation), name)
+
+  # Deletes every networks/K/ and networks/K.partial/ but the one this
+  # setup needs: networks/N/ once N's setup is saved, else the parents'
+  # networks/N-1/. So a partial or complete networks/N/ of a setup that was
+  # never saved goes (it is bred again), and so do parents a crash or Ctrl-C
+  # left after the save.
+  def sweep_networks
+    return unless Dir.exist?(NETWORKS)
+
+    needed = data['setup_complete'] ? generation : (generation.to_i - 1).to_s
+    Dir.children(NETWORKS).each do |entry|
+      next unless entry.match?(/\A\d+(\.partial)?\z/) && entry != needed
+
+      FileUtils.rm_rf(File.join(NETWORKS, entry))
+    end
+  end
+
+  # An empty networks/N.partial/ for setup to write into.
+  def prepare_partial
+    FileUtils.rm_rf(partial_dir)
+    FileUtils.mkdir_p(partial_dir)
+  end
+
+  # Makes networks/N.partial/ networks/N/ for good: syncs every network and
+  # the directory, renames it, and syncs networks/ and the experiment
+  # directory (which holds networks/ since the first generation), so the
+  # rename is on disk before the setup that relies on it is saved.
+  def publish_networks
+    Dir.children(partial_dir).sort.each { |name| fsync(File.join(partial_dir, name)) }
+    fsync(partial_dir)
+    File.rename(partial_dir, network_dir(generation))
+    fsync(NETWORKS)
+    fsync(EXPERIMENT)
+  end
+
+  def fsync(path)
+    File.open(path) { |file| file.fsync }
+  end
+
+  # Deletes the parents' networks once the generation bred from them is saved.
+  def retire_networks(number)
+    FileUtils.rm_rf(network_dir(number))
+  end
+
+  # Checks networks/N/ against the generation's births: each is there and
+  # has the SHA-256 its birth recorded.
+  def verify_networks
+    directory = network_dir(generation)
+    shown = "networks/#{generation}/"
+    unless Dir.exist?(directory)
+      raise NetworksDamaged, "#{shown} is missing, but generation #{generation}'s setup is saved. " \
+                             "#{cannot_breed_again}"
+    end
+
+    missing = []
+    changed = []
+    store.births(generation.to_i).each do |birth|
+      path = File.join(directory, birth[:child])
+      if !File.file?(path) then missing << birth[:child]
+      elsif Digest::SHA256.file(path).hexdigest != birth[:genome] then changed << birth[:child]
+      end
+    end
+    return if missing.empty? && changed.empty?
+
+    problems = { 'missing' => missing, 'changed' => changed }.reject { |_, names| names.empty? }
+    raise NetworksDamaged, "#{shown} does not match generation #{generation}'s births " \
+                           "(#{problems.map { |kind, names| "#{kind}: #{listed(names)}" }.join('; ')}). " \
+                           "#{cannot_breed_again}"
+  end
+
+  # Names up to 20, then how many more.
+  def listed(names)
+    shown = names.first(20).join(', ')
+    names.size > 20 ? "#{shown} and #{names.size - 20} more" : shown
+  end
+
+  def cannot_breed_again
+    'Its parents are gone, so it cannot be bred again. The run stopped.'
   end
 
   def empty_work
@@ -99,16 +202,28 @@ class RunGeneration
     puts "\rPlaying ... done".ljust(70)
   end
 
+  # After the last round, a checkpoint's champion is stored with the state
+  # that ends its tournament.
   def setup_next_round
     round = data['round'] + 1
     ranking = shuffle_ties(data['ranking'], round)
-    games = if round >= settings['tournament_rounds']
-              []
-            else
-              games_from_ranking(ranking, colors_rng(round))
-            end
+    state = data.merge('round' => round, 'ranking' => ranking)
+    if round < settings['tournament_rounds']
+      save_data(state.merge('games' => games_from_ranking(ranking, colors_rng(round))))
+    elsif keep?(generation.to_i)
+      timings.time(:champion) { save_data(state.merge('games' => []), champion: champion(ranking)) }
+    else
+      save_data(state.merge('games' => []))
+    end
+  end
 
-    save_data(data.merge('round' => round, 'games' => games, 'ranking' => ranking))
+  # [name, bytes] of the first network of the ranking that is not a bot,
+  # as CheckpointBenchmark#top_network and ArchiveExperiment pick it.
+  def champion(ranking)
+    name = ranking.map { |entry| entry['name'] }.find { |player| !external?(player) }
+    raise "generation #{generation} has no ranked network to keep" unless name
+
+    [name, File.binread(network_path(name))]
   end
 
   # Orders tied players with a generator seeded for this round, so the same
@@ -197,11 +312,11 @@ class RunGeneration
       "#{chunk.manifest} > #{chunk.out} 2> #{chunk.err}"
   end
 
-  # The chunk's players, a network by its file in work/ and a bot by its
-  # name, then each game, followed by the command of each of its bots.
+  # The chunk's players, a network by its file in networks/N/ and a bot by
+  # its name, then each game, followed by the command of each of its bots.
   def manifest(chunk)
     players = chunk.games.values.flat_map { |game| game.values_at('black', 'white') }.uniq
-    lines = players.map { |player| external?(player) ? ['bot', player] : ['network', player, player] }
+    lines = players.map { |player| external?(player) ? ['bot', player] : ['network', player, network_path(player)] }
     chunk.games.each do |id, game|
       lines << ['game', id, game['black'], game['white']]
       seed = gnugo_seed(game)
@@ -236,7 +351,7 @@ class RunGeneration
   # without a record. The chunk's other games are stored; the rest stay
   # pending, so a resume replays them. The message is the report the run
   # stops with (RunExperiment prints it and exits 1).
-  ArenaStopped = Class.new(StandardError)
+  ArenaStopped = Class.new(Stopped)
 
   # Scores and stores every game of the chunk the arena finished, then
   # deletes the chunk's files; stops the run (ArenaStopped) if any game has
@@ -444,8 +559,8 @@ class RunGeneration
     keep?(generation.to_i)
   end
 
-  # SGFs and networks are kept for every keep_every-th generation (0 keeps
-  # none), so lineages can be revisited at regular points.
+  # SGFs and the champion are kept for every keep_every-th generation (0
+  # keeps none), so lineages can be revisited at regular points.
   def keep?(generation_number)
     every = settings['keep_every']
     every.positive? && (generation_number % every).zero?
@@ -469,9 +584,9 @@ class RunGeneration
   # Replaces the state in one transaction, so a crash leaves the old state or
   # the new one, never half of it, and keeps it as the state in memory. Used
   # at setup and at each round's pairing; a game saves only what it changed
-  # (save_game).
-  def save_data(hash, retire_networks_of: nil)
-    store.save_state(generation.to_i, hash, retire_networks_of:)
+  # (save_game). `champion` goes into the same transaction (save_state).
+  def save_data(hash, champion: nil)
+    store.save_state(generation.to_i, hash, champion:)
     @data = hash
     exit if $stop_now
   end
@@ -481,29 +596,32 @@ class RunGeneration
 
     puts 'Generating initial population ...'
     timings.time(:setup_breed) { create_initial_population }
+    timings.time(:setup_sync) { publish_networks }
     tournament = setup_tournament
     timings.time(:setup_save) { save_data(tournament) }
   end
 
-  # Runs initial-population and stores its networks and their births.
+  # Runs initial-population in networks/0.partial/ and records the births.
   def create_initial_population
     seed = Seeds.derive(experiment_seed, 'initial-population')
-    command = "../initial-population #{self.class.initial_population_arguments(settings).join(' ')}"
-    # Stop before storing anything, so generation 0 never starts short of
-    # networks, as breeding does when evolve fails.
-    success, output = run_initial_population(command)
-    raise "initial-population failed: #{command}" unless success
+    command = "../../initial-population #{self.class.initial_population_arguments(settings).join(' ')}"
+    prepare_partial
+    Dir.chdir(partial_dir) do
+      # Stop before storing anything, so generation 0 never starts short of
+      # networks, as breeding does when evolve fails.
+      success, output = run_initial_population(command)
+      raise "initial-population failed: #{command}" unless success
 
-    networks = Dir['*.ann'].sort
-    expected = settings['population_size']
-    raise "initial-population wrote #{networks.size} networks, expected #{expected}: #{command}" unless networks.size == expected
+      networks = Dir['*.ann'].sort
+      expected = settings['population_size']
+      raise "initial-population wrote #{networks.size} networks, expected #{expected}: #{command}" unless networks.size == expected
 
-    networks.zip(initial_genes(output, networks.size, command)) do |network, network_genes|
-      timings.time(:setup_store) do
-        store.record_network(0, network, File.binread(network))
-        store.record_birth(generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
-                           differs_from_first: nil, differs_from_second: nil, seed:,
-                           genome: Digest::SHA256.file(network).hexdigest, **network_genes)
+      networks.zip(initial_genes(output, networks.size, command)) do |network, network_genes|
+        genome = timings.time(:setup_hash) { Digest::SHA256.file(network).hexdigest }
+        timings.time(:setup_store) do
+          store.record_birth(generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
+                             differs_from_first: nil, differs_from_second: nil, seed:, genome:, **network_genes)
+        end
       end
     end
   end
@@ -611,10 +729,7 @@ class RunGeneration
     previous_generation = generation.to_i - 1
     previous_data = store.state(previous_generation)
     candidates = parent_candidates(previous_data)
-    timings.time(:setup_parents) do
-      FileUtils.mkdir_p(PARENTS)
-      store.export_networks(previous_generation, PARENTS)
-    end
+    prepare_partial
     # Generate the new population
     total = settings['population_size']
     timings.time(:setup_breed) do
@@ -624,30 +739,26 @@ class RunGeneration
       end
     end
     puts "\rGenerating population ... done         "
-    # The parents are dropped in the same transaction that saves the new
-    # generation, unless their generation is one to keep.
+    timings.time(:setup_sync) { publish_networks }
     tournament = setup_tournament
-    timings.time(:setup_save) do
-      save_data(tournament, retire_networks_of: keep?(previous_generation) ? nil : previous_generation)
-    end
+    timings.time(:setup_save) { save_data(tournament) }
+    # Only once the new setup is saved: until then a resume breeds again.
+    timings.time(:setup_retire) { retire_networks(previous_generation) }
   end
 
-  # The previous generation's networks, written out for evolve. They are
-  # named like this generation's children, so they need their own directory.
-  PARENTS = 'parents'.freeze
-
-  # Writes one child straight to `child`. A file left there by an interrupted
-  # run is removed first, so a child exists only if this evolve wrote it. On
-  # failure, breeding stops before the parents are deleted.
+  # Writes one child into networks/N.partial/, which setup emptied, so a
+  # child exists only if this evolve wrote it. The parents are read from
+  # networks/N-1/. On failure, breeding stops before the parents are deleted.
   def breed_child(previous_generation, candidates, index)
     child = "#{index}.ann"
-    FileUtils.rm_f(child)
+    path = File.join(partial_dir, child)
     parents = Array.new(2) { select_parent(candidates) }
     seed = Seeds.derive(experiment_seed, 'birth', generation.to_i, index)
-    command = "../evolve #{evolve_arguments.join(' ')} #{parents.map { |p| "#{PARENTS}/#{p}" }.join(' ')} #{child} #{seed}"
+    parent_paths = parents.map { |parent| File.join(network_dir(previous_generation), parent) }
+    command = "../evolve #{evolve_arguments.join(' ')} #{parent_paths.join(' ')} #{path} #{seed}"
     success, output, status = run_evolve(command)
     stop_breeding(child, status) unless success
-    raise "evolve failed to breed #{child}: #{command}" unless success && File.exist?(child)
+    raise "evolve failed to breed #{child}: #{command}" unless success && File.exist?(path)
 
     summary = output.match(EVOLVE_SUMMARY)
     raise "evolve printed no summary for #{child}: #{command}" unless summary
@@ -660,12 +771,11 @@ class RunGeneration
       raise "evolve printed genes of the feature set #{genes[:features]} for #{child}, " \
             "but the experiment's is #{experiment_features}: #{command}"
     end
+    genome = timings.time(:setup_hash) { Digest::SHA256.file(path).hexdigest }
     timings.time(:setup_store) do
-      store.record_network(generation.to_i, child, File.binread(child))
       store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
                          operator: summary[:operator], differs_from_first: differs(summary[:first]),
-                         differs_from_second: differs(summary[:second]), seed:,
-                         genome: Digest::SHA256.file(child).hexdigest, parent: summary[:parent],
+                         differs_from_second: differs(summary[:second]), seed:, genome:, parent: summary[:parent],
                          structure: summary[:structure], activation_changed: summary[:activation_changed] == '1',
                          **genes)
     end
@@ -767,16 +877,15 @@ class RunGeneration
     games
   end
 
-  # The experiment's opponents, each copy numbered from 1, then the networks.
+  # The experiment's opponents, each copy numbered from 1, then the
+  # networks in networks/N/.
   def setup_players
     players = store.opponents.each_with_object({}) do |opponent, hash|
       (1..opponent[:copies]).each do |i|
         hash["#{opponent[:name]}#{i}"] = { 'command' => opponent[:command], 'external' => true }
       end
     end
-    players.merge!(Dir['*.ann'].each_with_object({}) do |player, hash|
-                     hash[player] = { 'command' => "../evo #{player}" }
-                   end)
-    players
+    networks = Dir.children(network_dir(generation)).select { |name| name.end_with?('.ann') }.sort
+    players.merge!(networks.to_h { |player| [player, { 'command' => "../evo #{network_path(player)}" }] })
   end
 end
