@@ -5,7 +5,7 @@ project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 tools_root="$project_root/.local/evo-tools"
 cache_dir="$tools_root/cache"
 releases_dir="$tools_root/releases"
-release_id='gnugo-3.8_brown-1.0_amigogtp-1.8_gogui-1.6.0_r4'
+release_id='gnugo-3.8_brown-1.0_amigogtp-1.8_gogui-1.6.0_michi-c2-d2a4cb8_r5'
 release_dir="$releases_dir/$release_id"
 # The archives are served from this project's own GitHub release, so setup
 # does not depend on the upstream hosts being up. scripts/external-tools.txt
@@ -54,6 +54,7 @@ download gnugo-3.8.tar.gz
 download brown-1.0.tar.gz
 download amigogtp-1.8.tar.gz
 download gogui-v1.6.0-bin.zip
+download michi-c2-d2a4cb8.tar.gz
 
 stage=$(mktemp -d "$releases_dir/.stage.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
@@ -82,6 +83,16 @@ if ! (cd "$stage/src/amigogtp-1.8" && CXXFLAGS='-O2 -include unistd.h' ./configu
   exit 1
 fi
 cp "$stage/src/amigogtp-1.8/amigogtp/amigogtp" "$stage/bin/amigogtp"
+
+tar -xzf "$cache_dir/michi-c2-d2a4cb8.tar.gz" -C "$stage/src"
+michi_src="$stage/src/michi-c2-d2a4cb80b3151d27fe6e4f16ff89ca69191d7e32"
+patch -s -p1 -d "$michi_src" <"$project_root/scripts/patches/michi-c2-d2a4cb8.patch"
+printf 'Building michi-c2 d2a4cb8\n'
+if ! (cd "$michi_src" && make -s) >"$stage/michi-build.log" 2>&1; then
+  tail -40 "$stage/michi-build.log" >&2
+  exit 1
+fi
+cp "$michi_src/michi" "$stage/bin/michi"
 
 printf 'Installing GoGui 1.6.0\n'
 unzip -q "$cache_dir/gogui-v1.6.0-bin.zip" -d "$stage/src"

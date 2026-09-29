@@ -49,8 +49,11 @@ match() {
 # (ruby/setup_experiment.rb) plays at least once, and so does the engine
 # itself. GNU Go level 0 is a benchmark bot; level 10 plays because it comes
 # back as a tournament opponent later, and its move generation checks the
-# gg_sort patch.
+# gg_sort patch. michi-c2 plays at a fixed number of playouts and seed, as
+# the runner's commands will give it, against Brown, which it beats
+# without resigning, so the referee scores the game.
 match brown-amigo brown amigogtp
+match michi-brown 'michi gtp --sims 100 --seed 1' brown
 match gnugo0-brown 'gnugo --level 0 --mode gtp' brown
 match amigo-gnugo10 amigogtp 'gnugo --level 10 --mode gtp'
 match evo-brown './engine/evo engine/example.ann' brown
@@ -83,4 +86,4 @@ if [ "$failed" -ne 0 ]; then
   printf 'GoGui smoke matches failed\n' >&2
   exit 1
 fi
-printf 'GoGui matches completed with Brown, AmiGoGtp, GNU Go, and Evo\n'
+printf 'GoGui matches completed with Brown, AmiGoGtp, GNU Go, michi-c2, and Evo\n'
