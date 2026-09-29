@@ -1481,6 +1481,47 @@ class PlayRoundTest < Minitest::Test
     assert_equal 'Sent SIGTERM to 1 other chunk still running; its games not stored stay pending too.',
                  gen.send(:terminated_note, 1)
     assert_equal 'No chunk was still running.', gen.send(:terminated_note, 0, itself: true)
+    assert_equal 'No other chunk was running. 1 chunk had not started; its games stay pending.',
+                 gen.send(:terminated_note, 0, 1)
+    assert_equal 'Sent SIGTERM to 2 chunks still running, this one among them unless it had exited; their games ' \
+                 'not stored stay pending. 3 chunks had not started; their games stay pending.',
+                 gen.send(:terminated_note, 2, 3, itself: true)
+  end
+
+  # With four chunks per worker most of a round's chunks wait in the queue:
+  # the stop leaves them unstarted and says so, apart from those it
+  # signalled. One worker: after arena-0 ended arena-1 ran, and arena-2 had
+  # not started.
+  def test_the_report_counts_the_chunks_that_had_not_started
+    in_experiment do
+      setup_round(THREE_GAMES)
+      pool = FakePool.new(concurrency: 1,
+                          arena: ->(id, _game) { id == 'Brown1xaR0' ? arena_failed(id, side: 'black') : arena_played(id) },
+                          status: ->(chunk) { chunk.name == 'arena-0' ? exit_status(2) : signal_status('TERM') })
+      gen = build_with(pool, chunks_per_worker: RunGeneration::CHUNKS_PER_WORKER)
+      error = nil
+      capture_io { error = assert_raises(RunGeneration::ArenaStopped) { gen.send(:play_round) } }
+      assert_equal %w[arena-1 arena-2], pool.terminated.map(&:name)
+      assert_includes error.message, 'Sent SIGTERM to 1 other chunk still running; its games not stored stay ' \
+                                     'pending too. 1 chunk had not started; its games stay pending.'
+      assert_equal THREE_GAMES, pending
+    end
+  end
+
+  # A chunk that writes what the arena never writes stops the run while it
+  # runs: it is the one signalled, and the two behind it had not started.
+  def test_a_broken_chunk_counts_the_chunks_behind_it_as_not_started
+    in_experiment do
+      setup_round(THREE_GAMES)
+      pool = FakePool.new(concurrency: 1, arena_output: ->(text) { text.lines.drop(1).join })
+      gen = build_with(pool, chunks_per_worker: RunGeneration::CHUNKS_PER_WORKER)
+      error = nil
+      capture_io { error = assert_raises(RunGeneration::ArenaStopped) { gen.send(:play_round) } }
+      assert_includes error.message, 'Arena chunk arena-0 '
+      assert_includes error.message, 'Sent SIGTERM to 1 chunk still running, this one among them unless it had ' \
+                                     'exited; its games not stored stay pending. 2 chunks had not started; their ' \
+                                     'games stay pending.'
+    end
   end
 
   # A stand-in for ../arena: a shell script that plays the chunk named

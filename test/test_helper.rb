@@ -164,8 +164,9 @@ class FakePool
 
   def initialize(arena: ->(id, _game) { arena_played(id) }, arena_output: ->(text) { text }, arena_stderr: '',
                  duration: 1.5, status: exit_status(0), clock: nil, on_terminate: nil, reverse: false,
-                 interleave: false, on_event: nil, &run)
+                 interleave: false, on_event: nil, concurrency: nil, &run)
     @run = run
+    @concurrency = concurrency
     @reverse = reverse
     @interleave = interleave
     @on_event = on_event
@@ -194,11 +195,15 @@ class FakePool
     @events[identifier] = nil
   end
 
+  # Stops every queued job and returns how many ran: the first
+  # `concurrency` of them (all when not given), as the real pool signals
+  # only its running jobs.
   def terminate
     @on_terminate&.call
+    running = @concurrency ? [@concurrency, @queued.size].min : @queued.size
     @terminated.concat(@queued)
     @queued.clear
-    @terminated.size
+    running
   end
 
   # Every job "takes" 1.5 seconds unless told otherwise.

@@ -260,8 +260,10 @@ class RunGeneration
     chunks = arena_chunks(games).map { |chunk| [chunk, prepare_chunk(chunk)] }
     chunks.each { |chunk, command| pool.submit_streaming(command, chunk) }
 
-    running = chunks.size
-    while running.positive?
+    # The round's chunks not yet ended, running or queued (stop_for counts
+    # those it did not signal as not started).
+    @unended = chunks.size
+    while @unended.positive?
       event = timings.wait { pool.next_finished }
       # Ctrl-C also stops the running chunks. A record read after the trap
       # is dropped and its game stays pending, since the arena may have been
@@ -270,7 +272,7 @@ class RunGeneration
       if event.is_a?(WorkerPool::Line)
         receive_record(event.identifier, event.text)
       else
-        running -= 1
+        @unended -= 1
         finish_chunk(event.identifier, event.duration, event.status)
       end
     end
@@ -434,6 +436,7 @@ class RunGeneration
   # from 0, as in the game IDs.
   def stop_for(chunk, status = nil, broken: nil)
     terminated = pool.terminate
+    not_started = not_started(terminated, itself: broken)
     stream = chunk.stream
     reasons = []
     if broken
@@ -456,7 +459,7 @@ class RunGeneration
                         "#{reasons.join(', ')}. #{withheld.size} of its #{chunk.games.size} games stay pending" \
                         "#{withheld.empty? ? '.' : ":\n#{withheld.join.chomp}"}\n" \
                         "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}\n" \
-                        "The games it finished are stored. #{terminated_note(terminated, itself: broken)}\n" \
+                        "The games it finished are stored. #{terminated_note(terminated, not_started, itself: broken)}\n" \
                         'The run stopped; resume after fixing the cause.'
   end
 
@@ -467,9 +470,26 @@ class RunGeneration
     end
   end
 
-  # How many chunks the stop sent SIGTERM; `itself` when the stopping
-  # chunk had not ended, so it may be one of them.
-  def terminated_note(count, itself: false)
+  # How many of the round's other chunks had not started when the stop
+  # halted the pool: those not yet ended that it did not signal. `itself`
+  # when the stopping chunk had not ended, so it is taken to be among the
+  # signalled ones (unless none was). A chunk that had ended before the
+  # stop without its end read yet also counts, since the runner reads
+  # nothing more; its unread records' games stay pending as well.
+  def not_started(terminated, itself: false)
+    others = itself ? @unended - 1 : @unended
+    others_running = itself && terminated.positive? ? terminated - 1 : terminated
+    [others - others_running, 0].max
+  end
+
+  # How many chunks the stop sent SIGTERM and how many had not started;
+  # `itself` when the stopping chunk had not ended, so it may be one of the
+  # signalled ones.
+  def terminated_note(count, not_started = 0, itself: false)
+    [signalled_note(count, itself:), not_started_note(not_started)].compact.join(' ')
+  end
+
+  def signalled_note(count, itself:)
     chunks = count == 1 ? 'chunk' : 'chunks'
     their = count == 1 ? 'its' : 'their'
     if itself
@@ -481,6 +501,14 @@ class RunGeneration
     return 'No other chunk was running.' if count.zero?
 
     "Sent SIGTERM to #{count} other #{chunks} still running; #{their} games not stored stay pending too."
+  end
+
+  def not_started_note(count)
+    return if count.zero?
+
+    return '1 chunk had not started; its games stay pending.' if count == 1
+
+    "#{count} chunks had not started; their games stay pending."
   end
 
   # A stored game never failed, and the chunk's stderr, shared by all its
