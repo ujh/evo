@@ -140,28 +140,35 @@ def signal_status(name)
 end
 
 # Stands in for WorkerPool: "runs" a job and hands the jobs back in the
-# order they were queued. A GoGui game (the benchmark's) is "run" by
-# calling the block, which writes its result file. An arena chunk (one with
-# a manifest) is "run" by writing its stdout as `arena --mixed` does: the
-# header, then `arena` gives each game's record from its ID and game (black
-# wins by default; nil leaves the record out), then the trailer, which
-# counts the records; `arena_output` may rewrite that whole text (nil
-# writes no file),
-# as an arena that died would leave it; `arena_stderr` is written to its
-# stderr. `status` is every job's exit status, or a lambda giving it from
-# the job's identifier; by default the job succeeded. With a `clock` (a
-# FakeClock), waiting for a job advances it by the job's duration.
-# `terminate` stands in for WorkerPool#terminate: the jobs not yet handed
-# back count as running and are never handed back; `on_terminate` runs
-# first. `reverse` hands the jobs back last queued first, as a pool whose
-# later jobs finish sooner would.
+# order they were queued. A plain job (the benchmark's GoGui game, an
+# evolve) is "run" by calling the block, which writes its result files, and
+# comes back as [identifier, duration, status]. A streaming job (an arena
+# chunk) comes back as `arena --mixed` would stream it, one event per
+# next_finished: a WorkerPool::Line for each line of its stdout, then a
+# WorkerPool::Exited. Its stdout is the header, then the record `arena`
+# gives from each game's ID and game (black wins by default; nil leaves the
+# record out), then the trailer, which counts the records; `arena_output`
+# may rewrite that whole text (nil: no output), as an arena that died
+# would leave it; `arena_stderr` is written to its stderr file when its
+# first event comes. `status` is every job's exit status, or a lambda
+# giving it from the job's identifier; by default the job succeeded. With
+# a `clock` (a FakeClock), a job's end advances it by the job's duration.
+# `terminate` stands in for WorkerPool#terminate: the jobs not yet ended
+# count as running and never come back; `on_terminate` runs first.
+# `reverse` hands the jobs back last queued first, as a pool whose later
+# jobs finish sooner would; `interleave` hands back one event of each
+# running job in turn, as parallel arenas would stream them. `on_event` is
+# called with each event before it is handed back.
 class FakePool
   attr_reader :commands, :identifiers, :terminated
 
   def initialize(arena: ->(id, _game) { arena_played(id) }, arena_output: ->(text) { text }, arena_stderr: '',
-                 duration: 1.5, status: exit_status(0), clock: nil, on_terminate: nil, reverse: false, &run)
+                 duration: 1.5, status: exit_status(0), clock: nil, on_terminate: nil, reverse: false,
+                 interleave: false, on_event: nil, &run)
     @run = run
     @reverse = reverse
+    @interleave = interleave
+    @on_event = on_event
     @on_terminate = on_terminate
     @terminated = []
     @clock = clock
@@ -171,6 +178,7 @@ class FakePool
     @duration = duration
     @status = status
     @queued = []
+    @events = {}.compare_by_identity
     @commands = []
     @identifiers = []
   end
@@ -179,6 +187,11 @@ class FakePool
     @commands << command
     @identifiers << identifier
     @queued << identifier
+  end
+
+  def submit_streaming(command, identifier)
+    submit(command, identifier)
+    @events[identifier] = nil
   end
 
   def terminate
@@ -190,17 +203,45 @@ class FakePool
 
   # Every job "takes" 1.5 seconds unless told otherwise.
   def next_finished
-    identifier = @reverse ? @queued.pop : @queued.shift
-    if identifier.respond_to?(:manifest)
-      lines = identifier.games.filter_map { |id, game| @arena.call(id, game) }
-      output = @arena_output.call(([ArenaResult::HEADER] + lines + ["done #{lines.size}"]).map { |l| "#{l}\n" }.join)
-      File.write(identifier.out, output) if output
-      File.write(identifier.err, @arena_stderr)
-    else
-      @run&.call(identifier)
-    end
+    identifier = @reverse ? @queued.last : @queued.first
+    event = @events.key?(identifier) ? next_event(identifier) : run(identifier)
+    @on_event&.call(event)
+    event
+  end
+
+  private
+
+  def run(identifier)
+    @queued.delete_at(@reverse ? -1 : 0)
+    @run&.call(identifier)
     @clock&.advance(@duration)
-    [identifier, @duration, @status.respond_to?(:call) ? @status.call(identifier) : @status]
+    [identifier, @duration, status_of(identifier)]
+  end
+
+  def next_event(identifier)
+    events = (@events[identifier] ||= arena_events(identifier))
+    event = events.shift
+    if events.empty?
+      @queued.delete(identifier)
+      @clock&.advance(@duration)
+    elsif @interleave
+      @queued.push(@queued.delete(identifier))
+    end
+    event
+  end
+
+  def arena_events(chunk)
+    records = chunk.games.filter_map { |id, game| @arena.call(id, game) }
+    output = @arena_output.call(([ArenaResult::HEADER] + records + ["done #{records.size}"]).map { |l| "#{l}\n" }.join)
+    File.write(chunk.err, @arena_stderr)
+    lines = output.to_s.b.split("\n", -1)
+    lines.pop if lines.last == ''
+    lines.map { |line| WorkerPool::Line.new(chunk, line.force_encoding(Encoding::UTF_8).scrub) } +
+      [WorkerPool::Exited.new(chunk, @duration, status_of(chunk))]
+  end
+
+  def status_of(identifier)
+    @status.respond_to?(:call) ? @status.call(identifier) : @status
   end
 end
 

@@ -249,39 +249,40 @@ class RunGeneration
   end
 
   # Byes are scored at once. Every other game is played in the arena
-  # (`arena --mixed`), in at most `concurrency` chunks, one pool job each,
-  # and each chunk's games are scored when it finishes.
+  # (`arena --mixed`), in at most `concurrency` chunks, one streaming pool
+  # job each, and each game is scored as its record arrives.
   def play_round
     byes, games = data['games'].partition { |game| game['white'].nil? }
     # The odd player out sits the round out and gets the bye points.
     byes.each { |game| save_game(game, { 'winner' => nil }) }
     # Every manifest is written before the first chunk starts, so one the
     # arena could not read stops the round before any game.
-    chunks = arena_chunks(games).to_h { |chunk| [chunk, prepare_chunk(chunk)] }
-    chunks.each { |chunk, command| pool.submit(command, chunk) }
+    chunks = arena_chunks(games).map { |chunk| [chunk, prepare_chunk(chunk)] }
+    chunks.each { |chunk, command| pool.submit_streaming(command, chunk) }
 
-    chunks.size.times do
-      chunk, duration, status = timings.wait { pool.next_finished }
-      timings.job(duration)
-      # Ctrl-C also stops the running chunks. Leave their games unscored so
-      # that resuming plays them again instead of counting a killed game.
-      # A chunk can be back before the trap has set the flag; its status tells.
+    running = chunks.size
+    while running.positive?
+      event = timings.wait { pool.next_finished }
+      # Ctrl-C also stops the running chunks. A record read after the trap
+      # is dropped and its game stays pending, since the arena may have been
+      # killed while the game was played; the games stored before stay.
       exit if $stop_now
-      if WorkerPool.interrupted?(status)
-        WorkerPool.exit_interrupted("arena chunk #{chunk.name} (#{chunk.games.keys.join(', ')})",
-                                    'its games stay pending')
+      if event.is_a?(WorkerPool::Line)
+        receive_record(event.identifier, event.text)
+      else
+        running -= 1
+        finish_chunk(event.identifier, event.duration, event.status)
       end
-      finish_chunk(chunk, duration, status)
     end
   end
 
-  # One arena run: `games` maps each game's ID in the manifest to the game.
-  # The files are named after the chunk.
-  ArenaChunk = Struct.new(:name, :games) do
+  # One arena run: `games` maps each game's ID in the manifest to the game,
+  # and `stream` reads its stdout as it arrives. The files are named after
+  # the chunk.
+  ArenaChunk = Struct.new(:name, :games, :stream) do
     def manifest = "#{name}.txt"
-    def out = "#{name}.out"
     def err = "#{name}.err"
-    def files = [manifest, out, err]
+    def files = [manifest, err]
   end
 
   # Deals the games out in turn, so chunks differ by at most one game; the
@@ -293,7 +294,8 @@ class RunGeneration
     count = [settings['concurrency'], games.size].min
     with_bot, without = games.partition { |game| external?(game['black']) || external?(game['white']) }
     (with_bot + without).each_with_index.group_by { |_, i| i % count }.values.each_with_index.map do |dealt, k|
-      ArenaChunk.new("arena-#{k}", dealt.to_h { |game, _| [prefix_from(game), game] })
+      chunk_games = dealt.to_h { |game, _| [prefix_from(game), game] }
+      ArenaChunk.new("arena-#{k}", chunk_games, ArenaResult::MixedStream.new(chunk_games.keys))
     end
   end
 
@@ -308,12 +310,12 @@ class RunGeneration
   # Each side has game_length minutes of main time. The shell execs the
   # arena, so the job's pid is the arena's and WorkerPool#terminate reaches
   # it (the arena then stops its bots); a shell that stayed would take the
-  # SIGTERM and leave the arena running.
+  # SIGTERM and leave the arena running. Its stdout is the pool's pipe.
   def prepare_chunk(chunk)
     File.write(chunk.manifest, manifest(chunk))
     "exec ../arena --mixed #{settings['board_size']} #{settings.fetch('komi')} #{settings['max_moves']} " \
       "#{settings['game_length'] * 60} #{RESPONSE_DEADLINE} #{GENMOVE_GRACE} " \
-      "#{chunk.manifest} > #{chunk.out} 2> #{chunk.err}"
+      "#{chunk.manifest} 2> #{chunk.err}"
   end
 
   # The chunk's players, a network by its file in networks/N/ and a bot by
@@ -357,53 +359,82 @@ class RunGeneration
   # stops with (RunExperiment prints it and exits 1).
   ArenaStopped = Class.new(Stopped)
 
-  # Scores and stores every game of the chunk the arena finished, then
-  # deletes the chunk's files; stops the run (ArenaStopped) if any game has
-  # no result. A crash before the files are deleted replays the games not
-  # yet scored.
+  # Reads one line of the chunk's stdout and scores and stores the game of
+  # a record at once, with the game's own time (finish_chunk adds its share
+  # of the chunk's overhead). A failure record is kept for finish_chunk.
+  # Output the arena never writes stops the run here (stop_for).
+  def receive_record(chunk, line)
+    id, result = chunk.stream.add(line)
+    return unless id && result.failure.nil?
+
+    game = chunk.games.fetch(id)
+    scored = score_game(game, result)
+    timings.game(nil)
+    save_game(game, scored) { store_arena_game(game, result, scored, result.duration || 0) }
+  rescue ArenaResult::Broken => e
+    stop_for(chunk, broken: e.message)
+  end
+
+  # Once the chunk has ended: shares its time beyond its records out among
+  # its stored games, then stops the run (ArenaStopped) if any game has no
+  # result, else deletes the chunk's files. A crash before that replays the
+  # games not yet stored, and leaves the stored ones without their share.
   def finish_chunk(chunk, duration, status)
-    # A dying arena may leave bytes that are not text; they match no line.
-    # UTF-8 whatever the locale, which under LANG=C would be US-ASCII.
-    output = read_utf8(chunk.out)
-    parsed = ArenaResult.mixed_chunk(output, chunk.games.keys)
-    stored = parsed.results.select { |_, result| result.failure.nil? }
-    # The chunk's time beyond all its records' (starting the arena, loading
-    # the networks, and any game left without a record) is shared out
-    # equally among the stored games, so the rows add up to the worker's
-    # time. A failure record's own time is not shared: the game is replayed.
-    played = parsed.results.values.sum { |result| result.duration || 0 }
-    share = stored.empty? ? 0 : [duration - played, 0].max / stored.size
-    stored.each do |id, result|
-      game = chunk.games.fetch(id)
-      scored = score_game(game, result)
-      timings.game(nil)
-      save_game(game, scored) { store_arena_game(game, result, scored, (result.duration || 0) + share) }
+    timings.job(duration)
+    # A chunk can end before the trap has set the flag; its status tells.
+    if WorkerPool.interrupted?(status)
+      WorkerPool.exit_interrupted("arena chunk #{chunk.name} (#{chunk.games.keys.join(', ')})",
+                                  'its games not stored stay pending')
     end
-    stop_for(chunk, parsed, status) unless parsed.complete? && parsed.failures.empty? && status&.success?
+    add_overhead(chunk, duration)
+    stream = chunk.stream
+    stop_for(chunk, status) unless stream.complete? && stream.failures.empty? && status&.success?
     FileUtils.rm_f(chunk.files)
+  end
+
+  # The chunk's time beyond all its records' (starting the arena, loading
+  # the networks, and any game left without a record) is shared out equally
+  # among the stored games, so the rows add up to the worker's time. A
+  # failure record's own time is not shared: the game is replayed.
+  def add_overhead(chunk, duration)
+    results = chunk.stream.results
+    stored = results.select { |_, result| result.failure.nil? }.keys
+    return if stored.empty?
+
+    played = results.values.sum { |result| result.duration || 0 }
+    share = [duration - played, 0].max / stored.size
+    games = stored.map { |id| chunk.games.fetch(id).values_at('black', 'white') }
+    store.add_duration(generation.to_i, data['round'], games, share)
   end
 
   def read_utf8(path)
     File.exist?(path) ? File.read(path, encoding: 'UTF-8').scrub : ''
   end
 
-  # Stops the run for a chunk whose games did not all finish. First it
-  # sends SIGTERM to the round's other chunks still running, whose output
-  # would not be read (they are arenas, exec'd, so the signal reaches them
-  # and they stop their bots), instead of waiting out their bots' deadlines;
-  # their games stay pending too, and nothing reads their statuses, which
+  # Stops the run for a chunk whose games did not all finish: once it
+  # ended (`status`), or, `broken`, at once, as it wrote what the arena
+  # never writes (the reason), so it may still run. First it sends SIGTERM
+  # to the round's chunks still running, whose output would not be read
+  # (they are arenas, exec'd, so the signal reaches them and they stop
+  # their bots), instead of waiting out their bots' deadlines; their games
+  # not yet stored stay pending too, and nothing reads their statuses, which
   # would look like Ctrl-C. Then it raises ArenaStopped with the report:
   # each game left pending and why, and the chunk's stderr. The chunk's
   # files stay in work/ until the resume empties it. The round is counted
   # from 0, as in the game IDs.
-  def stop_for(chunk, parsed, status)
+  def stop_for(chunk, status = nil, broken: nil)
     terminated = pool.terminate
+    stream = chunk.stream
     reasons = []
-    reasons << 'wrote no header' unless parsed.header?
-    reasons << 'did not finish its output' unless parsed.complete? || !parsed.header?
-    reasons << 'could not finish a game' if parsed.failures.any?
-    reasons << exit_reason(status) unless status&.success?
-    withheld = parsed.results.reject { |_, result| result.failure.nil? }.map do |id, result|
+    if broken
+      reasons << broken
+    else
+      reasons << 'wrote no header' unless stream.header?
+      reasons << 'did not finish its output' unless stream.complete? || !stream.header?
+    end
+    reasons << 'could not finish a game' if stream.failures.any?
+    reasons << exit_reason(status) unless broken || status&.success?
+    withheld = stream.results.reject { |_, result| result.failure.nil? }.map do |id, result|
       if result.failed?
         "  #{id}: #{result.end_reason} (#{result.error_side}): #{result.error_message}\n"
       else
@@ -415,7 +446,7 @@ class RunGeneration
                         "#{reasons.join(', ')}. #{withheld.size} of its #{chunk.games.size} games stay pending" \
                         "#{withheld.empty? ? '.' : ":\n#{withheld.join.chomp}"}\n" \
                         "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}\n" \
-                        "The games it finished are stored. #{terminated_note(terminated)}\n" \
+                        "The games it finished are stored. #{terminated_note(terminated, itself: broken)}\n" \
                         'The run stopped; resume after fixing the cause.'
   end
 
@@ -426,11 +457,20 @@ class RunGeneration
     end
   end
 
-  def terminated_note(count)
+  # How many chunks the stop sent SIGTERM; `itself` when the stopping
+  # chunk had not ended, so it may be one of them.
+  def terminated_note(count, itself: false)
+    chunks = count == 1 ? 'chunk' : 'chunks'
+    their = count == 1 ? 'its' : 'their'
+    if itself
+      return 'No chunk was still running.' if count.zero?
+
+      return "Sent SIGTERM to #{count} #{chunks} still running, this one among them unless it had exited; " \
+             "#{their} games not stored stay pending."
+    end
     return 'No other chunk was running.' if count.zero?
 
-    "Sent SIGTERM to #{count} other #{count == 1 ? 'chunk' : 'chunks'} still running; " \
-      "#{count == 1 ? 'its' : 'their'} games stay pending too."
+    "Sent SIGTERM to #{count} other #{chunks} still running; #{their} games not stored stay pending too."
   end
 
   # A stored game never failed, and the chunk's stderr, shared by all its

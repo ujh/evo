@@ -16,8 +16,10 @@ require_relative 'awake_clock'
 #   champion=S benchmark=S total=S
 # A round's time runs from the first game it queues to its next round's
 # pairing. Its worker time is the summed wall time of its pool jobs (arena
-# chunks), so above the round's time when jobs run in parallel. Its Ruby time is the round's time the runner spent not waiting
-# for a job: pairing, queueing, reading results, scoring, and storing.
+# chunks), so above the round's time when jobs run in parallel. Its Ruby
+# time is the round's time the runner spent not waiting for the pool:
+# pairing, queueing, and reading, scoring, and storing each arena record as
+# it arrives, while the arenas play.
 # The parts of setup are within `setup` and, but for setup_hash and
 # setup_store, come one after another: emptying work/, breeding the
 # children or running initial-population, syncing networks/N.partial/ and

@@ -22,7 +22,9 @@ class ScoreGameTest < Minitest::Test
   def score(line, game = NETWORK_VS_NETWORK)
     in_experiment do
       write_data('round' => 0, 'players' => players)
-      result = ArenaResult.mixed_chunk("#{ArenaResult::HEADER}\n#{line}\ndone 1\n", ['g']).results.fetch('g')
+      stream = ArenaResult::MixedStream.new(['g'])
+      stream.add(ArenaResult::HEADER)
+      _, result = stream.add(line)
       build_generation.send(:score_game, game, result)
     end
   end
@@ -916,7 +918,7 @@ class PlayRoundTest < Minitest::Test
       # nothing for it.
       assert_equal({ 'a.ann' => 1, 'b.ann' => 0, 'c.ann' => 1, 'd.ann' => 0, 'Brown1' => 0 },
                    scores(gen).slice('a.ann', 'b.ann', 'c.ann', 'd.ann', 'Brown1'))
-      assert_equal ['exec ../arena --mixed 9 6.5 200 600 10 10 arena-0.txt > arena-0.out 2> arena-0.err'], pool.commands
+      assert_equal ['exec ../arena --mixed 9 6.5 200 600 10 10 arena-0.txt 2> arena-0.err'], pool.commands
       assert_equal({ %w[a.ann b.ann] => 'tromp_taylor', %w[c.ann Brown1] => 'tromp_taylor' },
                    database.games(1).to_h { |row| [row.values_at(:black, :white), row[:scorer]] })
     end
@@ -926,7 +928,7 @@ class PlayRoundTest < Minitest::Test
     in_experiment do
       pool = FakePool.new
       play([%w[a.ann b.ann]], pool, settings: { 'board_size' => 7, 'komi' => 7.0, 'max_moves' => 50, 'game_length' => 3 })
-      assert_equal ['exec ../arena --mixed 7 7.0 50 180 10 10 arena-0.txt > arena-0.out 2> arena-0.err'], pool.commands
+      assert_equal ['exec ../arena --mixed 7 7.0 50 180 10 10 arena-0.txt 2> arena-0.err'], pool.commands
     end
   end
 
@@ -1147,6 +1149,96 @@ class PlayRoundTest < Minitest::Test
     end
   end
 
+  # Streaming: each game is scored as its record arrives
+
+  # The count of stored games when each event comes, before it is read.
+  def test_each_game_is_stored_as_its_record_arrives
+    in_experiment do
+      setup_round(THREE_GAMES)
+      seen = []
+      pool = FakePool.new(on_event: ->(_event) { seen << database.games(1).size })
+      capture_io { build_with(pool).send(:play_round) }
+      # The header, three records, the trailer, and the exit.
+      assert_equal [0, 0, 1, 2, 3, 3], seen
+    end
+  end
+
+  # Ctrl-C mid-chunk: the games whose records came before the trap are
+  # stored; a record read after it is dropped, and its game replays.
+  def test_ctrl_c_mid_chunk_keeps_the_games_that_finished_before_it
+    in_experiment do
+      setup_round(THREE_GAMES)
+      pool = FakePool.new(on_event: lambda { |event|
+        $stop_now = true if event.is_a?(WorkerPool::Line) && event.text.start_with?('cxBrown2R0')
+      })
+      error = nil
+      _, err = capture_io { error = assert_raises(SystemExit) { build_with(pool).send(:play_round) } }
+      assert_equal 0, error.status
+      refute_includes err, 'interrupted'
+      assert_equal [%w[Brown1 a.ann]], database.games(1).map { |row| row.values_at(:black, :white) }
+      assert_equal [%w[c.ann Brown2], %w[d.ann e.ann]], pending
+    ensure
+      $stop_now = false
+    end
+  end
+
+  # Records of parallel chunks arrive in any order; the round's rows,
+  # ranking, and next pairing are the same, since the ranking stays in
+  # ranking_key order while the round is played and ties are shuffled from
+  # a name-sorted list afterwards.
+  def test_the_order_records_arrive_in_does_not_change_the_round
+    results = [{}, { reverse: true }, { interleave: true }, { interleave: true, reverse: true }].map do |order|
+      in_experiment do
+        @database = nil
+        setup_arena_generation
+        gen = build_with(FakePool.new(arena: arena_by_name, **order), settings: ARENA_SETTINGS.merge('concurrency' => 3))
+        capture_io do
+          gen.send(:play_round)
+          gen.send(:setup_next_round)
+        end
+        [untimed_games, database.ranking(1), gen.send(:data)['games'], gen.send(:data)['ranking']]
+      end
+    end
+    results.drop(1).each { |result| assert_equal results.first, result }
+  end
+
+  # Each row gets its own time when its record arrives and its share of the
+  # chunk's overhead when the chunk ends, so the rows add up to the
+  # workers' time, however the chunks' records interleave.
+  def test_the_durations_add_up_to_the_workers_time
+    in_experiment do
+      setup_round(NETWORKS.each_slice(2).to_a)
+      pool = FakePool.new(arena: ->(id, _game) { arena_played(id, duration: 0.25) }, duration: 1.5, interleave: true)
+      capture_io { build_with(pool, settings: { 'concurrency' => 2 }).send(:play_round) }
+      durations = database.games(1).map { |row| row[:duration] }
+      assert_equal 5, durations.size
+      assert_in_delta 2 * 1.5, durations.sum, 1e-9
+      # a, e, and i share 0.75 s of their chunk's 1.5 s; c and g share 1.0 s.
+      assert_equal [0.5, 0.75, 0.5, 0.75, 0.5], durations.map { |d| d.round(9) }
+    end
+  end
+
+  # When a chunk fails, the games the other chunks' records gave until then
+  # stay stored; the rest of theirs stay pending.
+  def test_a_failure_keeps_the_games_other_chunks_gave_before_it
+    in_experiment do
+      setup_round(THREE_GAMES + [%w[f.ann g.ann]])
+      # arena-0 has Brown1-a.ann and d.ann-e.ann, arena-1 c.ann-Brown2 and
+      # f.ann-g.ann; their events alternate, so arena-1's first record
+      # comes before arena-0's failure record and exit.
+      pool = FakePool.new(arena: ->(id, _game) { id == 'dxeR0' ? arena_failed(id) : arena_played(id) },
+                          status: ->(chunk) { chunk.name == 'arena-0' ? exit_status(2) : exit_status(0) },
+                          interleave: true)
+      gen = build_with(pool, settings: { 'concurrency' => 2 })
+      error = nil
+      capture_io { error = assert_raises(RunGeneration::ArenaStopped) { gen.send(:play_round) } }
+      assert_equal [%w[Brown1 a.ann], %w[c.ann Brown2], %w[f.ann g.ann]],
+                   database.games(1).map { |row| row.values_at(:black, :white) }
+      assert_equal [%w[d.ann e.ann]], pending
+      assert_includes error.message, 'Arena chunk arena-0 '
+    end
+  end
+
   # Brown1 against a.ann, then c.ann against Brown2, then d.ann against
   # e.ann, in one chunk.
   THREE_GAMES = [%w[Brown1 a.ann], %w[c.ann Brown2], %w[d.ann e.ann]].freeze
@@ -1156,8 +1248,12 @@ class PlayRoundTest < Minitest::Test
   # records `arena` gives, with `status`, and expects it to stop the run.
   # Returns the games stored (black players), the games left pending, the
   # scores, and the error's message.
+  #
+  # A chunk that wrote what the arena never writes (`broken`) stops the run
+  # as the line arrives, while it may still run, so the stop sends it
+  # SIGTERM too.
   def stopped_chunk(arena: ->(id, _game) { arena_played(id) }, arena_output: ->(text) { text },
-                    status: exit_status(0), stderr: 'Segmentation fault', duration: 1.5)
+                    status: exit_status(0), stderr: 'Segmentation fault', duration: 1.5, broken: false)
     store = database
     setup_round(THREE_GAMES)
     pool = FakePool.new(arena:, arena_output:, arena_stderr: stderr, status:, duration:)
@@ -1169,9 +1265,15 @@ class PlayRoundTest < Minitest::Test
     # to go on, and what the arena said, and stops the other chunks.
     assert_includes error.message, 'Arena chunk arena-0 of generation 1, round 0 '
     assert_includes error.message, "Its stderr:\n#{stderr}" unless stderr.empty?
-    assert_includes error.message, 'No other chunk was running.'
+    if broken
+      assert_includes error.message, 'Sent SIGTERM to 1 chunk still running, this one among them unless it had ' \
+                                     'exited; its games not stored stay pending.'
+      assert_equal %w[arena-0], pool.terminated.map(&:name)
+    else
+      assert_includes error.message, 'No other chunk was running.'
+      assert_equal [], pool.terminated
+    end
     assert_match(/resume after fixing the cause\.\z/, error.message)
-    assert_equal [], pool.terminated
     [store.games(1).map { |row| row[:black] }, pending.map(&:first),
      scores(gen).values_at('a.ann', 'c.ann', 'd.ann', 'Brown1'), error.message]
   end
@@ -1251,20 +1353,37 @@ class PlayRoundTest < Minitest::Test
     end
   end
 
-  def test_records_without_a_header_are_kept_but_stop_the_run
+  # The arena writes its header first; records without it come from
+  # something that is not the arena this runner knows, and none is stored.
+  def test_a_record_before_the_header_stops_the_run_at_once
     in_experiment do
-      stored, left, = stopped_chunk(arena_output: ->(text) { text.lines.drop(1).join })
-      assert_equal %w[Brown1 c.ann d.ann], stored
-      assert_empty left
+      stored, left, _, message = stopped_chunk(arena_output: ->(text) { text.lines.drop(1).join }, broken: true)
+      assert_empty stored
+      assert_equal %w[Brown1 c.ann d.ann], left
+      assert_includes message, 'round 0 wrote a record before its header. 3 of its 3 games stay pending:'
     end
   end
 
-  def test_a_game_with_two_records_is_not_stored
+  # The first record was stored when it came; the second cannot be taken
+  # back into it, and the arena never writes one, so the run stops there.
+  def test_a_second_record_for_a_game_stops_the_run_at_once
     in_experiment do
-      output = ->(text) { text.sub(/^(dxeR0\t.*\n)/) { "#{::Regexp.last_match(1)}#{::Regexp.last_match(1)}" } }
-      stored, left, = stopped_chunk(arena_output: output)
+      output = ->(text) { text.sub(/^(cxBrown2R0\t.*\n)/) { "#{::Regexp.last_match(1)}#{::Regexp.last_match(1)}" } }
+      stored, left, _, message = stopped_chunk(arena_output: output, broken: true)
       assert_equal %w[Brown1 c.ann], stored
       assert_equal %w[d.ann], left
+      assert_includes message, 'round 0 wrote a second record for cxBrown2R0. 1 of its 3 games stay pending:'
+      assert_includes message, '  dxeR0: no record'
+    end
+  end
+
+  def test_a_record_for_a_game_not_in_the_chunk_stops_the_run_at_once
+    in_experiment do
+      output = ->(text) { text.sub(/^(cxBrown2R0\t)/, "#{arena_played('axbR0')}\n\\1") }
+      stored, left, _, message = stopped_chunk(arena_output: output, broken: true)
+      assert_equal %w[Brown1], stored
+      assert_equal %w[c.ann d.ann], left
+      assert_includes message, 'wrote a record for axbR0, which is not in its manifest.'
     end
   end
 
@@ -1293,8 +1412,11 @@ class PlayRoundTest < Minitest::Test
                                           "round 0 was killed by SIGSEGV. 0 of its 3 games stay pending.\nIts stderr"],
       'a malformed line' => [{ arena_output: ->(text) { text.sub(/^cxBrown2R0\t.*$/, "cxBrown2R0\tgarbage") } },
                              %w[Brown1 d.ann], %w[c.ann], 'did not finish its output. 1 of its 3 games'],
-      'a missing header' => [{ arena_output: ->(text) { text.lines.drop(1).join } }, %w[Brown1 c.ann d.ann], [],
-                             'wrote no header. 0 of its 3 games stay pending.']
+      'a missing header' => [{ arena_output: ->(text) { "#{ArenaResult::HEADER}x\n#{text.lines.drop(1).join}" },
+                               broken: true }, [], %w[Brown1 c.ann d.ann],
+                             'wrote a record before its header. 3 of its 3 games stay pending:'],
+      'only the header' => [{ arena_output: ->(text) { text.lines.first } }, [], %w[Brown1 c.ann d.ann],
+                            'did not finish its output. 3 of its 3 games stay pending:']
     }.each do |how, (options, stored_games, left_games, says)|
       in_experiment do
         @database = nil
@@ -1322,7 +1444,7 @@ class PlayRoundTest < Minitest::Test
       assert_equal %w[arena-1 arena-2], pool.terminated.map(&:name)
       assert_empty database.games(1)
       assert_equal THREE_GAMES, pending
-      assert_includes error.message, 'Sent SIGTERM to 2 other chunks still running; their games stay pending too.'
+      assert_includes error.message, 'Sent SIGTERM to 2 other chunks still running; their games not stored stay pending too.'
     end
   end
 
@@ -1346,7 +1468,9 @@ class PlayRoundTest < Minitest::Test
   def test_the_report_says_how_many_other_chunks_were_terminated
     gen = build_generation
     assert_equal 'No other chunk was running.', gen.send(:terminated_note, 0)
-    assert_equal 'Sent SIGTERM to 1 other chunk still running; its games stay pending too.', gen.send(:terminated_note, 1)
+    assert_equal 'Sent SIGTERM to 1 other chunk still running; its games not stored stay pending too.',
+                 gen.send(:terminated_note, 1)
+    assert_equal 'No chunk was still running.', gen.send(:terminated_note, 0, itself: true)
   end
 
   # A stand-in for ../arena: a shell script that plays the chunk named
@@ -1452,19 +1576,20 @@ class PlayRoundTest < Minitest::Test
     expected = uninterrupted
     in_experiment do
       setup_arena_generation
-      # Ctrl-C kills the second chunk of the first round.
-      interrupted = FakePool.new(arena: arena_by_name,
+      # Ctrl-C kills the second chunk of the first round during its second
+      # game; its first game's record came before.
+      interrupted = FakePool.new(arena: ->(id, game) { arena_by_name.call(id, game) unless id == 'exfR0' },
                                  status: ->(job) { job.name == 'arena-1' ? signal_status('INT') : exit_status(0) })
       assert_raises(SystemExit) { play_generation(interrupted) }
-      assert_equal 3, database.games(1).size
-      assert_equal 2, database.state(1)['games'].size
+      assert_equal 4, database.games(1).size
+      assert_equal 1, database.state(1)['games'].size
 
       resumed = FakePool.new(arena: arena_by_name)
       play_generation(resumed)
       # The bot game comes first, so the chunks were Brown1-Brown2,
       # c.ann-d.ann and g.ann-h.ann, then a.ann-b.ann and e.ann-f.ann; the
-      # second one's games are dealt out again.
-      assert_equal [['axbR0'], ['exfR0']], resumed.identifiers.first(2).map { |chunk| chunk.games.keys }
+      # second one's game without a record is played again.
+      assert_equal [['exfR0']], resumed.identifiers.first(1).map { |chunk| chunk.games.keys }
       assert_equal expected, [untimed_games, database.ranking(1)]
     end
   end
@@ -1532,12 +1657,14 @@ class PlayRoundTest < Minitest::Test
         pool = FakePool.new(status:, arena_output: ->(text) { text.lines.first(2).join })
         gen = build_with(pool)
         _, err = capture_io { assert_equal 130, assert_raises(SystemExit, how) { gen.send(:play_round) }.status, how }
-        assert_includes err, 'arena chunk arena-0 (cxBrown1R0, axbR0) was interrupted; its games stay pending', how
+        assert_includes err, 'arena chunk arena-0 (cxBrown1R0, axbR0) was interrupted; ' \
+                             'its games not stored stay pending', how
         # An interrupt, not a stop: no report, and nothing is terminated.
         refute_includes err, 'resume after fixing', how
         assert_empty pool.terminated, how
-        assert_empty database.games(1), how
-        assert_equal 2, database.state(1)['games'].size, how
+        # The game whose record came before the interrupt was played.
+        assert_equal [%w[c.ann Brown1]], database.games(1).map { |row| row.values_at(:black, :white) }, how
+        assert_equal [%w[a.ann b.ann]], pending, how
       end
     end
   end

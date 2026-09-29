@@ -203,6 +203,19 @@ class ExperimentDatabase
     @games.insert_conflict(:replace).insert(game.slice(*COLUMNS))
   end
 
+  # Adds `seconds` to the duration of each of `games` ([black, white]) of
+  # the generation's round, in one transaction: an arena chunk's overhead,
+  # shared out among the games it stored once it ends. A row at a time, by
+  # its key: one statement over a whole chunk's games would nest an OR per
+  # game, and SQLite limits how deep an expression may nest.
+  def add_duration(generation, round, games, seconds)
+    transaction do
+      games.each do |black, white|
+        @games.where(generation:, round:, black:, white:).update(duration: Sequel[:duration] + seconds)
+      end
+    end
+  end
+
   # Every game of a generation, as hashes with the keys of `record`, or
   # only the given `columns`. A database opened read-only before the runner
   # migrated it lacks the newer columns, and its rows lack those keys.

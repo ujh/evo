@@ -7,7 +7,21 @@ require_relative 'awake_clock'
 # in parallel as Ractors would, without their deadlocks. Each command runs
 # in `sh -c`, in the runner's process group, so a Ctrl-C in the terminal
 # reaches every job.
+#
+# A plain job (submit) comes back from next_finished once, as
+# [identifier, seconds, status]. A streaming job (submit_streaming) has its
+# stdout on a pipe its thread reads: each line comes back as a Line as soon
+# as it is read, then the job's end as an Exited. The arena's chunks stream,
+# so the runner scores each game as its record arrives.
 class WorkerPool
+  # A line of a streaming job's stdout: UTF-8 whatever the locale, bytes
+  # that are not replaced by U+FFFD, without its newline.
+  Line = Struct.new(:identifier, :text)
+
+  # A streaming job's end, after its last Line: the seconds it ran and its
+  # Process::Status, as next_finished gives them for a plain job.
+  Exited = Struct.new(:identifier, :duration, :status)
+
   def initialize(size)
     raise ArgumentError, "a worker pool needs at least 1 thread, got #{size}" if size < 1
 
@@ -26,13 +40,19 @@ class WorkerPool
   # command has exited, whatever its exit status, or, once the pool is
   # halted, as not started.
   def submit(command, identifier)
-    @jobs << [command, identifier]
+    @jobs << [command, identifier, false]
+  end
+
+  # Queues a command whose stdout comes back line by line (Line), then its
+  # end (Exited, also for a job a halted pool did not start, with no line).
+  def submit_streaming(command, identifier)
+    @jobs << [command, identifier, true]
   end
 
   # Blocks until a command finishes and returns its identifier, the
   # seconds it ran (on AwakeClock, so not counting system sleep), and its
   # Process::Status; for a command a halted pool did not start, 0 and
-  # NOT_STARTED.
+  # NOT_STARTED. For a streaming job, returns its next Line or its Exited.
   def next_finished
     @finished.pop
   end
@@ -108,29 +128,66 @@ class WorkerPool
 
   def work
     while (job = @jobs.pop)
-      command, identifier = job
+      command, identifier, streaming = job
       if @halted
-        @finished << [identifier, 0, NOT_STARTED]
+        @finished << finished(identifier, 0, NOT_STARTED, streaming)
         next
       end
 
       started = AwakeClock.now
-      pid = start(command)
-      @lock.synchronize do
-        @pids[Thread.current] = pid
-        signal(pid) if @terminating
-      end
-      status = reap(pid)
-      @lock.synchronize { @pids.delete(Thread.current) }
-      @finished << [identifier, AwakeClock.now - started, status]
+      status = streaming ? run_streaming(command, identifier) : run(command)
+      @finished << finished(identifier, AwakeClock.now - started, status, streaming)
     end
+  end
+
+  def finished(identifier, seconds, status, streaming)
+    streaming ? Exited.new(identifier, seconds, status) : [identifier, seconds, status]
+  end
+
+  def run(command)
+    watch(start(command))
+  end
+
+  # Runs the command with its stdout on a pipe and hands back each line.
+  # The parent closes its write end at once, and Ruby opens every pipe
+  # close-on-exec, so no other job holds it: EOF comes when the command
+  # and whatever it started with that stdout are done.
+  def run_streaming(command, identifier)
+    reader, writer = IO.pipe
+    reader.binmode
+    begin
+      pid = start(command, out: writer)
+    ensure
+      writer.close
+    end
+    watch(pid) do
+      reader.each_line do |line|
+        text = line.delete_suffix("\n").force_encoding(Encoding::UTF_8).scrub
+        @finished << Line.new(identifier, text)
+      end
+    end
+  ensure
+    reader&.close
+  end
+
+  # Records the running command's pid for terminate, runs the block while
+  # it runs, and returns its Process::Status once it exited.
+  def watch(pid)
+    @lock.synchronize do
+      @pids[Thread.current] = pid
+      signal(pid) if @terminating
+    end
+    yield if block_given?
+    reap(pid)
+  ensure
+    @lock.synchronize { @pids.delete(Thread.current) }
   end
 
   # Starts the command as `system` would a command with shell syntax, also
   # when it has none, so a program that cannot run exits 127 instead of
   # raising in the thread.
-  def start(command)
-    Process.spawn('/bin/sh', '-c', command)
+  def start(command, **redirects)
+    Process.spawn('/bin/sh', '-c', command, **redirects)
   end
 
   # Waits for the command to exit and returns its Process::Status.

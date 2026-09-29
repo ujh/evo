@@ -1,8 +1,9 @@
 require 'minitest/autorun'
 require_relative '../ruby/arena_result'
 
-# The output of `arena --mixed` (see engine/arena.c), read by
-# ArenaResult.mixed_chunk. The fixtures are real output of
+# The output of `arena --mixed` (see engine/arena.c), read a line at a time
+# by ArenaResult::MixedStream, as the runner gets it from the pool. The
+# fixtures are real output of
 # `arena --mixed 9 6.5 30 MAIN 10 10 MANIFEST` with engine/example.ann and
 # engine/fakebot (MAIN 600, or 0.000001 for mixed_time and 0.2 with grace
 # 0 for mixed_timeout; fakebot rules such as genmove=ok:resign,
@@ -13,12 +14,26 @@ class ArenaMixedResultTest < Minitest::Test
   T = "\t".freeze
   HEADER = 'arena protocol 3 ready'.freeze
 
+  # The games of mixed_played.out, in manifest order.
+  PLAYED = %w[played resign0 resign1 botpass noload].freeze
+
   def fixture(name)
     File.read(File.join(FIXTURES, "mixed_#{name}.out"))
   end
 
+  # The stream after reading each line of `text`, split as WorkerPool
+  # splits a streaming job's stdout.
   def chunk(text, ids = ['g1'])
-    ArenaResult.mixed_chunk(text, ids)
+    stream = ArenaResult::MixedStream.new(ids)
+    lines = text.b.split("\n", -1)
+    lines.pop if lines.last == ''
+    lines.each { |line| stream.add(line) }
+    stream
+  end
+
+  def assert_broken(text, ids, says)
+    error = assert_raises(ArenaResult::Broken, text) { chunk(text, ids) }
+    assert_equal says, error.message, text
   end
 
   def played(id: 'g1', result: 'B+3.5', finish: 'passes', moves: %w[C3 D4 pass pass], length: moves.size,
@@ -61,18 +76,18 @@ class ArenaMixedResultTest < Minitest::Test
   # A chunk with a played game, bot resignations before any move and after
   # one, a bot that passes, and a network that cannot be loaded.
   def test_a_complete_chunk_of_real_output
-    c = chunk(fixture('played'), %w[played resign0 resign1 botpass noload])
+    c = chunk(fixture('played'), PLAYED)
     assert c.header?
     assert c.complete?
     assert_equal 5, c.trailer
     assert_empty c.failures
     assert_empty c.missing
-    assert_equal %w[played resign0 resign1 botpass noload], c.results.keys
+    assert_equal PLAYED, c.results.keys
     c.results.each_value { |r| assert_stored r }
   end
 
   def test_a_move_limit_game
-    r = chunk(fixture('played'), %w[played]).results.fetch('played')
+    r = chunk(fixture('played'), PLAYED).results.fetch('played')
     assert_equal :white, r.winner
     assert_equal 'W+5.5', r.referee
     assert_equal 'limit', r.end_reason
@@ -103,7 +118,7 @@ class ArenaMixedResultTest < Minitest::Test
 
   # Black's bot resigned at its first genmove: white wins without a move.
   def test_a_resignation_before_any_move
-    r = chunk(fixture('played'), %w[resign0]).results.fetch('resign0')
+    r = chunk(fixture('played'), PLAYED).results.fetch('resign0')
     assert_equal :white, r.winner
     assert_equal 'W+R', r.referee
     assert_equal 'resign', r.end_reason
@@ -115,7 +130,7 @@ class ArenaMixedResultTest < Minitest::Test
   end
 
   def test_a_resignation_after_a_move
-    r = chunk(fixture('played'), %w[resign1]).results.fetch('resign1')
+    r = chunk(fixture('played'), PLAYED).results.fetch('resign1')
     assert_equal :black, r.winner
     assert_equal 'B+R', r.referee
     assert_equal 'resign', r.end_reason
@@ -146,7 +161,7 @@ class ArenaMixedResultTest < Minitest::Test
 
   # A network that cannot be loaded loses, as with the legacy invocation.
   def test_a_network_that_cannot_be_loaded_loses
-    r = chunk(fixture('played'), %w[noload]).results.fetch('noload')
+    r = chunk(fixture('played'), PLAYED).results.fetch('noload')
     assert_equal :black, r.winner
     assert r.crashed?
     assert_stored r
@@ -347,22 +362,39 @@ class ArenaMixedResultTest < Minitest::Test
     end
   end
 
-  def test_a_chunk_without_the_header_is_incomplete_but_its_records_stand
-    c = chunk(output(played, header: false))
-    refute c.header?
-    refute c.complete?
-    assert_equal 1, c.trailer
-    assert_equal :black, c.results.fetch('g1').winner
+  # The arena writes the header before any record, so a record without one
+  # before it means an arena that cannot be trusted: the runner stops.
+  def test_a_record_before_the_header_is_broken
+    assert_broken(output(played, header: false), ['g1'], 'wrote a record before its header')
   end
 
   def test_the_header_must_come_first_and_be_exact
     ["#{played}\n#{HEADER}\ndone 1\n", "arena protocol 2 ready\n#{played}\ndone 1\n",
      "#{HEADER} \n#{played}\ndone 1\n", "\n#{HEADER}\n#{played}\ndone 1\n"].each do |text|
-      c = chunk(text)
+      assert_broken(text, ['g1'], 'wrote a record before its header')
+    end
+    ["arena protocol 2 ready\n", "\n#{HEADER}\ndone 0\n"].each do |text|
+      c = chunk(text, [])
       refute c.header?, text
       refute c.complete?, text
-      assert_equal :black, c.results.fetch('g1').winner, text
     end
+  end
+
+  # What the runner does with each line: a record gives its game at once;
+  # the header, the trailer, and a malformed line give nothing.
+  def test_each_line_gives_its_record_or_nothing
+    stream = ArenaResult::MixedStream.new(%w[g1 g2])
+    assert_nil stream.add(HEADER)
+    id, result = stream.add(played(id: 'g2'))
+    assert_equal ['g2', :black], [id, result.winner]
+    assert_nil stream.add('garbage')
+    id, result = stream.add(failed(id: 'g1'))
+    assert_equal 'g1', id
+    assert result.failed?
+    assert_nil stream.add('done 2')
+    refute stream.complete?
+    assert_equal 2, stream.trailer
+    assert_equal %w[g1], stream.failures.keys
   end
 
   def test_the_legacy_parser_does_not_take_the_header
@@ -395,31 +427,29 @@ class ArenaMixedResultTest < Minitest::Test
   end
 
   def test_output_after_the_trailer_makes_it_incomplete
-    c = chunk("#{HEADER}\n#{played}\ndone 1\n#{played(id: 'g2')}\n")
+    c = chunk("#{HEADER}\n#{played}\ndone 1\n#{played(id: 'g2')}\n", %w[g1 g2])
     refute c.complete?
+    assert_nil c.trailer
     assert_equal :black, c.results.fetch('g1').winner
+    assert_equal :black, c.results.fetch('g2').winner
   end
 
-  def test_duplicate_records_give_no_result
-    c = chunk(output(played(result: 'B+1.5'), played(result: 'W+1.5')))
-    refute c.complete?
-    assert_equal %w[g1], c.missing
-    assert_no_result c.results.fetch('g1')
+  # The first record was taken when it came; a second cannot say which is
+  # true, and the arena never writes one.
+  def test_a_second_record_for_a_game_is_broken
+    assert_broken(output(played(result: 'B+1.5'), played(result: 'W+1.5')), ['g1'], 'wrote a second record for g1')
+    assert_broken(output(failed, failed), ['g1'], 'wrote a second record for g1')
   end
 
-  def test_a_duplicate_failure_record_is_no_result
-    c = chunk(output(failed, failed))
-    refute c.complete?
-    assert_empty c.failures
-    assert_equal %w[g1], c.missing
+  def test_a_record_for_a_game_not_in_the_manifest_is_broken
+    assert_broken(output(played(id: 'g1'), failed(id: 'zz')), ['g1'],
+                  'wrote a record for zz, which is not in its manifest')
   end
 
-  def test_an_unscheduled_record_is_ignored_and_incomplete
-    c = chunk(output(played(id: 'g1'), failed(id: 'zz')))
+  def test_a_trailer_that_misses_a_game_is_incomplete
+    c = chunk(output(played(id: 'g1'), done: 2), %w[g1 g2])
     refute c.complete?
-    assert_equal %w[g1], c.results.keys
-    assert_empty c.failures
-    assert_empty c.missing
+    assert_equal %w[g2], c.missing
   end
 
   def test_results_and_failures_follow_schedule_order
