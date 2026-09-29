@@ -353,10 +353,10 @@ class RunGeneration
     lines = players.map { |player| external?(player) ? ['bot', player] : ['network', player, network_path(player)] }
     chunk.games.each do |id, game|
       lines << ['game', id, game['black'], game['white']]
-      seed = gnugo_seed(game)
+      seed = bot_seed(game)
       %w[black white].each do |color|
         player = game[color]
-        lines << ['command', id, color, Seeds.with_gnugo_seed(data['players'][player]['command'], seed)] if external?(player)
+        lines << ['command', id, color, Seeds.with_bot_seed(data['players'][player]['command'], seed)] if external?(player)
       end
     end
     lines.map { |fields| "#{manifest_fields(fields).join("\t")}\n" }.join
@@ -374,9 +374,10 @@ class RunGeneration
     end
   end
 
-  # GNU Go picks moves at random unless it gets a seed; one per game makes
-  # every game repeatable.
-  def gnugo_seed(game)
+  # GNU Go and michi pick moves at random unless they get a seed; one per
+  # game makes every game repeatable. The label is the one GNU Go's seeds
+  # have always had, so its games stay as they were.
+  def bot_seed(game)
     Seeds.gnugo(experiment_seed, 'game', generation.to_i, data['round'], game['black'], game['white'])
   end
 

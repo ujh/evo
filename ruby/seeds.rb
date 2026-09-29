@@ -10,14 +10,20 @@ module Seeds
     Digest::SHA256.digest([base, *parts].join(':')).unpack1('Q>') >> 1
   end
 
-  # GNU Go takes its --seed as a C int.
+  # A bot's or the referee's --seed, in 0...2**31: GNU Go takes it as a
+  # C int, and michi takes any 32-bit unsigned value.
   def self.gnugo(base, *parts)
     derive(base, *parts) % (2**31)
   end
 
-  # Adds the seed to a GNU Go command and leaves other programs' alone.
-  def self.with_gnugo_seed(command, seed)
-    command.start_with?('gnugo ') ? "#{command} --seed #{seed}" : command
+  # The programs that pick moves at random unless they get --seed N. Brown
+  # and AmiGo play deterministically and take no seed.
+  SEEDED_BOTS = %w[gnugo michi].freeze
+
+  # Adds the seed to the command of a bot that takes one (by its program,
+  # the command's first word) and leaves other programs' alone.
+  def self.with_bot_seed(command, seed)
+    SEEDED_BOTS.include?(command.split(' ', 2).first) ? "#{command} --seed #{seed}" : command
   end
 
   def self.new_experiment_seed
