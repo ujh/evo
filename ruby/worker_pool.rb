@@ -14,8 +14,8 @@ require_relative 'awake_clock'
 # as it is read, then the job's end as an Exited. The arena's chunks stream,
 # so the runner scores each game as its record arrives.
 class WorkerPool
-  # A line of a streaming job's stdout: UTF-8 whatever the locale, bytes
-  # that are not replaced by U+FFFD, without its newline.
+  # A line of a streaming job's stdout: UTF-8 whatever the locale (bytes
+  # that are not UTF-8 are replaced by U+FFFD), without its newline.
   Line = Struct.new(:identifier, :text)
 
   # A streaming job's end, after its last Line: the seconds it ran and its

@@ -434,6 +434,14 @@ class ArenaMixedResultTest < Minitest::Test
     assert_equal :black, c.results.fetch('g2').winner
   end
 
+  # A trailer with more output after it was not the trailer, even when a
+  # later one counts every game.
+  def test_an_early_trailer_makes_it_incomplete_even_with_a_later_one
+    c = chunk("#{HEADER}\n#{played}\ndone 1\n#{played(id: 'g2')}\n#{played(id: 'g3')}\ndone 3\n", %w[g1 g2 g3])
+    refute c.complete?
+    assert_equal 3, c.trailer
+  end
+
   # The first record was taken when it came; a second cannot say which is
   # true, and the arena never writes one.
   def test_a_second_record_for_a_game_is_broken

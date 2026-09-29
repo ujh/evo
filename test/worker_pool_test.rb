@@ -388,19 +388,23 @@ class WorkerPoolTest < Minitest::Test
     $VERBOSE = verbose
   end
 
-  # Each job's pipe is its own: a job started while another runs does not
-  # hold the other's write end open, so the short job's exit comes first.
+  # Each job's pipe is its own: a long job started while a short one's
+  # pipe is open must not hold that pipe's write end, or the short job's
+  # EOF, and so its exit, would wait for the long job.
   def test_parallel_streaming_jobs_each_see_the_end_of_their_own_output
-    pool = WorkerPool.new(2)
-    pool.submit_streaming('echo slow; exec sleep 2', :slow)
-    pool.submit_streaming('sleep 0.2; echo fast', :fast)
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    first_exit = nil
-    first_exit = Timeout.timeout(10) { pool.next_finished } until first_exit.is_a?(WorkerPool::Exited)
-    assert_equal :fast, first_exit.identifier
-    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.5
-    pool.terminate
-    pool.stop
+    Dir.mktmpdir do |dir|
+      pool = WorkerPool.new(2)
+      pool.submit_streaming("echo short; while [ ! -e #{dir}/go ]; do sleep 0.01; done", :short)
+      assert_equal 'short', Timeout.timeout(5) { pool.next_finished }.text
+      pool.submit_streaming("echo long; touch #{dir}/go; exec sleep 5", :long)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      events = []
+      events << Timeout.timeout(10) { pool.next_finished } until events.any? { |e| e.is_a?(WorkerPool::Exited) }
+      assert_equal :short, events.last.identifier
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2.5
+      pool.terminate
+      pool.stop
+    end
   end
 
   # Ctrl-C can come just before the runner queues its chunks: they come
