@@ -937,8 +937,8 @@ class PlayRoundTest < Minitest::Test
 
   # The players of the chunk's games first, a network with its file and a
   # bot by its name; then each game, followed by the command of each of its
-  # bots. GNU Go gets the game's seed, derived as for every game since the
-  # tournament began; other bots take none.
+  # bots. GNU Go and michi get the game's seed, derived as for every game
+  # since the tournament began; other bots take none.
   def test_the_manifest_declares_the_players_then_each_game_with_its_bots_commands
     in_experiment do
       manifest = nil
@@ -946,16 +946,20 @@ class PlayRoundTest < Minitest::Test
         manifest ||= File.read(chunks(pool).first.manifest)
         arena_played(id)
       })
-      setup_round([%w[a.ann b.ann], %w[GnuGo1 c.ann], %w[d.ann Brown1], %w[Brown2 GnuGo2]], round: 2)
+      setup_round([%w[a.ann b.ann], %w[GnuGo1 c.ann], %w[d.ann Brown1], %w[Brown2 GnuGo2], %w[MichiWeak1 e.ann]],
+                  round: 2, bots: BOTS.merge('MichiWeak1' => 'michi gtp --sims 150'))
       capture_io { build_with(pool).send(:play_round) }
       seed = ->(black, white) { Seeds.gnugo(1, 'game', 1, 2, black, white) }
       assert_equal [
         %w[bot GnuGo1], %w[network c.ann ../networks/1/c.ann], %w[network d.ann ../networks/1/d.ann], %w[bot Brown1],
-        %w[bot Brown2], %w[bot GnuGo2], %w[network a.ann ../networks/1/a.ann], %w[network b.ann ../networks/1/b.ann],
+        %w[bot Brown2], %w[bot GnuGo2], %w[bot MichiWeak1], %w[network e.ann ../networks/1/e.ann],
+        %w[network a.ann ../networks/1/a.ann], %w[network b.ann ../networks/1/b.ann],
         %w[game GnuGo1xcR2 GnuGo1 c.ann], ['command', 'GnuGo1xcR2', 'black', "gnugo --level 0 --mode gtp --seed #{seed.('GnuGo1', 'c.ann')}"],
         %w[game dxBrown1R2 d.ann Brown1], %w[command dxBrown1R2 white brown],
         %w[game Brown2xGnuGo2R2 Brown2 GnuGo2], %w[command Brown2xGnuGo2R2 black brown],
         ['command', 'Brown2xGnuGo2R2', 'white', "gnugo --level 0 --mode gtp --seed #{seed.('Brown2', 'GnuGo2')}"],
+        %w[game MichiWeak1xeR2 MichiWeak1 e.ann],
+        ['command', 'MichiWeak1xeR2', 'black', "michi gtp --sims 150 --seed #{seed.('MichiWeak1', 'e.ann')}"],
         %w[game axbR2 a.ann b.ann]
       ], manifest.lines(chomp: true).map { |line| line.split("\t", -1) }
     end

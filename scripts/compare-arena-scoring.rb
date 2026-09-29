@@ -344,7 +344,7 @@ module CompareArenaScoring
     end
 
     def command(player, seed)
-      Seeds.with_gnugo_seed(BOTS.fetch(player), seed)
+      Seeds.with_bot_seed(BOTS.fetch(player), seed)
     end
 
     # The games in @lanes arena --mixed chunks at once, dealt round-robin.

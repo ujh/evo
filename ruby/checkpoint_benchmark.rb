@@ -128,9 +128,10 @@ class CheckpointBenchmark
   end
 
   def command(game)
-    # GNU Go, as the referee and as a bot, plays at random unless seeded.
+    # GNU Go, as the referee and as a bot, and michi play at random unless
+    # seeded; the referee and the bot share the game's seed.
     seed = Seeds.gnugo(settings.fetch('seed'), 'benchmark', generation, game.opponent.name, game.opening, game.color)
-    opponent = Seeds.with_gnugo_seed(game.opponent.command, seed)
+    opponent = Seeds.with_bot_seed(game.opponent.command, seed)
     black, white = game.color == 'black' ? [network_command, opponent] : [opponent, network_command]
     moves = opening_moves(game.opening)
     # twogtp counts the opening's stones toward -maxmoves.

@@ -120,6 +120,29 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
+  # michi picks moves at random too, so it gets the game's seed like GNU Go;
+  # Brown and AmiGo take none.
+  def test_michi_gets_the_games_seed_and_brown_and_amigo_none
+    in_experiment do
+      @database = ExperimentDatabase.new(':memory:')
+      @database.save_benchmark_opponents([{ name: 'MichiWeak', kind: 'bot', command: 'michi gtp --sims 150' },
+                                          { name: 'Brown', kind: 'bot', command: 'brown' },
+                                          { name: 'AmiGo', kind: 'bot', command: 'amigogtp' }])
+      store_generations(0)
+      commands = run_benchmark(0).commands
+      seed = ->(name, color) { Seeds.gnugo(1, 'benchmark', 0, name, 0, color) }
+      %w[black white].each do |color|
+        michi = commands.find { |c| c.include?("-sgffile benchmark/MichiWeak-0-#{color} ") }
+        assert_includes michi, %("michi gtp --sims 150 --seed #{seed.call('MichiWeak', color)}")
+        assert_includes michi, %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed.call('MichiWeak', color)}")
+        { 'Brown' => 'brown', 'AmiGo' => 'amigogtp' }.each do |name, command|
+          bot = commands.find { |c| c.include?("-sgffile benchmark/#{name}-0-#{color} ") }
+          assert_includes bot, %("#{command}")
+        end
+      end
+    end
+  end
+
   def test_the_command_gives_the_experiment_komi
     in_experiment do
       only_opponents('Brown')
