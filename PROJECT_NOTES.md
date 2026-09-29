@@ -137,7 +137,7 @@ The idea is to use the network in place of the random moves of plain Monte Carlo
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-The benchmark takes about 28 of a small generation's 30 s: it still plays every game through `gogui-twogtp` with the GNU Go referee, most of its time in the games against GNU Go level 0. Moving its games into the arena needs openings, which the arena lacks (see the past-champions question above), and changes their scoring from the referee's to Tromp–Taylor. GNU Go level 0 is back in the default tournament, with the michi levels; GNU Go opponents took about 7 s a game through GoGui, and what the new panel costs a generation in the arena is not measured yet.
+The benchmark takes about 28 of a small generation's 30 s: it still plays every game through `gogui-twogtp` with the GNU Go referee, most of its time in the games against GNU Go level 0. Moving its games into the arena needs openings, which the arena lacks (see the past-champions question above), and changes their scoring from the referee's to Tromp–Taylor. GNU Go level 0 is back in the default tournament, with the michi levels; On the large workload the new panel makes a generation 40–54 % slower, nearly all of it in the tournament, where a round waits for its GNU Go games (`docs/performance.md`).
 
 Another tournament improvement:
 
