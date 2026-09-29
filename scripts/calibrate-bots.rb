@@ -149,13 +149,57 @@ module CalibrateBots
     }
   end
 
+  # One scheduled game. color: the bot's (endings) or the first bot's
+  # (ladder); black and white: [:bot, COMMAND with --seed] or
+  # [:network, PATH].
+  Game = Struct.new(:id, :group, :color, :black, :white, :referee_seed)
+
+  def self.seed(*label) = Seeds.gnugo(SEED, *label)
+
+  def self.game(id, group, color, black, white)
+    Game.new(id, group, color, black, white, seed(id, 'referee'))
+  end
+
+  # Every ENDINGS_BOTS command against each of `networks` ({ name =>
+  # path }), ENDINGS_SEEDS seeds, both colors.
+  def self.endings_schedule(networks)
+    ENDINGS_BOTS.each_with_index.flat_map do |bot, b|
+      networks.flat_map do |network, path|
+        (1..ENDINGS_SEEDS).flat_map do |k|
+          %w[B W].map do |bot_color|
+            id = format('e%d-%s-s%d-%s', b, network, k, bot_color.downcase)
+            command = Seeds.with_bot_seed(bot, seed(id, 'bot'))
+            black, white = bot_color == 'B' ? [[:bot, command], [:network, path]] : [[:network, path], [:bot, command]]
+            game(id, bot, bot_color, black, white)
+          end
+        end
+      end
+    end
+  end
+
+  # `games` games per pairing of two `bots` names ({ name => command });
+  # game k gives the first bot black when k is even.
+  def self.ladder_schedule(bots, pairings, games)
+    pairings.flat_map do |a, b|
+      (0...games).map do |k|
+        id = format('l-%s-%s-%03d', a, b, k)
+        a_command = Seeds.with_bot_seed(bots[a], seed(id, 'a'))
+        b_command = Seeds.with_bot_seed(bots[b], seed(id, 'b'))
+        black, white = k.even? ? [[:bot, a_command], [:bot, b_command]] : [[:bot, b_command], [:bot, a_command]]
+        game(id, [a, b], k.even? ? 'B' : 'W', black, white)
+      end
+    end
+  end
+
+  # What the referee is sent to score the SGF's final position: the komi
+  # after loadsgf, which may set its own, as twogtp sends it.
+  def self.referee_script(sgf)
+    "boardsize #{SIZE}\nclear_board\nloadsgf #{sgf}\nkomi #{KOMI}\nfinal_score\nquit\n"
+  end
+
   # Plays the scheduled games that have no result in DIR yet and prints the
   # tables once all have.
   class Run
-    # color: the bot's (endings) or the first bot's (ladder); black and
-    # white: [:bot, COMMAND with --seed] or [:network, PATH].
-    Game = Struct.new(:id, :group, :color, :black, :white, :referee_seed)
-
     def initialize(argv)
       @argv = argv.dup
       @lanes = 3
@@ -176,7 +220,11 @@ module CalibrateBots
       end
       FileUtils.mkdir_p(File.join(@out, 'games'))
       FileUtils.mkdir_p(File.join(@out, 'work'))
-      games = @mode == 'endings' ? endings_schedule : ladder_schedule
+      games = if @mode == 'endings'
+                CalibrateBots.endings_schedule(generate_networks)
+              else
+                CalibrateBots.ladder_schedule(@bots, @pairings, @games)
+              end
       check_schedule(games)
       play(games)
       results = games.to_h { |g| [g.id, result(g)] }
@@ -233,44 +281,6 @@ module CalibrateBots
         end
       end
       "mise exec -- scripts/calibrate-bots.rb #{args.shelljoin}"
-    end
-
-    def seed(*label) = Seeds.gnugo(SEED, *label)
-
-    # 10 seeded random networks and example.ann, each against every
-    # ENDINGS_BOTS command, 5 seeds, both colors.
-    def endings_schedule
-      networks = generate_networks
-      games = []
-      ENDINGS_BOTS.each_with_index do |bot, b|
-        networks.each do |network, path|
-          (1..ENDINGS_SEEDS).each do |k|
-            %w[B W].each do |bot_color|
-              id = format('e%d-%s-s%d-%s', b, network, k, bot_color.downcase)
-              command = Seeds.with_bot_seed(bot, seed(id, 'bot'))
-              black, white = bot_color == 'B' ? [[:bot, command], [:network, path]] : [[:network, path], [:bot, command]]
-              games << game(id, bot, bot_color, black, white)
-            end
-          end
-        end
-      end
-      games
-    end
-
-    def ladder_schedule
-      @pairings.flat_map do |a, b|
-        (0...@games).map do |k|
-          id = format('l-%s-%s-%03d', a, b, k)
-          a_command = Seeds.with_bot_seed(@bots[a], seed(id, 'a'))
-          b_command = Seeds.with_bot_seed(@bots[b], seed(id, 'b'))
-          black, white = k.even? ? [[:bot, a_command], [:bot, b_command]] : [[:bot, b_command], [:bot, a_command]]
-          game(id, [a, b], k.even? ? 'B' : 'W', black, white)
-        end
-      end
-    end
-
-    def game(id, group, color, black, white)
-      Game.new(id, group, color, black, white, seed(id, 'referee'))
     end
 
     # { name => path }: example.ann and NETWORKS generation-0 networks, as
@@ -371,7 +381,7 @@ module CalibrateBots
     # The seeded referee's final_score of the SGF's final position, as
     # twogtp asks it at the end of a benchmark game.
     def referee(game, sgf)
-      script = "boardsize #{SIZE}\nclear_board\nloadsgf #{sgf}\nkomi #{KOMI}\nfinal_score\nquit\n"
+      script = CalibrateBots.referee_script(sgf)
       answers = IO.popen([*GameResult::REFEREE.split, '--seed', game.referee_seed.to_s], 'r+', err: File::NULL) do |io|
         io.write(script)
         io.close_write

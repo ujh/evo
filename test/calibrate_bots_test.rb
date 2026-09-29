@@ -124,4 +124,52 @@ class CalibrateBotsTest < Minitest::Test
     assert_equal 1, row[:b_resigned]
     assert_equal 1, row[:limit]
   end
+
+  BOTS = { 'Weak' => 'michi gtp --sims 80', 'AmiGo' => 'amigogtp' }.freeze
+
+  def test_ladder_game_0_gives_a_black_and_game_1_white
+    first, second = C.ladder_schedule(BOTS, [%w[Weak AmiGo]], 2)
+    assert_equal 'B', first.color
+    assert_equal :bot, first.black.first
+    assert first.black.last.start_with?('michi gtp --sims 80 --seed '), first.black.last
+    assert_equal [:bot, 'amigogtp'], first.white
+    assert_equal 'W', second.color
+    assert_equal [:bot, 'amigogtp'], second.black
+    assert second.white.last.start_with?('michi gtp --sims 80 --seed '), second.white.last
+    assert_equal [%w[Weak AmiGo]] * 2, [first.group, second.group]
+  end
+
+  def test_the_endings_bot_plays_the_color_it_is_counted_with
+    games = C.endings_schedule({ 'n01' => '/nets/0001.ann', 'example' => '/nets/example.ann' })
+    assert_equal C::ENDINGS_BOTS.size * 2 * C::ENDINGS_SEEDS * 2, games.size
+    games.each do |g|
+      bot, network = g.color == 'B' ? [g.black, g.white] : [g.white, g.black]
+      assert_equal :bot, bot.first, g.id
+      assert bot.last.start_with?(g.group), g.id
+      assert_equal :network, network.first, g.id
+    end
+    assert_equal %w[B W], games.map(&:color).uniq.sort
+  end
+
+  def seeds(command)
+    command[/--seed (\d+)\z/, 1]
+  end
+
+  def test_every_bot_and_referee_seed_differs
+    endings = C.endings_schedule({ 'n01' => '/nets/0001.ann', 'n02' => '/nets/0002.ann' })
+    ladder = C.ladder_schedule(BOTS.merge('Mid' => 'michi gtp --sims 300'), [%w[Weak Mid], %w[Mid AmiGo]], 4)
+    all = (endings + ladder).flat_map do |g|
+      [g.black, g.white].select { |kind, _| kind == :bot }.filter_map { |_, command| seeds(command) } +
+        [g.referee_seed.to_s]
+    end
+    assert_equal all.size, all.uniq.size
+    # Two michi sides per Weak–Mid game, one per Mid–AmiGo game, a GNU Go
+    # or michi side per endings game, and a referee seed per game.
+    assert_equal endings.size * 2 + (4 * 2) + (4 * 2) + 4, all.size
+  end
+
+  def test_the_referee_gets_the_komi_after_the_game
+    script = C.referee_script('/tmp/g.sgf')
+    assert_equal "boardsize 9\nclear_board\nloadsgf /tmp/g.sgf\nkomi 6.5\nfinal_score\nquit\n", script
+  end
 end
