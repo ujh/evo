@@ -1585,14 +1585,15 @@ class ReproducibleRoundsTest < Minitest::Test
   # writes `networks` into the directory it runs in and prints `output` (by
   # default a genes line for each network), and returns `result`. Returns
   # the commands, each with the directory it ran in.
-  def populate(gen, networks: %w[0001.ann 0002.ann], output: nil, result: true)
+  def populate(gen, networks: %w[0001.ann 0002.ann], output: nil, result: true, status: nil, stop: false)
     commands = []
     output ||= "population_size = 2\n#{initial_genes_line * networks.size}"
     gen.define_singleton_method(:run_initial_population) do |cmd|
       commands << cmd
       @ran_in = File.basename(Dir.pwd)
       networks.each { |name| File.write(name, name) }
-      [result, output]
+      $stop_now = true if stop
+      [result, output, status]
     end
     capture_io { gen.send(:setup_initial_population) }
     commands
@@ -1742,6 +1743,42 @@ def test_the_initial_population_gets_its_seed_and_is_recorded
       assert_empty store.births(0)
       assert_nil store.state(0)
     end
+  end
+
+  # Ctrl-C reaches initial-population too. The run stops as breeding does,
+  # quietly, or with 130 when its status shows the interrupt before the trap
+  # ran, not as a failure; nothing is stored, so a resume runs it again.
+  def test_ctrl_c_during_initial_population_exits_quietly
+    in_experiment(generation: '0') do
+      store = database
+      gen = build_generation(generation: '0', store:)
+      error = assert_raises(SystemExit) { populate(gen, result: false, stop: true) }
+      assert_equal 0, error.status
+      assert_empty store.births(0)
+      assert_nil store.state(0)
+    end
+  ensure
+    $stop_now = false
+  end
+
+  def test_initial_population_interrupted_before_the_trap_ran_exits_with_130
+    PlayRoundTest::INTERRUPTED.each do |how, status|
+      in_experiment(generation: '0') do
+        store = database
+        gen = build_generation(generation: '0', store:)
+        error = assert_raises(SystemExit, how) { populate(gen, result: false, status:) }
+        assert_equal 130, error.status, how
+        assert_empty store.births(0), how
+      end
+    end
+  end
+
+  # The status tells an interrupt from a failure.
+  def test_running_initial_population_returns_its_status
+    success, output, status = build_generation(generation: '0').send(:run_initial_population, 'echo hi; kill -INT $$')
+    refute success
+    assert_equal "hi\n", output
+    assert WorkerPool.interrupted?(status)
   end
 
   def test_a_failed_initial_population_stops_the_run

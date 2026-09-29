@@ -614,7 +614,8 @@ class RunGeneration
     Dir.chdir(partial_dir) do
       # Stop before storing anything, so generation 0 never starts short of
       # networks, as breeding does when evolve fails.
-      success, output = run_initial_population(command)
+      success, output, status = run_initial_population(command)
+      stop_initial_population(status)
       initial_population_failed("initial-population failed: #{command}") unless success
 
       networks = Dir['*.ann'].sort
@@ -630,6 +631,16 @@ class RunGeneration
       end
       timings.time(:setup_store) { store.record_births(births) }
     end
+  end
+
+  # Ctrl-C reaches initial-population too: stop as breeding does
+  # (stop_breeding), not as a failure. Nothing is stored yet, so a resume
+  # runs it again.
+  def stop_initial_population(status)
+    exit if $stop_now
+    return unless WorkerPool.interrupted?(status)
+
+    WorkerPool.exit_interrupted('initial-population', 'it runs again on resume')
   end
 
   # Stops the run for an initial-population run that failed or printed
@@ -654,10 +665,10 @@ class RunGeneration
      settings['initial_feature_step'], Seeds.derive(settings.fetch('seed'), 'initial-population')].map(&:to_s)
   end
 
-  # Returns [success, stdout]; stdout has a genes line per network.
+  # Returns [success, stdout, status]; stdout has a genes line per network.
   def run_initial_population(command)
     output, status = Open3.capture2(command)
-    [status.success?, output]
+    [status.success?, output, status]
   end
 
   # The genes of each generation-0 network, in file order (0001.ann,
