@@ -282,7 +282,7 @@ static network *load(const char *path) {
     n->problem = problem(path, "cannot open", 1);
     return n;
   }
-  genann *ann = ann_binary_read(in, NULL, &n->features);
+  genann *ann = ann_binary_read_for_play(in, NULL, &n->features);
   fclose(in);
   if (ann == NULL) {
     n->problem = problem(path, "holds no network", 0);

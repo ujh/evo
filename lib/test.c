@@ -344,6 +344,12 @@ static buffer header(int32_t inputs, int32_t layers, int32_t hidden, int32_t out
     return header_with(inputs, layers, hidden, outputs, hidden_code, output_code, &NO_FEATURES);
 }
 
+// The reader the binary tests go through: the drawing ann_binary_read, and
+// then, in the play_* runs, ann_binary_read_for_play, which must accept and
+// refuse the same files.
+typedef genann *(*ann_reader)(FILE *in, ann_genes *genes, ann_features *features);
+static ann_reader reader = ann_binary_read;
+
 // Reads the bytes followed by `zeros` weights of 0, which lets a test give a
 // network too big for the buffer all its weights.
 static genann *read_padded(const buffer *b, long zeros, ann_genes *genes, ann_features *features) {
@@ -353,7 +359,7 @@ static genann *read_padded(const buffer *b, long zeros, ann_genes *genes, ann_fe
     for (long i = 0; i < zeros; ++i) fwrite(zero, 1, 8, out);
     fclose(out);
     FILE *in = fopen("persist.bin", "rb");
-    genann *ann = ann_binary_read(in, genes, features);
+    genann *ann = reader(in, genes, features);
     fclose(in);
     return ann;
 }
@@ -440,6 +446,51 @@ void binary_persist() {
     same_network(first, second);
     genann_free(first);
     genann_free(second);
+}
+
+// The play reader gives the network the drawing reader gives, weight for
+// weight, with the same genes, features, activations, and outputs, and
+// draws nothing from the generator: the next number is the one it would be
+// without the load. The drawing reader draws a weight's worth for each.
+void play_read() {
+    // A 2x2 board with every feature group.
+    int inputs = ann_layout_inputs(ANN_GROUPS_ALL, 4);
+    genann *first = genann_init(inputs, 2, 3, 5);
+    first->activation_hidden = genann_act_tanh;
+    buffer b;
+    lok(written_bytes_all(first, &GENES, &ALL_FEATURES, &b) == 0);
+
+    ann_genes drawn_genes, played_genes;
+    ann_features drawn_features, played_features;
+    pcg32_srandom(5, 7);
+    genann *drawn = read_bytes_all(&b, &drawn_genes, &drawn_features);
+    uint32_t after_draw = pcg32_random();
+    pcg32_srandom(5, 7);
+    reader = ann_binary_read_for_play;
+    genann *played = read_bytes_all(&b, &played_genes, &played_features);
+    reader = ann_binary_read;
+    uint32_t after_play = pcg32_random();
+    pcg32_srandom(5, 7);
+    uint32_t untouched = pcg32_random();
+    lok(drawn != NULL && played != NULL);
+    if (!drawn || !played) { genann_free(first); return; }
+
+    lok(after_play == untouched);
+    lok(after_draw != untouched);
+    same_network(drawn, played);
+    same_network(first, played);
+    lok(played->activation_hidden == genann_act_tanh);
+    lok(played->activation_output == genann_act_sigmoid_cached);
+    lok(memcmp(&drawn_genes, &played_genes, sizeof(ann_genes)) == 0);
+    lok(memcmp(&drawn_features, &played_features, sizeof(ann_features)) == 0);
+    double input[inputs];
+    for (int i = 0; i < inputs; ++i) input[i] = (i % 7) * 0.25 - 0.5;
+    double a[5];
+    memcpy(a, genann_run(drawn, input), sizeof(a));
+    lok(memcmp(a, genann_run(played, input), sizeof(a)) == 0);
+    genann_free(first);
+    genann_free(drawn);
+    genann_free(played);
 }
 
 static genann_actfun ACTIVATIONS[] = {
@@ -875,6 +926,13 @@ void binary_read_rejects_bad_files() {
     lok(read_bytes(&b) == NULL); // impossible sizes
     b = header(1 << 21, 1, 1, 5, 2, 2);
     lok(read_bytes(&b) == NULL);
+    // Hidden sizes past GENANN's bounds: more than 2^20 neurons a layer, and
+    // two layers of 2^20, whose 2^40 weights pass INT_MAX / 32. Neither is
+    // allocated.
+    b = header(5, 1, (1 << 20) + 1, 5, 2, 2);
+    lok(read_bytes(&b) == NULL);
+    b = header(5, 2, 1 << 20, 5, 2, 2);
+    lok(read_bytes(&b) == NULL);
 
     // The outputs must be the points of a square board of 2x2 to 23x23 plus
     // pass, and the inputs komi and the points: 1x1, 24x24, 6 points, and
@@ -994,6 +1052,20 @@ int main(int argc, char *argv[])
     lrun("feature_layout", feature_layout);
     lrun("copy", copy);
     lrun("sigmoid", sigmoid);
+
+    lrun("play_read", play_read);
+    // Every file the drawing reader accepts or refuses above, again through
+    // the play reader.
+    reader = ann_binary_read_for_play;
+    lrun("play_bad", binary_read_rejects_bad_files);
+    lrun("play_acts", binary_activations);
+    lrun("play_layout", binary_layout);
+    lrun("play_features", binary_features);
+    lrun("play_genes", binary_genes);
+    lrun("play_bad_genes", binary_read_rejects_bad_genes);
+    lrun("play_bad_features", binary_read_rejects_bad_features);
+    lrun("play_no_layers", binary_no_hidden_layers);
+    reader = ann_binary_read;
 
     lresults();
 

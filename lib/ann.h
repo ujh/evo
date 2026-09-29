@@ -158,8 +158,16 @@ const char *ann_features_invalid(ann_features const *features);
 
 // Returns NULL, after printing why, when the file does not hold a network
 // with valid genes and features that fits a board. Stores the genes in
-// *genes and the features in *features unless either is NULL.
+// *genes and the features in *features unless either is NULL. It builds the
+// network with genann_init, which draws every weight from GENANN_RANDOM
+// before the file's weights replace them: evolve seeds the generator before
+// it loads its parents, so its children depend on those draws.
 genann *ann_binary_read(FILE *in, ann_genes *genes, ann_features *features);
+// The same network, accepted and refused as ann_binary_read does, but built
+// without drawing from the generator, for programs that only play it (the
+// arena and evo). It fills sigmoid_cached's lookup table, as genann_init
+// does.
+genann *ann_binary_read_for_play(FILE *in, ann_genes *genes, ann_features *features);
 // Returns 0, or -1 after printing why: an activation the format has no code
 // for, genes or features that are missing or invalid, or a failed write.
 int ann_binary_write(genann const *ann, ann_genes const *genes, ann_features const *features, FILE *out);

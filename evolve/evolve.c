@@ -43,7 +43,10 @@ void seed() {
 }
 
 // Exits with an error, instead of returning NULL, when the file cannot be
-// opened or does not hold a network.
+// opened or does not hold a network. The drawing load, not the play load:
+// main seeds the generator before loading the parents, so a child depends
+// on the draws of genann_init's random fill, and a seed breeds the same
+// child only while they stay.
 static genann *load_nn(char *name, ann_genes *genes, ann_features *features) {
   printf("Loading %s ...", name);
   FILE *fd = fopen(name, "rb");
