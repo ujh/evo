@@ -2231,10 +2231,12 @@ class NetworksOnDiskTest < Minitest::Test
   def test_directories_no_setup_needs_are_deleted_first
     in_experiment do
       finished_generation_zero
-      %w[networks/3 networks/7.partial networks/1.partial].each { |dir| FileUtils.mkdir_p(dir) }
+      %w[networks/3 networks/7.partial networks/1.partial networks/1.partial.old].each { |dir| FileUtils.mkdir_p(dir) }
       File.write('networks/1.partial/5.ann', 'left over')
+      # Entries not named as a generation's directory are not the runner's.
+      File.write('networks/keep-me', 'mine')
       set_up(generation_one)
-      assert_equal %w[1], Dir.children('networks')
+      assert_equal %w[1 1.partial.old keep-me], Dir.children('networks').sort
       assert_equal %w[0.ann 1.ann], files_in('networks/1').keys
     end
   end
