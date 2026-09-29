@@ -2,7 +2,7 @@
 set -eu
 
 missing=0
-for program in gnugo gogui gogui-twogtp brown amigogtp java; do
+for program in gnugo gogui gogui-twogtp brown amigogtp michi java; do
   if command -v "$program" >/dev/null 2>&1; then
     printf '%s: %s\n' "$program" "$(command -v "$program")"
   else

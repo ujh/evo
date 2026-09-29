@@ -15,18 +15,20 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
 1. Clone the repository: `git clone git@github.com:ujh/evo.git`
 2. Run `mise run setup-experiments`. This runs the base `setup` task, then
    downloads and builds pinned versions of [GNU Go](https://www.gnu.org/software/gnugo/),
-   [Brown](https://www.lysator.liu.se/~gunnar/gtp/), and
-   [AmiGoGtp](https://amigogtp.sourceforge.net/), and installs
+   [Brown](https://www.lysator.liu.se/~gunnar/gtp/),
+   [AmiGoGtp](https://amigogtp.sourceforge.net/), and
+   [michi-c2](https://github.com/db3108/michi-c2), and installs
    [GoGui](https://github.com/Remi-Coulom/gogui) 1.6.0. The archives come from
    this repository's `external-tools-r1` GitHub release, a copy of the
    upstream files, so setup does not depend on the upstream hosts. They are
-   checked against SHA-256 hashes before extraction, and GNU Go is patched for an
-   upstream sorting bug (`scripts/patches/`). The programs stay under
+   checked against SHA-256 hashes before extraction; GNU Go is patched for an
+   upstream sorting bug and michi-c2 for crashes and for play as an opponent
+   (`scripts/patches/`). The programs stay under
    `.local/evo-tools/` and mise places them on `PATH` for project tasks.
 3. Run `mise run verify` to run the C and Ruby tests and refereed 9×9 matches in which
-   Brown, AmiGoGtp, GNU Go levels 0 and 10, and Evo each play. It fails if a
+   Brown, AmiGoGtp, GNU Go levels 0 and 10, michi-c2, and Evo each play. It fails if a
    program crashes or the GNU Go referee returns no score. It drives Brown,
-   AmiGoGtp, GNU Go level 0, and Evo through the arena's own GTP controller
+   AmiGoGtp, GNU Go level 0, michi-c2, and Evo through the arena's own GTP controller
    too, and fails if one of them does not answer or a game between them,
    or between one of them and a network in the arena, does not finish. It
    also plays a sample of games between random networks both in the arena

@@ -1,0 +1,417 @@
+evo's patch for michi-c2 (github.com/db3108/michi-c2, commit d2a4cb8), so it
+can play as a tournament and benchmark opponent:
+
+- expand() allocates one tree child per candidate move plus the NULL
+  terminator, then may append a pass child over the terminator; most_urgent()
+  then reads past the array (a crash after an opponent's pass with few legal
+  moves). Allocate room for both.
+- FORALL_NEIGHBORS and FORALL_DIAGONAL_NEIGHBORS read delta[4] and delta[8]
+  after their last iteration; delta[8] is past the array.
+- The GTP play command accepts a move that repeats an earlier position: evo
+  and its arena forbid only a simple ko retake, and michi answered such a move
+  with "? ... Positional Superko rule violation". michi's own genmove still
+  avoids repeating a position.
+- Portable Makefile: no -march=native or -msse4, cc instead of gcc, and
+  -fcommon for the globals that several files define; no x86intrin.h (only
+  compiler builtins are used).
+- Options after the mode: --sims N, --seed N (0 is a fixed seed, not the
+  clock), --play-until-end.
+- time_settings and time_left are accepted and ignored, so the playouts per
+  move stay N_SIMS and the moves do not depend on the clock.
+- verbosity 0 by default (2 printed the board to stderr after every command),
+  the log goes to /dev/null instead of michi.log, and no large pattern files
+  are loaded from the working directory.
+- The move history holds 10,000 moves (passes included) instead of 1,083;
+  once it is full, play and genmove answer "? Error - move history full"
+  instead of writing past the arrays. MAX_GAME_LEN also caps a playout's
+  length (mcplayout), which now stops at move 10,001 instead of 1,083.
+
+diff -ruN a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -1,55 +1,20 @@
++# Portable build (evo's patch): no -march=native or -msse4, so the same
++# flags work with clang and GCC on any architecture. -fcommon: several files
++# define the same globals (buf, mark1, mark2), which GCC 10 and later refuse
++# to link by default.
++CC = cc
++CFLAGS = -DNDEBUG -O3 -fcommon -fshort-enums -Wall -Wno-char-subscripts
+ 
+-# For compiling portable code
+-#GENCODE=-DPORTABLE
+-# For compiling more efficient code for a given compiler/processor architecture
+-GENCODE=
+-
+-# Normal compilation options for developping
+-#CFLAGS= -DNDEBUG -g -march=native -msse4 -fshort-enums -Wall -Wno-char-subscripts
+-#CFLAGS= -g -march=native -msse4 -fshort-enums -Wall -Wno-char-subscripts
+-#CFLAGS= -O3 -march=native -msse4 -fshort-enums -Wall -Wno-char-subscripts
+-
+-# Normal compilation options for production
+-CFLAGS= -DNDEBUG -O3 -march=native -msse4 -fshort-enums -Wall -Wno-char-subscripts
+-
+-# Compilation options for running valgrind
+-#CFLAGS=-O0 -g -march=native -msse4 -Wall -std=gnu99
+-
+-# Compilation options for profiling with gprof
+-#CFLAGS=-pg -O3 -DNDEBUG -march=native -msse4 -fshort-enums -Wall -Wno-char-subscripts
+-
+ OBJS=ui.o sgf.o control.o michi.o params.o board.o board_util.o patterns.o debug.o main.o
+ BIN=michi
+ 
+-all: $(BIN) 
++all: $(BIN)
+ 
+ michi: $(OBJS) michi.h board.h
+-	gcc $(CFLAGS) -std=gnu99 -o michi $(OBJS) -lm
++	$(CC) $(CFLAGS) -std=gnu99 -o michi $(OBJS) -lm
+ 
+ %.o: %.c michi.h board.h
+-	gcc $(GENCODE) $(CFLAGS) -c -std=gnu99 $< 
++	$(CC) $(CFLAGS) -c -std=gnu99 $<
+ 
+-test: all
+-	tests/run
+-
+-test_verbose:
+-	tests/run -long
+-
+-test_michi:
+-	tests/run_michi
+-
+-valgrind: michi
+-	valgrind --track-origins=yes ./michi tsdebug
+-
+-callgrind: michi
+-	valgrind --tool=callgrind ./michi mcbenchmark 
+-
+-tags: $(BIN)
+-	ctags *.c *.h
+-
+ clean:
+-	rm -f $(OBJS) michi.o michi-debug.o
+-
+-veryclean: clean
+-	rm -f $(BIN)
+-	rm -rf tests/output tests/tst tests/michi.log michi.log
++	rm -f $(OBJS) $(BIN)
+diff -ruN a/board.h b/board.h
+--- a/board.h
++++ b/board.h
+@@ -195,9 +195,9 @@
+ //-------------------------- Definition of Useful Macros ----------------------
+ #define FORALL_POINTS(pos,i) for(Point i=BOARD_IMIN ; i<BOARD_IMAX ; i++)
+ #define FORALL_NEIGHBORS(pos, pt, k, n) \
+-    for(k=0,n=pt+delta[0] ; k<4 ; n=pt+delta[++k])
++    for(k=0 ; k<4 && ((n=pt+delta[k]),1) ; k++)
+ #define FORALL_DIAGONAL_NEIGHBORS(pos, pt, k, n) \
+-    for(k=4,n=pt+delta[4] ; k<8 ; n=pt+delta[++k])
++    for(k=4 ; k<8 && ((n=pt+delta[k]),1) ; k++)
+ #define FORALL_IN_SLIST(l, item) \
+     for(int _k=1,_n=l[0],item=l[1] ; _k<=_n ; item=l[++_k])
+ #define SWAP(T, u, v) {T _t = u; u = v; v = _t;}
+diff -ruN a/michi.c b/michi.c
+--- a/michi.c
++++ b/michi.c
+@@ -601,7 +601,7 @@
+     // Use light random playout generator to get all the empty points (not eye)
+     gen_playout_moves_random(pos, moves, BOARD_IMIN-1);
+ 
+-    tree->children = michi_calloc(slist_size(moves)+1, sizeof(TreeNode*));
++    tree->children = michi_calloc(slist_size(moves)+2, sizeof(TreeNode*));
+     FORALL_IN_SLIST(moves, pt) {
+         assert(point_color(pos, pt) == EMPTY);
+         char* ret = play_move(pos, pt);
+diff -ruN a/michi.h b/michi.h
+--- a/michi.h
++++ b/michi.h
+@@ -2,7 +2,9 @@
+ #include "board.h"
+ //========================= Definition of Data Structures =====================
+ 
+-#define MAX_GAME_LEN (N*N*3)
++// evo's patch: room for 10,000 moves (passes included) plus the list's
++// count (moves[0]); do_play refuses a move once it is full.
++#define MAX_GAME_LEN 10001
+ #define SINGLEPT_OK       1
+ #define SINGLEPT_NOK      0
+ #define TWOLIBS_TEST      1
+@@ -132,6 +134,8 @@
+ void   game_set_komi(Game *game, float komi);
+ int    is_game_board_empty(Game *game);
+ char*  do_play(Game *game, Color c, Point pt);
++char*  do_play_allow_repetition(Game *game, Color c, Point pt);
++int    is_game_history_full(Game *game);
+ char*  do_undo(Game *game);
+ char*  loadsgf(Game *game, const char *filename, int nmoves);
+ char*  storesgf(Game *game, const char *filename, const char* version);
+diff -ruN a/non_portable.h b/non_portable.h
+--- a/non_portable.h
++++ b/non_portable.h
+@@ -48,7 +48,6 @@
+     __INLINE__ int popcnt_u32(unsigned int m32) { return __builtin_popcount(m32);}
+     __INLINE__ int bsf_u32(unsigned int m32) { return  __builtin_ctz(m32);}
+   #elif __GNUC__
+-    #include <x86intrin.h>       // for INTEL SSE intrinsics
+     __INLINE__ int popcnt_u32(unsigned int m32) { return __builtin_popcount(m32);}
+     __INLINE__ int bsf_u32(unsigned int m32) { return  __builtin_ctz(m32);} 
+   #elif  xxxxxxx
+diff -ruN a/params.c b/params.c
+--- a/params.c
++++ b/params.c
+@@ -27,7 +27,7 @@
+ int    play_until_the_end      = 0;
+ int    random_seed             = 1;
+ int    REPORT_PERIOD           = 200000;
+-int    verbosity               = 2;
++int    verbosity               = 0;
+ double FASTPLAY20_THRES= 0.8;//if at 20% playouts winrate is >this, stop reading
+ double FASTPLAY5_THRES = 0.95;//if at 5% playouts winrate is >this, stop reading
+ double RESIGN_THRES            = 0.2;
+diff -ruN a/patterns.c b/patterns.c
+--- a/patterns.c
++++ b/patterns.c
+@@ -633,7 +633,7 @@
+     // Load patterns data from files
+     patterns = michi_calloc(LENGTH, sizeof(LargePat));
+     log_fmt_s('I', "Loading pattern probs ...", NULL);
+-    fprob = fopen(prob, "r");
++    fprob = prob == NULL ? NULL : fopen(prob, "r");
+     if (fprob == NULL)
+         log_fmt_s('w', "Cannot load pattern file:%s","patterns.prob");
+     else {
+@@ -644,7 +644,7 @@
+         fclose(fprob);
+ 
+         log_fmt_s('I', "Loading pattern spatial dictionary ...", NULL);
+-        fspat = fopen(spat, "r");
++        fspat = spat == NULL ? NULL : fopen(spat, "r");
+         if (fspat == NULL)
+             log_fmt_s('w', "Warning: Cannot load pattern file:%s","patterns.spat");
+         else {
+diff -ruN a/sgf.c b/sgf.c
+--- a/sgf.c
++++ b/sgf.c
+@@ -113,9 +113,31 @@
+     return ret;
+ }
+ 
++int is_game_history_full(Game *game)
++// evo's patch: moves[] and zhistory[] hold MAX_GAME_LEN-1 moves
++{
++    return slist_size(game->moves) >= MAX_GAME_LEN - 1;
++}
++
++static char* do_play_checked(Game *game, Color c, Point pt,
++                                                        int allow_repetition);
++
+ char* do_play(Game *game, Color c, Point pt)
+-// Play the move (updating the Game struct)
++// Play the move (updating the Game struct); refuse a superko violation
+ {
++    return do_play_checked(game, c, pt, 0);
++}
++
++char* do_play_allow_repetition(Game *game, Color c, Point pt)
++// evo's patch: play the move even if it repeats an earlier position (the
++// gtp play command: the opponent's rules forbid only simple ko retakes)
++{
++    return do_play_checked(game, c, pt, 1);
++}
++
++static char* do_play_checked(Game *game, Color c, Point pt,
++                                                        int allow_repetition)
++{
+     char *ret="", str[8];
+     Color to_play_before;
+     Info  m;
+@@ -124,6 +146,10 @@
+ 
+     if (pt == RESIGN_MOVE)
+         goto finished;
++    if (is_game_history_full(game)) {
++        ret = "Error - move history full";
++        goto finished;
++    }
+ 
+     to_play_before = board_color_to_play(pos);
+     board_set_color_to_play(pos, c);
+@@ -155,6 +181,8 @@
+             ZobristHash zhash_save = game->zhash;
+             update_zhash(game, c, pt);
+             ret = look_for_repetition(game);
++            if (ret[0] != 0 && allow_repetition)
++                ret = "";
+             if (ret[0] != 0) {
+                 log_fmt_p('I',"try illegal move (superko violation) at %s "
+                                                               "(ignored)", pt);
+diff -ruN a/ui.c b/ui.c
+--- a/ui.c
++++ b/ui.c
+@@ -10,7 +10,7 @@
+ 
+ void usage() {
+     fprintf(stderr, "\n\n"
+-"usage: michi mode [config.gtp]\n\n"
++"usage: michi mode [options] [config.gtp]\n\n"
+ "where mode = \n"
+ "   * gtp         play gtp commands read from standard input\n"
+ "   * mcbenchmark run a series of playouts (number set in config.gtp)\n"
+@@ -18,6 +18,10 @@
+ "   * tsdebug     run a series of tree searches\n"
+ "   * defaults    write a template of config file on stdout (defaults values)\n"
+ "   * selfplay    run a sequence of self play games\n"
++"options (evo's patch)\n"
++"   * --sims N          playouts per move (N_SIMS)\n"
++"   * --seed N          random seed, 0 <= N < 2^32\n"
++"   * --play-until-end  do not pass early (play_until_the_end 1)\n"
+ "and\n"
+ "   * config.gtp  an optional file containing gtp commands\n\n");
+     exit(-1);
+@@ -320,6 +324,10 @@
+             goto error;
+         }
+         
++        if (is_game_history_full(game)) {
++            ret = "Error - move history full";
++            goto error;
++        }
+         board_set_color_to_play(pos, c);
+         game->computer_color = c;
+         pt = genmove(game, tree, owner_map, score_count);
+@@ -438,7 +446,7 @@
+                     ret = buf;
+                 }
+                 else
+-                    ret = do_play(game, c, pt);
++                    ret = do_play_allow_repetition(game, c, pt);
+             }
+             else
+                 ret = "Error - Missing vertex ";
+@@ -517,12 +525,14 @@
+ }
+ 
+ char *gtp_time_left(Game *game, char *str)
++// evo's patch: accepted but ignored, so that N_SIMS stays fixed
+ {
+     char *ret;
++    int  seconds;
+     if(str != NULL) {
+         str = strtok(NULL, " \t\n");
+         if(str != NULL) {
+-            if (sscanf(str,"%d", &game->time_left_gtp)==1)
++            if (sscanf(str,"%d", &seconds)==1)
+                 ret = "";       // OK
+             else {
+                 sprintf(buf, "Error - %s is not an integer", str);
+@@ -538,12 +548,13 @@
+ }
+ 
+ char* gtp_time_settings(Game *game, char *str) 
+-// Time setting (only absolute time is implemented)
++// evo's patch: accepted but ignored, so that N_SIMS stays fixed and the
++// moves do not depend on the clock
+ {
+     char *ret;
++    int  seconds;
+     if(str != NULL){
+-        if (sscanf(str,"%d", &game->time_init)==1) {
+-            saved_time_left = game->time_init;
++        if (sscanf(str,"%d", &seconds)==1) {
+             ret = "";
+         }
+         else {
+@@ -860,14 +871,65 @@
+     free_tree(tree);
+ }
+ 
++// evo's patch: seed used for --seed 0, which michi would otherwise take as
++// "seed from the clock"
++#define SEED_FOR_ZERO 2147483648u
++
++static unsigned int option_value(const char *option, const char *value,
++                                                        unsigned long min)
++{
++    char *end;
++    unsigned long v;
++    if (value == NULL || value[0] < '0' || value[0] > '9') {
++        fprintf(stderr, "michi: %s needs a non-negative integer\n", option);
++        exit(2);
++    }
++    v = strtoul(value, &end, 10);
++    if (*end != 0 || v < min || v > 4294967295ul) {
++        fprintf(stderr, "michi: invalid value for %s: %s\n", option, value);
++        exit(2);
++    }
++    return (unsigned int) v;
++}
++
++static const char* parse_options(int argc, char *argv[])
++// evo's patch: options after the mode, applied before the config file:
++//   --sims N          N_SIMS (playouts per move), N >= 1
++//   --seed N          random seed, 0 <= N < 2^32 (the same N, the same game)
++//   --play-until-end  play_until_the_end 1 (no early pass)
++// Returns the config file, or NULL.
++{
++    const char *config = NULL;
++    for (int k=2 ; k<argc ; k++) {
++        if (strcmp(argv[k], "--sims") == 0 && k+1 < argc)
++            N_SIMS = option_value("--sims", argv[++k], 1);
++        else if (strcmp(argv[k], "--seed") == 0 && k+1 < argc) {
++            unsigned int seed = option_value("--seed", argv[++k], 0);
++            idum = seed == 0 ? SEED_FOR_ZERO : seed;
++        }
++        else if (strcmp(argv[k], "--play-until-end") == 0)
++            play_until_the_end = 1;
++        else if (argv[k][0] != '-' && config == NULL)
++            config = argv[k];
++        else {
++            fprintf(stderr, "michi: unknown or incomplete option %s\n", argv[k]);
++            usage();
++        }
++    }
++    return config;
++}
++
+ int michi_console(int argc, char *argv[]) 
+ {
+     char *command;
+     double score;
+ 
+-    // Setup log
+-    flog = fopen("michi.log", "w");
+-    setbuf(flog, NULL);                // guarantees that log is unbuffered
++    // Setup log (evo's patch: discarded, so that no michi.log is written)
++    flog = fopen("/dev/null", "w");
++    if (flog == NULL) {
++        fprintf(stderr, "michi: cannot open /dev/null\n");
++        exit(-1);
++    }
+     log_fmt_s('I',"michi-c Version %s", version);
+     log_fmt_i('I',"size of struct Position = %d bytes", sizeof(Position));
+     log_fmt_i('I',"size of struct TreeNode = %d bytes", sizeof(TreeNode));
+@@ -899,17 +961,20 @@
+ 
+     if (argc < 2)
+         usage();
+-    init_large_patterns("patterns.prob", "patterns.spat");
++    // evo's patch: no large patterns are loaded, whatever files lie in the
++    // working directory
++    init_large_patterns(NULL, NULL);
+     command = argv[1];
+-    if (argc == 3) {
++    const char *config = parse_options(argc, argv);
++    if (config != NULL) {
+         // Optional initialization file (contains gtp commands)
+-        FILE *f=fopen(argv[2],"r");
++        FILE *f=fopen(config,"r");
+         if (f != NULL) {
+             gtp_io(game, f,flog, owner_map, score_count);
+             fclose(f);
+         }
+         else {
+-            log_fmt_s('E',"cannot open config file -> %s",argv[2]);
++            log_fmt_s('E',"cannot open config file -> %s",config);
+             exit(-1);
+         }
+     }
