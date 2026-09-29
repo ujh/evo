@@ -1,6 +1,7 @@
 require 'fileutils'
 require_relative 'game_result'
 require_relative 'openings'
+require_relative 'progress_line'
 require_relative 'seeds'
 require_relative 'worker_pool'
 
@@ -10,6 +11,8 @@ require_relative 'worker_pool'
 # played once with each color, and the openings are the same at every
 # checkpoint, so checkpoints can be compared.
 class CheckpointBenchmark
+  include ProgressLine
+
   # Inside the generation's work directory, which twogtp runs in, so the
   # engine is ../evo as in the tournament.
   DIRECTORY = 'benchmark'.freeze
@@ -61,6 +64,8 @@ class CheckpointBenchmark
     pending = all.reject { |game| played.include?([game.opponent.name, game.opening, game.color]) }
     return false if pending.empty?
 
+    # Until the first game is in, the line shows the benchmark starting.
+    show("Benchmark: starting #{pending.size} games ...")
     pending.each { |game| pool.submit(command(game), game) }
     pending.size.times do |i|
       game, duration, status = pool.next_finished
@@ -69,9 +74,9 @@ class CheckpointBenchmark
       exit if $stop_now
       WorkerPool.exit_interrupted("benchmark game #{game.prefix}", 'it stays pending') if WorkerPool.interrupted?(status)
       store_game(game, duration)
-      print "\rBenchmark ... Game: #{all.size - pending.size + i + 1}/#{all.size}".ljust(70)
+      show("Benchmark ... Game: #{all.size - pending.size + i + 1}/#{all.size}")
     end
-    puts "\rBenchmark ... done".ljust(70)
+    end_line('Benchmark ... done')
     true
   end
 

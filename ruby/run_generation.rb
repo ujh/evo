@@ -4,10 +4,13 @@ require_relative 'arena_result'
 require_relative 'checkpoint_benchmark'
 require_relative 'feature_groups'
 require_relative 'generation_timings'
+require_relative 'progress_line'
 require_relative 'seeds'
 require_relative 'worker_pool'
 
 class RunGeneration
+  include ProgressLine
+
   def self.call(generation, settings, pool, store)
     new(generation, settings, pool, store).call
   end
@@ -640,26 +643,6 @@ class RunGeneration
 
     show("Playing ... Game: #{current_game_in_round}/#{total_games_in_round} Round: #{current_round}/#{total_rounds} " \
          "Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]")
-  end
-
-  # The progress line's width: a status is padded to it, and to the width
-  # of the status it overwrites, so none of that one remains.
-  PROGRESS_WIDTH = 70
-
-  # Shows `text` on the progress line in place of what it showed. Each step
-  # that can take a while shows once as it begins, so the line never sits
-  # on a step that is over, and a log (not a terminal) gets one update a
-  # step, with carriage returns between them.
-  def show(text)
-    print "\r#{text.ljust([PROGRESS_WIDTH, @shown.to_i].max)}"
-    @shown = text.length
-  end
-
-  # Shows `text` and ends the line, so the next status starts a new one.
-  def end_line(text)
-    show(text)
-    puts
-    @shown = nil
   end
 
   # The winner of a game the arena finished; none for a draw. A bot that
