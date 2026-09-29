@@ -197,10 +197,7 @@ static int write_f64(FILE *out, double d) {
     return fwrite(b, 1, 8, out) == 8;
 }
 
-// genann_init without genann_randomize: the same checks, the same layout (as
-// genann_copy and genann_free expect), NULL where it gives NULL, and
-// sigmoid_cached's lookup table filled. The weights are left for the file.
-static genann *allocate_for_play(int inputs, int hidden_layers, int hidden, int outputs) {
+genann *ann_allocate(int inputs, int hidden_layers, int hidden, int outputs) {
     if (hidden_layers < 0 || inputs < 1 || outputs < 1 || (hidden_layers > 0 && hidden < 1)) return NULL;
     if (inputs > GENANN_MAX_DIMENSION || hidden_layers > GENANN_MAX_DIMENSION
             || hidden > GENANN_MAX_DIMENSION || outputs > GENANN_MAX_DIMENSION) return NULL;
@@ -212,8 +209,7 @@ static genann *allocate_for_play(int inputs, int hidden_layers, int hidden, int 
     const long long total_neurons = (long long)inputs + (long long)hidden * hidden_layers + outputs;
     if (total_weights > INT_MAX / 32 || total_neurons > INT_MAX / 32) return NULL;
 
-    const int size = sizeof(genann) + sizeof(double) * (total_weights + total_neurons + (total_neurons - inputs));
-    genann *ann = malloc(size);
+    genann *ann = calloc(1, sizeof(genann) + sizeof(double) * (total_weights + total_neurons + (total_neurons - inputs)));
     if (ann == NULL) return NULL;
 
     ann->inputs = inputs;
@@ -227,7 +223,19 @@ static genann *allocate_for_play(int inputs, int hidden_layers, int hidden, int 
     ann->delta = ann->output + ann->total_neurons;
     ann->activation_hidden = genann_act_sigmoid_cached;
     ann->activation_output = genann_act_sigmoid_cached;
-    genann_init_sigmoid_lookup(ann);
+    return ann;
+}
+
+// ann_allocate, with sigmoid_cached's lookup table filled, as genann_init
+// fills it. The table is static and its values never change, so once a
+// process is enough.
+static genann *allocate_for_play(int inputs, int hidden_layers, int hidden, int outputs) {
+    static int lookup_filled = 0;
+    genann *ann = ann_allocate(inputs, hidden_layers, hidden, outputs);
+    if (ann != NULL && !lookup_filled) {
+        genann_init_sigmoid_lookup(ann);
+        lookup_filled = 1;
+    }
     return ann;
 }
 

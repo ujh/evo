@@ -30,6 +30,8 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <limits.h>
 
 
 
@@ -372,6 +374,27 @@ static genann *read_bytes(const buffer *b) {
     return read_bytes_all(b, NULL, NULL);
 }
 
+// Whether the reader refuses the bytes for the network's sizes, as its
+// message on stderr says, rather than for a later reason such as missing
+// weights.
+static int refused_for_size(const buffer *b) {
+    fflush(stderr);
+    int saved = dup(2);
+    FILE *err = tmpfile();
+    dup2(fileno(err), 2);
+    genann *ann = read_bytes(b);
+    fflush(stderr);
+    dup2(saved, 2);
+    close(saved);
+    char text[512] = {0};
+    rewind(err);
+    size_t length = fread(text, 1, sizeof(text) - 1, err);
+    text[length] = 0;
+    fclose(err);
+    if (ann) genann_free(ann);
+    return ann == NULL && strstr(text, "invalid network dimensions") != NULL;
+}
+
 static int written_bytes_all(const genann *ann, const ann_genes *genes, const ann_features *features, buffer *b) {
     FILE *out = fopen("persist.bin", "wb");
     int rc = ann_binary_write(ann, genes, features, out);
@@ -491,6 +514,58 @@ void play_read() {
     genann_free(first);
     genann_free(drawn);
     genann_free(played);
+}
+
+// Whether two networks have the same sizes and layout.
+static int same_shape(const genann *a, const genann *b) {
+    return a->inputs == b->inputs && a->hidden_layers == b->hidden_layers && a->hidden == b->hidden
+        && a->outputs == b->outputs && a->total_weights == b->total_weights
+        && a->total_neurons == b->total_neurons
+        && (char *)a->weight - (char *)a == (char *)b->weight - (char *)b
+        && a->output - a->weight == b->output - b->weight && a->delta - a->output == b->delta - b->output;
+}
+
+// ann_allocate builds what genann_init builds, all weights 0 instead of
+// random, and refuses the same sizes: at and past GENANN's bound on a
+// dimension (2^20), at and past INT_MAX / 32 weights (8,190 inputs and
+// 8,193 outputs give exactly that many), and impossible sizes.
+void allocate() {
+    struct { int inputs, layers, hidden, outputs; } shapes[] = {
+        {1, 1, 1 << 20, 1}, {3, 2, 4, 2}, {3, 0, 0, 2}, {3, 0, 7, 2},
+    };
+    for (size_t k = 0; k < sizeof(shapes) / sizeof(shapes[0]); ++k) {
+        genann *drawn = genann_init(shapes[k].inputs, shapes[k].layers, shapes[k].hidden, shapes[k].outputs);
+        genann *blank = ann_allocate(shapes[k].inputs, shapes[k].layers, shapes[k].hidden, shapes[k].outputs);
+        lok(drawn != NULL && blank != NULL);
+        if (!drawn || !blank) continue;
+        lok(same_shape(drawn, blank));
+        lok(blank->activation_hidden == genann_act_sigmoid_cached);
+        lok(blank->activation_output == genann_act_sigmoid_cached);
+        int zero = 1;
+        for (int i = 0; i < blank->total_weights; ++i) zero &= blank->weight[i] == 0;
+        lok(zero);
+        genann_free(drawn);
+        genann_free(blank);
+    }
+
+    struct { int inputs, layers, hidden, outputs; } refused[] = {
+        {1, 1, (1 << 20) + 1, 1}, {(1 << 20) + 1, 0, 0, 1}, {1, 0, 0, (1 << 20) + 1}, {1, (1 << 20) + 1, 1, 1},
+        {8191, 0, 0, 8193}, {5, 2, 1 << 20, 5},
+        {0, 0, 0, 1}, {1, 0, 0, 0}, {1, -1, 0, 1}, {1, 1, 0, 1},
+    };
+    for (size_t k = 0; k < sizeof(refused) / sizeof(refused[0]); ++k) {
+        lok(genann_init(refused[k].inputs, refused[k].layers, refused[k].hidden, refused[k].outputs) == NULL);
+        lok(ann_allocate(refused[k].inputs, refused[k].layers, refused[k].hidden, refused[k].outputs) == NULL);
+    }
+
+    // Exactly INT_MAX / 32 weights (512 MiB, never touched, so cheap to
+    // allocate) is allowed.
+    genann *largest = ann_allocate(8190, 0, 0, 8193);
+    lok(largest != NULL);
+    if (largest) {
+        lequal(largest->total_weights, INT_MAX / 32);
+        genann_free(largest);
+    }
 }
 
 static genann_actfun ACTIVATIONS[] = {
@@ -928,11 +1003,11 @@ void binary_read_rejects_bad_files() {
     lok(read_bytes(&b) == NULL);
     // Hidden sizes past GENANN's bounds: more than 2^20 neurons a layer, and
     // two layers of 2^20, whose 2^40 weights pass INT_MAX / 32. Neither is
-    // allocated.
+    // allocated: the reader refuses the sizes before it reads a weight.
     b = header(5, 1, (1 << 20) + 1, 5, 2, 2);
-    lok(read_bytes(&b) == NULL);
+    lok(refused_for_size(&b));
     b = header(5, 2, 1 << 20, 5, 2, 2);
-    lok(read_bytes(&b) == NULL);
+    lok(refused_for_size(&b));
 
     // The outputs must be the points of a square board of 2x2 to 23x23 plus
     // pass, and the inputs komi and the points: 1x1, 24x24, 6 points, and
@@ -1053,6 +1128,7 @@ int main(int argc, char *argv[])
     lrun("copy", copy);
     lrun("sigmoid", sigmoid);
 
+    lrun("allocate", allocate);
     lrun("play_read", play_read);
     // Every file the drawing reader accepts or refuses above, again through
     // the play reader.

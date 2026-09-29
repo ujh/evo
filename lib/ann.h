@@ -156,6 +156,14 @@ void ann_print_genes_line(FILE *out, genann const *ann, ann_genes const *genes, 
 // out of range), or NULL when they are valid.
 const char *ann_features_invalid(ann_features const *features);
 
+// A network of the given sizes, laid out as genann_init lays it out (as
+// genann_copy and genann_free expect), with every weight 0 and sigmoid_cached
+// activations, built without drawing from the generator. NULL where
+// genann_init gives NULL: impossible sizes, a dimension past 2^20, more than
+// INT_MAX / 32 weights or neurons, or no memory. Unlike genann_init it does
+// not fill sigmoid_cached's lookup table.
+genann *ann_allocate(int inputs, int hidden_layers, int hidden, int outputs);
+
 // Returns NULL, after printing why, when the file does not hold a network
 // with valid genes and features that fits a board. Stores the genes in
 // *genes and the features in *features unless either is NULL. It builds the
