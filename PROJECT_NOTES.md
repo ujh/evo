@@ -67,13 +67,13 @@ That makes a compact policy an interesting learning experiment, with substantial
 
 None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. Generation 0's sizes and activations are experiment settings and defaults; from there, activations and sizes evolve as genes of each network. Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
 
-**Check whether the dense network still influences move choice.** In late `bigrun`, the population has tanh outputs (bounded by −1 and 1) while some added feature weights are around 7–10. This may make the feature terms decide many moves, even as the dense weights mutate. On a saved bank of positions, measure move agreement with the feature terms removed and with the dense output removed; inspect score margins and test the resulting policies on held-out games. Large feature weights alone do not establish that they hurt play.
+**Check whether the dense network still influences move choice.** In late `bigrun` (archived: of its population only the champions of every 50th generation, 116 networks, remain), the population had tanh outputs (bounded by −1 and 1) while some added feature weights were around 7–10. This may make the feature terms decide many moves, even as the dense weights mutate. On a saved bank of positions, measure move agreement with the feature terms removed and with the dense output removed; inspect score margins and test the resulting policies on held-out games. Large feature weights alone do not establish that they hurt play.
 
 Search remains a choice to discuss.
 
 ### 5. Long runs need recoverable evidence
 
-Networks and SGFs are kept only for every `keep_every`-th generation. That saves space but limits comparisons with early ancestors to those generations. Each experiment keeps copies of its executables and records the code revision they came from.
+Networks and SGFs are kept only for every `keep_every`-th generation, and an archived experiment (`mise run archive-experiment`) keeps only one network, the champion, of each of those generations. That saves space but limits comparisons with early ancestors to those champions. Each experiment keeps copies of its executables and records the code revision they came from.
 
 **Proposed response:** also keep each generation's top-ranked network, if the `keep_every` generations turn out too sparse.
 
