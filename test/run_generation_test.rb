@@ -2855,3 +2855,127 @@ class NetworksOnDiskTest < Minitest::Test
     assert_empty rows
   end
 end
+
+# The progress line: every step between two games, and every step of setup
+# that can take a while, shows what it is doing, each status overwriting
+# the one before on the same line, so the terminal never sits silent.
+class ProgressLineTest < Minitest::Test
+  include RunGenerationHelpers
+
+  EIGHT = %w[a.ann b.ann c.ann d.ann e.ann f.ann g.ann h.ann].freeze
+  PARENTS = { '0001.ann' => '0001.ann', '0002.ann' => '0002.ann' }.freeze
+
+  # What was shown, in order: a carriage return starts a status, and a
+  # newline ends a line.
+  def statuses(out)
+    out.split(/[\r\n]/).map(&:rstrip).reject(&:empty?)
+  end
+
+  # Each status is padded to 70 columns and at least as wide as the one it
+  # overwrites, so none of that one remains.
+  def assert_overwrites(out)
+    out.split("\n").each do |line|
+      line.split("\r").reject(&:empty?).each_cons(2) do |before, after|
+        assert_operator after.length, :>=, [before.rstrip.length, 70].max, after.inspect
+      end
+    end
+  end
+
+  # Eight networks and round 0 of their tournament; `experiment` is where
+  # networks/ goes, relative to the current directory.
+  def setup_eight(experiment: '..', **state)
+    write_networks(1, EIGHT.to_h { |name| [name, name] }, experiment:)
+    write_data({ 'round' => 0, 'players' => EIGHT.to_h { |name| [name, { 'command' => "../evo #{name}" }] },
+                 'games' => EIGHT.each_slice(2).map { |black, white| { 'black' => black, 'white' => white } },
+                 'ranking' => EIGHT.map { |name| { 'name' => name, 'score' => 0 } } }.merge(state))
+  end
+
+  def play_two_rounds(keep_every:)
+    in_experiment do
+      setup_eight
+      gen = build_generation(settings: { 'tournament_rounds' => 2, 'concurrency' => 1, 'keep_every' => keep_every })
+      gen.instance_variable_set(:@pool, FakePool.new)
+      out, = capture_io { gen.send(:play_games) }
+      out
+    end
+  end
+
+  def round_games(round)
+    (1..4).map { |game| "Playing ... Game: #{game}/4 Round: #{round}/2 Total: #{game + (4 * (round - 1))}/8 " \
+                        "[#{((game + (4 * (round - 1))) / 8.0 * 100).round(2)}%]" }
+  end
+
+  # Between the last game of a round and the first of the next, the line
+  # shows the pairing, then the chunks starting, while the arenas load.
+  def test_a_round_boundary_shows_the_pairing_and_the_start_of_the_next_round
+    out = play_two_rounds(keep_every: 0)
+    assert_equal ['Round 1/2: starting 4 arena chunks ...', *round_games(1),
+                  'Pairing round 2/2 ...',
+                  'Round 2/2: starting 4 arena chunks ...', *round_games(2),
+                  'Saving the final ranking ...', 'Playing ... done'], statuses(out)
+    assert_overwrites(out)
+    assert out.end_with?("\n")
+  end
+
+  def test_a_checkpoint_shows_storing_its_champion
+    out = play_two_rounds(keep_every: 1)
+    assert_equal ['Storing the champion ...', 'Playing ... done'], statuses(out).last(2)
+    assert_overwrites(out)
+  end
+
+  def test_a_bred_generation_shows_each_step_of_its_setup
+    in_experiment do
+      write_networks(0, PARENTS, experiment: '.')
+      write_data({ 'players' => PARENTS.keys.to_h { |name| [name, {}] },
+                   'ranking' => [{ 'name' => '0001.ann', 'score' => 1 }, { 'name' => '0002.ann', 'score' => 0 }] },
+                 generation: 0)
+      gen = build_generation(settings: { 'keep_every' => 0 })
+      gen.instance_variable_set(:@pool, evolve_pool do |cmd|
+        File.write(cmd.split[-2], cmd)
+        [true, EvolveFromPreviousPopulationTest::SUMMARY]
+      end)
+      out, = capture_io { gen.send(:setup) {} }
+      assert_equal ['Breeding population ... 0/2', 'Breeding population ... 1/2', 'Breeding population ... 2/2',
+                    'Storing births ...', 'Syncing networks ...', 'Saving the setup ...',
+                    "Deleting generation 0's networks ...", 'Setup ... done'], statuses(out)
+      assert_overwrites(out)
+      assert out.end_with?("\n")
+    end
+  end
+
+  def test_generation_zero_shows_each_step_of_its_setup
+    in_experiment(generation: '0') do
+      gen = build_generation(generation: '0')
+      gen.define_singleton_method(:run_initial_population) do |_command|
+        PARENTS.each_key { |name| File.write(name, name) }
+        genes = 'genes layers=1 width=10 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0.01 ' \
+                "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=none feature_step=0.01\n"
+        [true, genes * 2]
+      end
+      out, = capture_io { gen.send(:setup) {} }
+      assert_equal ['Generating initial population ...', 'Hashing the networks ...', 'Storing births ...',
+                    'Syncing networks ...', 'Saving the setup ...', 'Setup ... done'], statuses(out)
+      assert_overwrites(out)
+    end
+  end
+
+  # A resume deletes the networks a crash left and checks its own.
+  def test_a_resumed_generation_shows_deleting_old_networks_and_verifying
+    in_experiment do
+      setup_eight(experiment: '.', 'setup_complete' => true)
+      FileUtils.mkdir_p('networks/2.partial')
+      out, = capture_io { build_generation.send(:setup) {} }
+      assert_equal ['Deleting old networks ...', 'Verifying networks ...', 'Setup ... done'], statuses(out)
+      assert_overwrites(out)
+    end
+  end
+
+  # A generation a one-generation run re-enters has nothing to show.
+  def test_a_finished_generation_shows_no_setup
+    in_experiment do
+      setup_eight(experiment: '.', 'setup_complete' => true, 'round' => 1, 'games' => [])
+      out, = capture_io { build_generation.send(:setup) {} }
+      assert_empty out
+    end
+  end
+end

@@ -98,6 +98,7 @@ class RunGeneration
         # not write; one whose tournament is over plays nothing.
         timings.time(:setup_verify) { verify_networks } if resumed && data['round'] < settings['tournament_rounds']
       end
+      end_line('Setup ... done') if @shown
     end
     Dir.chdir(WORK) { yield }
   end
@@ -117,11 +118,11 @@ class RunGeneration
     return unless Dir.exist?(NETWORKS)
 
     needed = data['setup_complete'] ? generation : (generation.to_i - 1).to_s
-    Dir.children(NETWORKS).each do |entry|
-      next unless entry.match?(/\A\d+(\.partial)?\z/) && entry != needed
+    stale = Dir.children(NETWORKS).select { |entry| entry.match?(/\A\d+(\.partial)?\z/) && entry != needed }
+    return if stale.empty?
 
-      FileUtils.rm_rf(File.join(NETWORKS, entry))
-    end
+    show('Deleting old networks ...')
+    stale.each { |entry| FileUtils.rm_rf(File.join(NETWORKS, entry)) }
   end
 
   # An empty networks/N.partial/ for setup to write into.
@@ -135,6 +136,7 @@ class RunGeneration
   # directory (which holds networks/ since the first generation), so the
   # rename is on disk before the setup that relies on it is saved.
   def publish_networks
+    show('Syncing networks ...')
     Dir.children(partial_dir).sort.each { |name| fsync(File.join(partial_dir, name)) }
     fsync(partial_dir)
     File.rename(partial_dir, network_dir(generation))
@@ -148,14 +150,16 @@ class RunGeneration
 
   # Deletes the parents' networks once the generation bred from them is saved.
   def retire_networks(number)
+    show("Deleting generation #{number}'s networks ...")
     FileUtils.rm_rf(network_dir(number))
   end
 
   # Checks networks/N/ against the generation's births: each is there and
   # has the SHA-256 its birth recorded.
   def verify_networks
+    show('Verifying networks ...')
     directory = network_dir(generation)
-    shown = "networks/#{generation}/"
+    shown ="networks/#{generation}/"
     unless Dir.exist?(directory)
       raise NetworksDamaged, "#{shown} is missing, but generation #{generation}'s setup is saved. " \
                              "#{cannot_breed_again}"
@@ -203,7 +207,7 @@ class RunGeneration
 
       break if data['round'] >= settings['tournament_rounds']
     end
-    puts "\rPlaying ... done".ljust(70)
+    end_line('Playing ... done')
   end
 
   # After the last round, a checkpoint's champion is stored with the state
@@ -213,10 +217,13 @@ class RunGeneration
     ranking = shuffle_ties(data['ranking'], round)
     state = data.merge('round' => round, 'ranking' => ranking)
     if round < settings['tournament_rounds']
+      show("Pairing round #{round + 1}/#{settings['tournament_rounds']} ...")
       save_data(state.merge('games' => games_from_ranking(ranking, colors_rng(round))))
     elsif keep?(generation.to_i)
+      show('Storing the champion ...')
       timings.time(:champion) { save_data(state.merge('games' => []), champion: champion(ranking)) }
     else
+      show('Saving the final ranking ...')
       save_data(state.merge('games' => []))
     end
   end
@@ -256,8 +263,14 @@ class RunGeneration
     # The odd player out sits the round out and gets the bye points.
     byes.each { |game| save_game(game, { 'winner' => nil }) }
     # Every manifest is written before the first chunk starts, so one the
-    # arena could not read stops the round before any game.
-    chunks = arena_chunks(games).map { |chunk| [chunk, prepare_chunk(chunk)] }
+    # arena could not read stops the round before any game. Until the first
+    # game is in, the line shows the chunks starting: each arena loads its
+    # networks first.
+    dealt = arena_chunks(games)
+    unless dealt.empty?
+      show("Round #{data['round'] + 1}/#{settings['tournament_rounds']}: starting #{dealt.size} arena chunks ...")
+    end
+    chunks = dealt.map { |chunk| [chunk, prepare_chunk(chunk)] }
     chunks.each { |chunk, command| pool.submit_streaming(command, chunk) }
 
     # The round's chunks not yet ended, running or queued (stop_for counts
@@ -625,7 +638,28 @@ class RunGeneration
     overall_current_game = (total_games_in_round * data['round']) + current_game_in_round
     overall_percentage = (overall_current_game.to_f / overall_total * 100).round(2)
 
-    print "\rPlaying ... Game: #{current_game_in_round}/#{total_games_in_round} Round: #{current_round}/#{total_rounds} Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]".ljust(70)
+    show("Playing ... Game: #{current_game_in_round}/#{total_games_in_round} Round: #{current_round}/#{total_rounds} " \
+         "Total: #{overall_current_game}/#{overall_total} [#{overall_percentage}%]")
+  end
+
+  # The progress line's width: a status is padded to it, and to the width
+  # of the status it overwrites, so none of that one remains.
+  PROGRESS_WIDTH = 70
+
+  # Shows `text` on the progress line in place of what it showed. Each step
+  # that can take a while shows once as it begins, so the line never sits
+  # on a step that is over, and a log (not a terminal) gets one update a
+  # step, with carriage returns between them.
+  def show(text)
+    print "\r#{text.ljust([PROGRESS_WIDTH, @shown.to_i].max)}"
+    @shown = text.length
+  end
+
+  # Shows `text` and ends the line, so the next status starts a new one.
+  def end_line(text)
+    show(text)
+    puts
+    @shown = nil
   end
 
   # The winner of a game the arena finished; none for a draw. A bot that
@@ -676,10 +710,11 @@ class RunGeneration
   def setup_initial_population
     return if data['setup_complete']
 
-    puts 'Generating initial population ...'
+    show('Generating initial population ...')
     timings.time(:setup_breed) { create_initial_population }
     timings.time(:setup_sync) { publish_networks }
     tournament = setup_tournament
+    show('Saving the setup ...')
     timings.time(:setup_save) { save_data(tournament) }
   end
 
@@ -702,11 +737,13 @@ class RunGeneration
         initial_population_failed("initial-population wrote #{networks.size} networks, expected #{expected}: #{command}")
       end
 
+      show('Hashing the networks ...')
       births = networks.zip(initial_genes(output, networks.size, command)).map do |network, network_genes|
         genome = timings.time(:setup_hash) { Digest::SHA256.file(network).hexdigest }
         { generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
           differs_from_first: nil, differs_from_second: nil, seed:, genome:, **network_genes }
       end
+      show('Storing births ...')
       timings.time(:setup_store) { store.record_births(births) }
     end
   end
@@ -840,21 +877,22 @@ class RunGeneration
       # Every child's parents are drawn first, in child order, so the order
       # the children finish in cannot change them.
       jobs = Array.new(total) { |i| evolve_job(previous_generation, i, Array.new(2) { select_parent(candidates) }) }
-      print "\rGenerating population ... 0/#{total}"
+      show("Breeding population ... 0/#{total}")
       jobs.each { |job| pool.submit(job.pool_command, job) }
       births = Array.new(total) do |finished|
         job, _duration, status = pool.next_finished
         stop_breeding(job, status)
-        read_child(job, status).tap { print "\rGenerating population ... #{finished + 1}/#{total}" }
+        read_child(job, status).tap { show("Breeding population ... #{finished + 1}/#{total}") }
       end
       # One transaction for all, not a commit per birth. A stop before this
       # stores none; the setup is not saved then either, so a resume breeds
       # every child again.
+      show('Storing births ...')
       timings.time(:setup_store) { store.record_births(births) }
     end
-    puts "\rGenerating population ... done         "
     timings.time(:setup_sync) { publish_networks }
     tournament = setup_tournament
+    show('Saving the setup ...')
     timings.time(:setup_save) { save_data(tournament) }
     # Only once the new setup is saved: until then a resume breeds again.
     timings.time(:setup_retire) { retire_networks(previous_generation) }
