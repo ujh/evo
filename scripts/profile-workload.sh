@@ -188,6 +188,9 @@ sampler='
 # field KEY LINE: the value of KEY=VALUE in LINE.
 field() { printf '%s\n' "$2" | tr ' ' '\n' | awk -F= -v k="$1" '$1 == k { print $2 }'; }
 
+# setup_parts LINE: the parts of setup in LINE that ran, as "clear 0.1 s, breed 30.2 s, ...".
+setup_parts() { printf '%s\n' "$1" | tr ' ' '\n' | awk -F= '$1 ~ /^setup_/ { sub(/^setup_/, "", $1); p = p (p ? ", " : "") $1 " " $2 " s" } END { print p }'; }
+
 summary=''
 run_generation() {
   generation=$1
@@ -285,7 +288,7 @@ run_generation() {
   out ''
 
   summary="$summary
-generation $generation: exit $status, wall $((end - start)) s$( [ -z "$reentry" ] || printf ' (including about %s s re-entering generation %s)' "$reentry" $((generation - 1))), runner total $(field total "$timings") s, tournament $(field tournament "$timings") s (ruby $(field ruby "$timings") s, worker $(field worker "$timings") s), benchmark $(field benchmark "$timings") s, games $(field games "$timings"), failures $(field failures "$timings")
+generation $generation: exit $status, wall $((end - start)) s$( [ -z "$reentry" ] || printf ' (including about %s s re-entering generation %s)' "$reentry" $((generation - 1))), runner total $(field total "$timings") s, setup $(field setup "$timings") s ($(setup_parts "$timings")), tournament $(field tournament "$timings") s (ruby $(field ruby "$timings") s, worker $(field worker "$timings") s), benchmark $(field benchmark "$timings") s, games $(field games "$timings"), failures $(field failures "$timings")
   runner CPU user $(field utime "$line") s sys $(field stime "$line") s, allocated objects $(field total_allocated_objects "$line"), GC runs $(field gc_count "$line")$( [ -z "$reentry" ] || printf ' (re-entry included)')
   peak RSS: tree sum $(echo "$peak" | cut -d' ' -f1) MiB, runner $(echo "$peak" | cut -d' ' -f2) MiB; arena load of $networks networks:$loads"
 }

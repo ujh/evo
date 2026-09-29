@@ -47,6 +47,53 @@ class GenerationTimingsTest < Minitest::Test
                  full_generation.summary
   end
 
+  # A breeding generation's setup: emptying work/, exporting the parents,
+  # breeding (with 0.5 s of storing inside it, in two stores), saving the
+  # state, and exporting the children.
+  def breeding_generation
+    t = timings
+    t.time(:total) do
+      t.time(:setup) do
+        t.time(:setup_clear) { @clock.advance(0.25) }
+        t.time(:setup_parents) { @clock.advance(1.0) }
+        t.time(:setup_breed) do
+          2.times do
+            @clock.advance(2.0)
+            t.time(:setup_store) { @clock.advance(0.25) }
+          end
+        end
+        t.time(:setup_save) { @clock.advance(0.75) }
+        t.time(:setup_export) { @clock.advance(0.5) }
+      end
+    end
+    t
+  end
+
+  def test_the_parts_of_setup_follow_setup_on_the_line_and_repeated_parts_add_up
+    assert_equal 'timings generation=3 partial=0 setup=7.000 setup_clear=0.250 setup_parents=1.000 ' \
+                 'setup_breed=4.500 setup_store=0.500 setup_save=0.750 setup_export=0.500 total=7.000',
+                 breeding_generation.line
+  end
+
+  def test_the_summary_names_the_parts_of_setup_that_ran
+    assert_equal ['Generation 3 took 7.00 s: setup 7.00 s, no tournament round, no benchmark.',
+                  'Setup: emptying work/ 0.25 s, parents 1.00 s, breeding 4.50 s (storing 0.50 s during it), ' \
+                  'saving 0.75 s, exporting 0.50 s.'],
+                 breeding_generation.summary
+  end
+
+  def test_a_setup_that_only_exported_names_only_that
+    t = timings(partial: true)
+    t.time(:total) do
+      t.time(:setup) do
+        t.time(:setup_clear) { @clock.advance(0.25) }
+        t.time(:setup_export) { @clock.advance(0.5) }
+      end
+    end
+    assert_equal 'timings generation=3 partial=1 setup=0.750 setup_clear=0.250 setup_export=0.500 total=0.750', t.line
+    assert_equal 'Setup: emptying work/ 0.25 s, exporting 0.50 s.', t.summary[1]
+  end
+
   def test_a_resumed_generation_is_marked_partial
     t = full_generation(partial: true)
     assert_includes t.line, ' partial=1 '

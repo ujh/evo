@@ -1664,10 +1664,14 @@ class GenerationTimingsReportTest < Minitest::Test
     end
   end
 
-  # Exporting the networks takes 0.5 s of setup, and pairing the next round
-  # 0.25 s of the round's Ruby time.
+  # Emptying work/ takes 0.25 s and exporting the networks 0.5 s of setup,
+  # and pairing the next round 0.25 s of the round's Ruby time.
   def slow_bookkeeping(gen)
     clock = @clock
+    gen.define_singleton_method(:empty_work) do
+      clock.advance(0.25)
+      super()
+    end
     database.define_singleton_method(:export_networks) do |*args|
       clock.advance(0.5)
       super(*args)
@@ -1686,12 +1690,14 @@ class GenerationTimingsReportTest < Minitest::Test
       gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
       out, = capture_io { gen.call }
       lines = out.lines.map(&:chomp)
-      assert_equal ['Generation 1 took 3.75 s: setup 0.50 s, tournament 3.25 s, no benchmark.',
+      assert_equal ['Generation 1 took 4.00 s: setup 0.75 s, tournament 3.25 s, no benchmark.',
+                    'Setup: emptying work/ 0.25 s, exporting 0.50 s.',
                     'Tournament: 1 round, 4 games, none failed; workers 3.00 s, Ruby 0.25 s outside waiting for them.',
                     'Resumed: the times cover only what this session ran.',
-                    'timings generation=1 partial=1 setup=0.500 round_1=3.250 worker_round_1=3.000 ' \
+                    'timings generation=1 partial=1 setup=0.750 setup_clear=0.250 setup_export=0.500 ' \
+                    'round_1=3.250 worker_round_1=3.000 ' \
                     'ruby_round_1=0.250 games_round_1=4 failures_round_1=0 tournament=3.250 worker=3.000 ' \
-                    'ruby=0.250 games=4 failures=0 total=3.750'], lines.last(4)
+                    'ruby=0.250 games=4 failures=0 total=4.000'], lines.last(5)
     end
   end
 
@@ -1731,20 +1737,57 @@ class GenerationTimingsReportTest < Minitest::Test
       end
       # The 2 networks and the 15 bots: 8 games, one chunk of 1.5 s each, and a bye.
       gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
-      # Storing a game's row takes 0.25 s of Ruby time.
+      # Storing a game's row takes 0.25 s of Ruby time, and storing a
+      # network 0.25 s of setup, within breeding.
       database.define_singleton_method(:record) do |**row|
         clock.advance(0.25)
         super(**row)
+      end
+      database.define_singleton_method(:record_network) do |*args|
+        clock.advance(0.25)
+        super(*args)
       end
       out, = with_benchmark(lambda { |*_args|
         clock.advance(5.0)
         true
       }) { capture_io { gen.call } }
       assert_includes out.lines.map(&:chomp),
-                      'timings generation=0 partial=0 setup=2.000 round_1=14.000 worker_round_1=12.000 ' \
+                      'timings generation=0 partial=0 setup=2.500 setup_clear=0.000 setup_breed=2.500 ' \
+                      'setup_store=0.500 setup_save=0.000 setup_export=0.000 round_1=14.000 worker_round_1=12.000 ' \
                       'ruby_round_1=2.000 games_round_1=8 failures_round_1=0 tournament=14.000 worker=12.000 ' \
-                      'ruby=2.000 games=8 failures=0 benchmark=5.000 total=21.000'
+                      'ruby=2.000 games=8 failures=0 benchmark=5.000 total=21.500'
       refute_includes out, 'Resumed'
+    end
+  end
+
+  def test_a_bred_generation_times_the_parts_of_its_setup
+    in_experiment do
+      %w[0001.ann 0002.ann].each { |name| database.record_network(0, name, name) }
+      write_data({ 'players' => { '0001.ann' => {}, '0002.ann' => {} },
+                   'ranking' => [{ 'name' => '0001.ann', 'score' => 1 }, { 'name' => '0002.ann', 'score' => 0 }] },
+                 generation: 0)
+      gen = slow_bookkeeping(with_clock(build_generation(settings: { 'keep_every' => 0 })))
+      clock = @clock
+      # Each child takes evolve 1 s, storing it 0.25 s, and saving the state 0.75 s.
+      gen.define_singleton_method(:run_evolve) do |cmd|
+        File.write(cmd.split[-2], cmd)
+        clock.advance(1.0)
+        [true, EvolveFromPreviousPopulationTest::SUMMARY]
+      end
+      database.define_singleton_method(:record_network) do |*args|
+        clock.advance(0.25)
+        super(*args)
+      end
+      database.define_singleton_method(:save_state) do |*args, **options|
+        clock.advance(0.75)
+        super(*args, **options)
+      end
+      capture_io { gen.send(:setup) {} }
+      assert_equal 'timings generation=1 partial=0 setup=4.500 setup_clear=0.250 setup_parents=0.500 ' \
+                   'setup_breed=2.500 setup_store=0.500 setup_save=0.750 setup_export=0.500',
+                   gen.send(:timings).line
+      assert_equal 'Setup: emptying work/ 0.25 s, parents 0.50 s, breeding 2.50 s (storing 0.50 s during it), ' \
+                   'saving 0.75 s, exporting 0.50 s.', gen.send(:timings).summary[1]
     end
   end
 end

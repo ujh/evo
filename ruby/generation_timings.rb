@@ -9,6 +9,7 @@ require_relative 'awake_clock'
 # The line is `timings` followed by key=value fields, seconds with three
 # decimals, and only the parts that ran:
 #   generation=N partial=0|1 setup=S
+#   setup_clear=S setup_parents=S setup_breed=S setup_store=S setup_save=S setup_export=S  (the parts of setup)
 #   round_K=S worker_round_K=S ruby_round_K=S games_round_K=N failures_round_K=N  (each round played, K from 1)
 #   tournament=S worker=S ruby=S games=N failures=N  (over those rounds)
 #   benchmark=S total=S
@@ -16,8 +17,17 @@ require_relative 'awake_clock'
 # pairing. Its worker time is the summed wall time of its pool jobs (arena
 # chunks), so above the round's time when jobs run in parallel. Its Ruby time is the round's time the runner spent not waiting
 # for a job: pairing, queueing, reading results, scoring, and storing.
+# The parts of setup are within `setup` and, but for setup_store, follow
+# one another: emptying work/, exporting the parents, breeding the
+# children or running initial-population and storing its networks, saving
+# the state, and exporting the networks. setup_store, the summed time of
+# hashing and storing each network and its birth, is within setup_breed.
 class GenerationTimings
   AWAKE = -> { AwakeClock.now }
+
+  # The parts of setup in the line's order, with their summary names.
+  SETUP_PARTS = { setup_clear: 'emptying work/', setup_parents: 'parents', setup_breed: 'breeding',
+                  setup_store: 'storing', setup_save: 'saving', setup_export: 'exporting' }.freeze
 
   Round = Struct.new(:number, :wall, :waiting, :worker, :games, :failures) do
     def ruby = wall - waiting
@@ -32,12 +42,13 @@ class GenerationTimings
     @rounds = []
   end
 
-  # Times the block as the part `name` (:setup, :benchmark, or :total).
+  # Times the block as the part `name` (:setup, a part of SETUP_PARTS,
+  # :benchmark, or :total). A part timed more than once adds up.
   def time(name)
     started = @clock.call
     yield
   ensure
-    @parts[name] = @clock.call - started
+    @parts[name] = @parts.fetch(name, 0.0) + (@clock.call - started)
   end
 
   # Times the block as tournament round `number`, counted from 1.
@@ -78,7 +89,7 @@ class GenerationTimings
 
   def line
     fields = { 'generation' => @generation, 'partial' => @partial ? 1 : 0 }
-    fields['setup'] = seconds(@parts[:setup]) if @parts.key?(:setup)
+    (%i[setup] + SETUP_PARTS.keys).each { |name| fields[name.to_s] = seconds(@parts[name]) if @parts.key?(name) }
     @rounds.each do |r|
       k = r.number
       fields.merge!("round_#{k}" => seconds(r.wall), "worker_round_#{k}" => seconds(r.worker),
@@ -98,12 +109,23 @@ class GenerationTimings
              @rounds.empty? ? 'no tournament round' : "tournament #{human(tournament)}",
              @parts.key?(:benchmark) ? "benchmark #{human(@parts[:benchmark])}" : 'no benchmark'].compact
     lines = ["Generation #{@generation} took #{human(@parts.fetch(:total, 0))}: #{parts.join(', ')}."]
+    lines << setup_summary if SETUP_PARTS.keys.any? { |name| @parts.key?(name) }
     lines << tournament_summary unless @rounds.empty?
     lines << 'Resumed: the times cover only what this session ran.' if @partial
     lines
   end
 
   private
+
+  def setup_summary
+    parts = SETUP_PARTS.except(:setup_store).filter_map do |name, label|
+      next unless @parts.key?(name)
+
+      store = " (storing #{human(@parts[:setup_store])} during it)" if name == :setup_breed && @parts.key?(:setup_store)
+      "#{label} #{human(@parts[name])}#{store}"
+    end
+    "Setup: #{parts.join(', ')}."
+  end
 
   def tournament_summary
     failed = @rounds.select { |r| r.failures.positive? }

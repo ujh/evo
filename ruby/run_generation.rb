@@ -65,20 +65,24 @@ class RunGeneration
   WORK = 'work'.freeze
 
   def setup
-    FileUtils.rm_rf(WORK)
-    FileUtils.mkdir(WORK)
-    Dir.chdir(WORK) do
-      timings.time(:setup) do
+    timings.time(:setup) do
+      timings.time(:setup_clear) { empty_work }
+      Dir.chdir(WORK) do
         if generation == '0'
           setup_initial_population
         else
           evolve_from_previous_population
         end
         # On resume the networks come from the database, not from breeding.
-        store.export_networks(generation.to_i, '.')
+        timings.time(:setup_export) { store.export_networks(generation.to_i, '.') }
       end
-      yield
     end
+    Dir.chdir(WORK) { yield }
+  end
+
+  def empty_work
+    FileUtils.rm_rf(WORK)
+    FileUtils.mkdir(WORK)
   end
 
   def play_games
@@ -476,6 +480,13 @@ class RunGeneration
     return if data['setup_complete']
 
     puts 'Generating initial population ...'
+    timings.time(:setup_breed) { create_initial_population }
+    tournament = setup_tournament
+    timings.time(:setup_save) { save_data(tournament) }
+  end
+
+  # Runs initial-population and stores its networks and their births.
+  def create_initial_population
     seed = Seeds.derive(experiment_seed, 'initial-population')
     command = "../initial-population #{self.class.initial_population_arguments(settings).join(' ')}"
     # Stop before storing anything, so generation 0 never starts short of
@@ -487,16 +498,14 @@ class RunGeneration
     expected = settings['population_size']
     raise "initial-population wrote #{networks.size} networks, expected #{expected}: #{command}" unless networks.size == expected
 
-    births = networks.zip(initial_genes(output, networks.size, command)).map do |network, network_genes|
-      { generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
-        differs_from_first: nil, differs_from_second: nil, seed:, genome: Digest::SHA256.file(network).hexdigest,
-        **network_genes }
+    networks.zip(initial_genes(output, networks.size, command)) do |network, network_genes|
+      timings.time(:setup_store) do
+        store.record_network(0, network, File.binread(network))
+        store.record_birth(generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
+                           differs_from_first: nil, differs_from_second: nil, seed:,
+                           genome: Digest::SHA256.file(network).hexdigest, **network_genes)
+      end
     end
-    networks.zip(births) do |network, birth|
-      store.record_network(0, network, File.binread(network))
-      store.record_birth(**birth)
-    end
-    save_data(setup_tournament)
   end
 
   # The settings with the genes of generation 0, in initial-population's
@@ -602,18 +611,25 @@ class RunGeneration
     previous_generation = generation.to_i - 1
     previous_data = store.state(previous_generation)
     candidates = parent_candidates(previous_data)
-    FileUtils.mkdir_p(PARENTS)
-    store.export_networks(previous_generation, PARENTS)
+    timings.time(:setup_parents) do
+      FileUtils.mkdir_p(PARENTS)
+      store.export_networks(previous_generation, PARENTS)
+    end
     # Generate the new population
     total = settings['population_size']
-    total.times do |i|
-      print "\rGenerating population ... #{i + 1}/#{total}"
-      breed_child(previous_generation, candidates, i)
+    timings.time(:setup_breed) do
+      total.times do |i|
+        print "\rGenerating population ... #{i + 1}/#{total}"
+        breed_child(previous_generation, candidates, i)
+      end
     end
     puts "\rGenerating population ... done         "
     # The parents are dropped in the same transaction that saves the new
     # generation, unless their generation is one to keep.
-    save_data(setup_tournament, retire_networks_of: keep?(previous_generation) ? nil : previous_generation)
+    tournament = setup_tournament
+    timings.time(:setup_save) do
+      save_data(tournament, retire_networks_of: keep?(previous_generation) ? nil : previous_generation)
+    end
   end
 
   # The previous generation's networks, written out for evolve. They are
@@ -644,13 +660,15 @@ class RunGeneration
       raise "evolve printed genes of the feature set #{genes[:features]} for #{child}, " \
             "but the experiment's is #{experiment_features}: #{command}"
     end
-    store.record_network(generation.to_i, child, File.binread(child))
-    store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
-                       operator: summary[:operator], differs_from_first: differs(summary[:first]),
-                       differs_from_second: differs(summary[:second]), seed:,
-                       genome: Digest::SHA256.file(child).hexdigest, parent: summary[:parent],
-                       structure: summary[:structure], activation_changed: summary[:activation_changed] == '1',
-                       **genes)
+    timings.time(:setup_store) do
+      store.record_network(generation.to_i, child, File.binread(child))
+      store.record_birth(generation: generation.to_i, child:, first_parent: parents[0], second_parent: parents[1],
+                         operator: summary[:operator], differs_from_first: differs(summary[:first]),
+                         differs_from_second: differs(summary[:second]), seed:,
+                         genome: Digest::SHA256.file(child).hexdigest, parent: summary[:parent],
+                         structure: summary[:structure], activation_changed: summary[:activation_changed] == '1',
+                         **genes)
+    end
   end
 
   # evolve's summary line. differs is -1 when the child's shape differs from
