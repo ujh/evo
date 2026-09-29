@@ -177,10 +177,6 @@ The owner finds `ranking` of little use (26 Sep 2026). Remove the script and eve
 
 `run` compiles the executables, but experiments now use their own copied-over executables (owner, 27 Sep 2026), so the build step is probably wasted. Check that nothing still depends on it, then remove it.
 
-### `new-experiment`: ask for the settings not given
-
-`mise run new-experiment` takes every setting as an option and refuses to start without the required ones, and has never prompted; only `mise run run NAME` on a new experiment prompts for each setting (`SetupExperiment.prompt_for_settings`) (owner, 29 Sep 2026). Add a mode that mixes the two: the options given are kept, and every other setting is asked for in `SETTINGS` order with its default shown, Enter taking the default, parsed strictly and asked again on a bad answer as `SetupExperiment.prompt_for` does. A derived default such as `initial_weight_changes` is computed from the settings already known, given or answered. When the mode lands, update `mise.toml`'s `new-experiment` description ("without the prompts") and the header comment of `new-experiment`. Open question: whether a flag keeps today's strict behaviour for scripts such as `scripts/profile-workload.sh`.
-
 ### Convert the C code to Rust?
 
 Consider porting Evo's own C code to Rust, keeping the libraries it uses (such as GENANN and `pcg-c`) as they are and linking them rather than rewriting them (owner, 27 Sep 2026). The Rust compiler gives better error messages, and LLM-assisted work may go more smoothly there. The owner already wrote a Rust Go bot, [Iomrascálaí](https://github.com/ujh/iomrascalai) (GPL-3.0, last pushed January 2018, so pre-2018-edition Rust). Its board, rule set, scoring, GTP, and SGF modules may be reusable here (owner, 27 Sep 2026). Open questions: how much code that is, whether the tests carry over, and what it does to the build and CI.
