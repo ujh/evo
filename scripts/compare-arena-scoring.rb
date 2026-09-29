@@ -9,9 +9,12 @@
 #   mise exec -- scripts/compare-arena-scoring.rb [--lanes N] [--small] [--keep]
 #
 # The networks are the kept champions of experiments/bigrun and
-# experiments/even-bigger at several generations and a few random
-# generation-0 networks of each, exported from their databases opened
-# read-only. They play Brown, AmiGo and GNU Go level 0 with both colors
+# experiments/even-bigger at several generations, exported from their
+# databases opened read-only, and a few random generation-0 networks of
+# each. The archive kept only each generation's champion, so those are
+# regenerated with each experiment's own initial-population and settings,
+# and checked against the SHA-256 their births rows recorded: the same
+# networks as before the archive. They play Brown, AmiGo and GNU Go level 0 with both colors
 # and each other; the bots play each other. GNU Go, as a player and as the
 # referee, gets a seed per game, as the runner gives it.
 #
@@ -27,12 +30,15 @@
 # the measurement, not a failure. docs/experiment-reference.md records a
 # run.
 require 'bundler/setup'
+require 'digest'
 require 'fileutils'
+require 'open3'
 require 'optparse'
 require 'tmpdir'
 require_relative '../ruby/experiment_database'
 require_relative '../ruby/game_result'
 require_relative '../ruby/seeds'
+require_relative '../ruby/setup_experiment'
 
 module CompareArenaScoring
   ROOT = File.expand_path('..', __dir__)
@@ -250,8 +256,9 @@ module CompareArenaScoring
     private
 
     # { player ID => .ann path }: each kept generation's champion (its first
-    # network by rank, as the benchmark picks it) and a few random
-    # generation-0 networks, read from the databases without writing.
+    # network by rank, as the benchmark picks it), read from the databases
+    # without writing, and a few random generation-0 networks, which an
+    # archived experiment no longer stores: they are regenerated.
     def export_networks
       dir = File.join(@scratch, 'networks')
       FileUtils.mkdir_p(dir)
@@ -266,15 +273,49 @@ module CompareArenaScoring
             abort "#{name} generation #{generation} has no ranked network"
           [generation, champion[:name]]
         end
-        random = (store.network_names(0) - [champions.first.last]).sample(@small ? 1 : RANDOM_NETWORKS, random: rng)
-        (champions + random.map { |n| [0, n] }).each do |generation, network|
+        # Generation 0 as it was bred (births keeps every child), in the
+        # order network_names gave before the archive, so the sample is the
+        # same.
+        born = store.births(0).map { |birth| birth[:child] }
+        random = (born - [champions.first.last]).sample(@small ? 1 : RANDOM_NETWORKS, random: rng)
+        champions.each do |generation, network|
           id = "#{name}-#{generation}-#{File.basename(network, '.ann')}"
           file = File.join(dir, "#{id}.ann")
           store.export_network(generation, network, file) or abort "#{id} has no stored network"
           networks[id] = file
         end
+        regenerate_generation_0(name, store, random).each do |network, source|
+          id = "#{name}-0-#{File.basename(network, '.ann')}"
+          networks[id] = File.join(dir, "#{id}.ann")
+          FileUtils.mv(source, networks[id])
+        end
+        FileUtils.rm_rf(File.join(@scratch, 'generation-0'))
       ensure
         store&.close
+      end
+    end
+
+    # Runs the experiment's own initial-population with the arguments the
+    # runner gave it (RunGeneration.initial_population_arguments), which
+    # writes the whole generation 0 again, and returns { name => path } for
+    # `names`, each checked against the SHA-256 its births row recorded.
+    # even-bigger's generation 0 is 1000 networks, about 4.6 GB, for about
+    # 20 s; the rest is deleted once the sample is moved out.
+    def regenerate_generation_0(name, store, names)
+      dir = File.join(@scratch, 'generation-0')
+      FileUtils.rm_rf(dir)
+      FileUtils.mkdir_p(dir)
+      program = File.join(ROOT, 'experiments', name, 'initial-population')
+      arguments = RunGeneration.initial_population_arguments(SetupExperiment.parse(store.settings))
+      _output, status = Open3.capture2(program, *arguments, chdir: dir)
+      abort "#{program} #{arguments.join(' ')} failed" unless status.success?
+      genomes = store.births(0).to_h { |birth| [birth[:child], birth[:genome]] }
+      names.to_h do |network|
+        path = File.join(dir, network)
+        unless File.exist?(path) && Digest::SHA256.file(path).hexdigest == genomes.fetch(network)
+          abort "#{name}: the regenerated generation-0 #{network} differs from the one bred"
+        end
+        [network, path]
       end
     end
 

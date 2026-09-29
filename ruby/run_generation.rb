@@ -477,10 +477,7 @@ class RunGeneration
 
     puts 'Generating initial population ...'
     seed = Seeds.derive(experiment_seed, 'initial-population')
-    genes = settings.values_at(*INITIAL_GENES)
-    command = "../initial-population #{settings['population_size']} #{settings['board_size']} " \
-              "#{settings['hidden_layers']} #{settings['layer_size']} #{genes.join(' ')} " \
-              "#{experiment_features} #{settings['initial_feature_noise']} #{settings['initial_feature_step']} #{seed}"
+    command = "../initial-population #{self.class.initial_population_arguments(settings).join(' ')}"
     # Stop before storing anything, so generation 0 never starts short of
     # networks, as breeding does when evolve fails.
     success, output = run_initial_population(command)
@@ -507,6 +504,16 @@ class RunGeneration
   INITIAL_GENES = %w[
     initial_copy_chance initial_weight_changes initial_weight_step initial_activation_rate initial_structure_rate
   ].freeze
+
+  # initial-population's arguments for the experiment's generation 0, from
+  # its settings alone, so the same settings give the same networks:
+  # scripts/compare-arena-scoring.rb regenerates the generation 0 an
+  # archive dropped with them.
+  def self.initial_population_arguments(settings)
+    [*settings.values_at('population_size', 'board_size', 'hidden_layers', 'layer_size'),
+     *settings.values_at(*INITIAL_GENES), settings['features'], settings['initial_feature_noise'],
+     settings['initial_feature_step'], Seeds.derive(settings.fetch('seed'), 'initial-population')].map(&:to_s)
+  end
 
   # Returns [success, stdout]; stdout has a genes line per network.
   def run_initial_population(command)
