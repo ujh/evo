@@ -23,17 +23,27 @@ class WorkerPool
   end
 
   # Queues a command. `identifier` comes back from next_finished once the
-  # command has exited, whatever its exit status.
+  # command has exited, whatever its exit status, or, once the pool is
+  # halted, as not started.
   def submit(command, identifier)
     @jobs << [command, identifier]
   end
 
   # Blocks until a command finishes and returns its identifier, the
   # seconds it ran (on AwakeClock, so not counting system sleep), and its
-  # Process::Status.
+  # Process::Status; for a command a halted pool did not start, 0 and
+  # NOT_STARTED.
   def next_finished
     @finished.pop
   end
+
+  # The status of a job a halted pool never started. Every queued job comes
+  # back from next_finished, so a caller that waits for each job it queued
+  # never blocks, also when Ctrl-C halted the pool just before it queued
+  # them. interrupted? counts it as interrupted.
+  NOT_STARTED = Object.new.tap do |status|
+    def status.inspect = 'WorkerPool::NOT_STARTED'
+  end.freeze
 
   # Signals that stop a run: Ctrl-C (SIGINT) and SIGTERM.
   STOPPING = [Signal.list['INT'], Signal.list['TERM']].freeze
@@ -46,6 +56,7 @@ class WorkerPool
   # 128 plus the signal, as the shell reports a child killed by a signal.
   def self.interrupted?(status)
     return false unless status
+    return true if status.equal?(NOT_STARTED)
 
     STOPPING.include?(status.termsig) || STOPPING.map { |signal| 128 + signal }.include?(status.exitstatus)
   end
@@ -58,10 +69,11 @@ class WorkerPool
     exit 130
   end
 
-  # Keeps queued commands from starting; running ones finish. Only sets a
-  # flag, so it is safe to call from a signal trap. Without it, a thread whose
-  # game was killed by Ctrl-C would start the next queued game, which never
-  # got the signal and would play to the end.
+  # Keeps queued commands from starting, now and later; running ones
+  # finish, and the others come back from next_finished as NOT_STARTED.
+  # Only sets a flag, so it is safe to call from a signal trap. Without it,
+  # a thread whose game was killed by Ctrl-C would start the next queued
+  # game, which never got the signal and would play to the end.
   def halt
     @halted = true
   end
@@ -96,9 +108,12 @@ class WorkerPool
 
   def work
     while (job = @jobs.pop)
-      break if @halted
-
       command, identifier = job
+      if @halted
+        @finished << [identifier, 0, NOT_STARTED]
+        next
+      end
+
       started = AwakeClock.now
       pid = start(command)
       @lock.synchronize do

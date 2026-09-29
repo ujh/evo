@@ -1,5 +1,6 @@
 require_relative 'test_helper'
 require 'open3'
+require 'timeout'
 require 'rbconfig'
 require_relative '../ruby/checkpoint_benchmark'
 
@@ -241,6 +242,25 @@ class CheckpointBenchmarkTest < Minitest::Test
       store_generations(0)
       pool = FakePool.new { $stop_now = true }
       capture_io { assert_raises(SystemExit) { CheckpointBenchmark.new(0, SETTINGS.merge('benchmark_games' => 2), pool, database).call } }
+      assert_empty database.benchmark_games(0)
+    ensure
+      $stop_now = false
+    end
+  end
+
+  # Ctrl-C just before the benchmark: the trap halted the pool before its
+  # games were queued. None runs, and the runner exits quietly.
+  def test_ctrl_c_before_the_games_are_queued_exits_quietly
+    in_experiment do
+      only_opponents('Brown')
+      store_generations(0)
+      $stop_now = true
+      pool = WorkerPool.new(2)
+      pool.halt
+      benchmark = CheckpointBenchmark.new(0, SETTINGS.merge('benchmark_games' => 2), pool, database)
+      error = Timeout.timeout(10) { assert_raises(SystemExit) { capture_io { benchmark.call } } }
+      pool.stop
+      assert_equal 0, error.status
       assert_empty database.benchmark_games(0)
     ensure
       $stop_now = false

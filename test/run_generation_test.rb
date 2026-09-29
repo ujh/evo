@@ -1,4 +1,5 @@
 require_relative 'test_helper'
+require 'timeout'
 
 # Characterization tests: they pin down what the runner does today, including
 # the defects listed in PROJECT_NOTES.md. A test that documents a defect says
@@ -584,7 +585,7 @@ class BreedOnWorkerPoolTest < Minitest::Test
   # Breeds generation 1 of 8 children at `concurrency` with `script` as
   # ../evolve; returns the births in the order they were recorded, the
   # births, the children, the error, and the seconds it took.
-  def breed_on(concurrency, script)
+  def breed_on(concurrency, script, pool: WorkerPool.new(concurrency))
     @database = nil
     in_experiment do
       File.write('../evolve', "#!/bin/sh\n#{script}")
@@ -599,13 +600,12 @@ class BreedOnWorkerPoolTest < Minitest::Test
         super(**birth)
       end
       gen = build_generation(settings: { 'population_size' => 8, 'keep_every' => 0, 'concurrency' => concurrency })
-      pool = WorkerPool.new(concurrency)
       gen.instance_variable_set(:@pool, pool)
       error = nil
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       begin
         capture_io { gen.send(:evolve_from_previous_population) }
-      rescue StandardError => e
+      rescue StandardError, SystemExit => e
         error = e
       ensure
         pool.stop
@@ -627,6 +627,20 @@ class BreedOnWorkerPoolTest < Minitest::Test
     assert_equal serial[:children], parallel[:children]
     assert_equal 8, serial[:children].size
     assert_empty parallel[:work]
+  end
+
+  # Ctrl-C just before breeding: the trap halted the pool before the
+  # evolves were queued. None runs, and the runner exits quietly.
+  def test_ctrl_c_before_the_evolves_are_queued_exits_quietly
+    $stop_now = true
+    pool = WorkerPool.new(2)
+    pool.halt
+    state = Timeout.timeout(10) { breed_on(2, BREEDS, pool:) }
+    assert_instance_of SystemExit, state[:error]
+    assert_equal 0, state[:error].status
+    assert_empty state[:recorded]
+  ensure
+    $stop_now = false
   end
 
   def test_a_failed_evolve_terminates_the_running_ones
@@ -1027,6 +1041,25 @@ class PlayRoundTest < Minitest::Test
       bot_games = chunks(pool).map { |chunk| chunk.games.keys.count { |id| id.include?('Brown') } }
       assert_equal [1, 1, 0], bot_games
       assert_equal [2, 2, 2], chunks(pool).map { |chunk| chunk.games.size }
+    end
+  end
+
+  # Ctrl-C just before a round: the trap halted the pool before its chunks
+  # were queued. No arena runs, and the runner exits quietly.
+  def test_ctrl_c_before_the_chunks_are_queued_exits_quietly
+    in_experiment do
+      setup_round([['a.ann', 'Brown1'], %w[b.ann c.ann]])
+      $stop_now = true
+      pool = WorkerPool.new(2)
+      pool.halt
+      gen = build_with(pool, settings: { 'concurrency' => 2 })
+      error = Timeout.timeout(10) { assert_raises(SystemExit) { capture_io { gen.send(:play_round) } } }
+      pool.stop
+      assert_equal 0, error.status
+      assert_empty database.games(1)
+      assert_equal [['a.ann', 'Brown1'], %w[b.ann c.ann]], pending
+    ensure
+      $stop_now = false
     end
   end
 
