@@ -150,28 +150,49 @@ class SetupExperiment
   # scores. They are stored with the experiment, and the runner reads them
   # from there, so changing them here only changes experiments created
   # afterwards.
-  # Early networks are far too weak for GNU Go, at any level, and its games
-  # set most of a generation's wall time, so it stays out of the tournament
-  # until networks beat these (see the opponent ladder in PROJECT_NOTES.md).
-  # The arena plays and scores every tournament game, the bots' too; the
-  # benchmark's games still go through gogui-twogtp and a GNU Go referee.
+  # The tournament holds the whole ladder from the start, weakest first:
+  # Brown, AmiGo, three michi levels calibrated between AmiGo and GNU Go
+  # level 0 (by playouts per move, so their strength does not depend on the
+  # machine's load), and GNU Go level 0 (docs/experiment-reference.md has
+  # the calibration). The arena plays and scores every tournament game by
+  # Tromp-Taylor, the bots' too, so the bots play until no dead stones are
+  # left: michi with --play-until-end, GNU Go with --capture-all-dead. The
+  # runner adds a per-game --seed to michi's and GNU Go's commands. The michi
+  # levels were calibrated on 9x9 only, so an experiment whose panels hold
+  # michi refuses other board sizes (MICHI_BOARD_SIZE). Names end in a
+  # letter: copies are named NAME plus a number.
   # scripts/smoke-external-tools.sh plays each opponent and each benchmark
   # bot; add new ones there.
+  MICHI_WEAK = 'michi gtp --sims 80 --play-until-end'.freeze
+  MICHI_MID = 'michi gtp --sims 300 --play-until-end'.freeze
+  MICHI_STRONG = 'michi gtp --sims 1200 --play-until-end'.freeze
   DEFAULT_OPPONENTS = [
     { name: 'Brown', command: 'brown', copies: 5 },
-    { name: 'AmiGo', command: 'amigogtp', copies: 10 }
+    { name: 'AmiGo', command: 'amigogtp', copies: 10 },
+    { name: 'MichiWeak', command: MICHI_WEAK, copies: 5 },
+    { name: 'MichiMid', command: MICHI_MID, copies: 5 },
+    { name: 'MichiStrong', command: MICHI_STRONG, copies: 5 },
+    { name: 'GnuGo', command: 'gnugo --level 0 --mode gtp --capture-all-dead', copies: 3 }
   ].freeze
   # The fixed panel the top network of every checkpoint generation plays, so
   # checkpoints stay comparable however the tournament's opponents change.
-  # The two network kinds have no command: the runner picks the network
-  # from the experiment's own generations.
+  # The michi levels play with the tournament's commands. GNU Go level 0
+  # plays without --capture-all-dead: a GNU Go referee scores the benchmark
+  # with dead stones removed, so the flag would only change its play. The
+  # two network kinds have no command: the runner picks the network from
+  # the experiment's own generations.
   DEFAULT_BENCHMARK = [
     { name: 'Brown', kind: 'bot', command: 'brown' },
     { name: 'AmiGo', kind: 'bot', command: 'amigogtp' },
+    { name: 'MichiWeak', kind: 'bot', command: MICHI_WEAK },
+    { name: 'MichiMid', kind: 'bot', command: MICHI_MID },
+    { name: 'MichiStrong', kind: 'bot', command: MICHI_STRONG },
     { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
     { name: 'Gen0Champion', kind: 'initial_champion', command: nil },
     { name: 'PreviousCheckpoint', kind: 'previous_checkpoint', command: nil }
   ].freeze
+  # The only board size the michi levels were calibrated on.
+  MICHI_BOARD_SIZE = 9
   DEFAULT_SCORING = { 'rules' => RunGeneration::SCORING_RULES, 'win' => 1, 'draw' => 0, 'bye' => 0 }.freeze
 
   # Opens the experiment's database and yields its settings and the database.
@@ -226,6 +247,9 @@ class SetupExperiment
   # without the prompts (`mise run new-experiment NAME --board-size 9 ...`).
   def self.create(experiment_dir, arguments)
     settings = settings_from_arguments(arguments)
+    refusal = board_size_refusal(settings, DEFAULT_OPPONENTS, DEFAULT_BENCHMARK)
+    raise ArgumentError, refusal if refusal
+
     FileUtils.mkdir_p(experiment_dir)
     database = ExperimentDatabase.new(File.join(experiment_dir, DATABASE))
     raise ArgumentError, "#{experiment_dir} already has settings" unless database.settings.empty?
@@ -376,13 +400,39 @@ class SetupExperiment
   end
 
   # The settings live in the database; a new experiment prompts for them.
+  # Either way the board size must suit the panels (board_size_refusal).
   def self.settings(database)
     stored = database.settings
-    return parse(stored) unless stored.empty?
+    unless stored.empty?
+      settings = parse(stored)
+      check_board_size(settings, database.opponents, database.benchmark_opponents)
+      return settings
+    end
 
     settings = prompt_for_settings
+    check_board_size(settings, DEFAULT_OPPONENTS, DEFAULT_BENCHMARK)
     save_new_experiment(database, settings)
     settings
+  end
+
+  def self.check_board_size(settings, opponents, benchmark)
+    refusal = board_size_refusal(settings, opponents, benchmark)
+    raise Refused, refusal if refusal
+  end
+
+  # Why the board size does not suit the panels, or nil. The michi levels
+  # were calibrated on 9x9 only; on other boards their strength, and so
+  # their place between AmiGo and GNU Go, is unknown. A michi command is one
+  # whose program (its first word) is michi, as for the seeds.
+  def self.board_size_refusal(settings, opponents, benchmark)
+    size = settings.fetch('board_size')
+    return nil if size == MICHI_BOARD_SIZE
+
+    michi = (opponents + benchmark).select { |o| o[:command].to_s.split(' ', 2).first == 'michi' }
+    return nil if michi.empty?
+
+    "board_size #{size} is refused: the michi opponents (#{michi.map { |o| o[:name] }.uniq.join(', ')}) " \
+      "are calibrated for 9×9 only; use board_size #{MICHI_BOARD_SIZE}"
   end
 
   # Raises before anything is saved if input ends or a required setting is

@@ -48,9 +48,9 @@ class CheckpointBenchmarkTest < Minitest::Test
     in_experiment do
       store_generations(0)
       run_benchmark(0)
-      assert_equal [['AmiGo', 0, 'black', nil], ['AmiGo', 0, 'white', nil], ['Brown', 0, 'black', nil],
-                    ['Brown', 0, 'white', nil], ['GnuGoLevel0', 0, 'black', nil], ['GnuGoLevel0', 0, 'white', nil]],
-                   played(0)
+      assert_equal %w[AmiGo Brown GnuGoLevel0 MichiMid MichiStrong MichiWeak].flat_map { |name|
+                     [[name, 0, 'black', nil], [name, 0, 'white', nil]]
+                   }, played(0)
       assert @played_any
     end
   end
@@ -84,9 +84,10 @@ class CheckpointBenchmarkTest < Minitest::Test
   def test_the_opponents_of_a_checkpoint_depend_on_its_generation
     panel = SetupExperiment::DEFAULT_BENCHMARK
     names = ->(generation) { CheckpointBenchmark.opponents_for(generation, panel, 10).map { |o| o[:name] } }
-    assert_equal %w[Brown AmiGo GnuGoLevel0], names.call(0)
-    assert_equal %w[Brown AmiGo GnuGoLevel0 Gen0Champion], names.call(10)
-    assert_equal %w[Brown AmiGo GnuGoLevel0 Gen0Champion PreviousCheckpoint], names.call(20)
+    bots = %w[Brown AmiGo MichiWeak MichiMid MichiStrong GnuGoLevel0]
+    assert_equal bots, names.call(0)
+    assert_equal bots + %w[Gen0Champion], names.call(10)
+    assert_equal bots + %w[Gen0Champion PreviousCheckpoint], names.call(20)
     assert_raises(ArgumentError) { CheckpointBenchmark.opponents_for(0, [{ name: 'X', kind: 'nope' }], 10) }
   end
 

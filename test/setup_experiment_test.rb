@@ -413,8 +413,7 @@ class SetupExperimentTest < Minitest::Test
     in_tmpdir do
       SetupExperiment.create('experiments/x', REQUIRED)
       database = ExperimentDatabase.new('experiments/x/experiment.sqlite3', readonly: true)
-      assert_equal [{ name: 'Brown', command: 'brown', copies: 5 }, { name: 'AmiGo', command: 'amigogtp', copies: 10 }],
-                   database.opponents
+      assert_equal SetupExperiment::DEFAULT_OPPONENTS, database.opponents
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
       # Rules 4: every game in the arena, scored by Tromp-Taylor, and no
       # game between two copies of one bot while another player is left.
@@ -423,10 +422,28 @@ class SetupExperimentTest < Minitest::Test
     end
   end
 
-  # The benchmark panel: the three weakest bots, then the two network
-  # opponents the runner picks from the experiment's own generations.
+  # The tournament's bots, weakest first: the michi levels calibrated between
+  # AmiGo and GNU Go level 0 (docs/experiment-reference.md), and GNU Go with
+  # --capture-all-dead, so it leaves no dead stones for Tromp-Taylor to count.
+  def test_the_default_opponents
+    assert_equal [['Brown', 'brown', 5], ['AmiGo', 'amigogtp', 10],
+                  ['MichiWeak', 'michi gtp --sims 80 --play-until-end', 5],
+                  ['MichiMid', 'michi gtp --sims 300 --play-until-end', 5],
+                  ['MichiStrong', 'michi gtp --sims 1200 --play-until-end', 5],
+                  ['GnuGo', 'gnugo --level 0 --mode gtp --capture-all-dead', 3]],
+                 SetupExperiment::DEFAULT_OPPONENTS.map { |o| o.values_at(:name, :command, :copies) }
+  end
+
+  # The benchmark panel: the bots weakest first, the michi levels with the
+  # tournament's commands, GNU Go level 0 without an ending flag (its GNU Go
+  # referee removes dead stones), then the two network opponents the runner
+  # picks from the experiment's own generations.
   def test_the_default_benchmark_panel
-    assert_equal [%w[Brown bot brown], %w[AmiGo bot amigogtp], ['GnuGoLevel0', 'bot', 'gnugo --level 0 --mode gtp'],
+    assert_equal [%w[Brown bot brown], %w[AmiGo bot amigogtp],
+                  ['MichiWeak', 'bot', 'michi gtp --sims 80 --play-until-end'],
+                  ['MichiMid', 'bot', 'michi gtp --sims 300 --play-until-end'],
+                  ['MichiStrong', 'bot', 'michi gtp --sims 1200 --play-until-end'],
+                  ['GnuGoLevel0', 'bot', 'gnugo --level 0 --mode gtp'],
                   ['Gen0Champion', 'initial_champion', nil], ['PreviousCheckpoint', 'previous_checkpoint', nil]],
                  SetupExperiment::DEFAULT_BENCHMARK.map { |o| o.values_at(:name, :kind, :command) }
   end
@@ -436,7 +453,7 @@ class SetupExperimentTest < Minitest::Test
       database = ExperimentDatabase.new('experiment.sqlite3')
       answers = prompt_answers
       with_stdin("#{answers.join("\n")}\n") { SetupExperiment.settings(database) }
-      assert_equal 2, database.opponents.size
+      assert_equal 6, database.opponents.size
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
       assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
@@ -514,6 +531,71 @@ class SetupExperimentTest < Minitest::Test
     in_tmpdir do
       SetupExperiment.create('experiments/x', REQUIRED)
       assert_raises(ArgumentError) { SetupExperiment.create('experiments/x', REQUIRED) }
+    end
+  end
+
+  # The michi levels were calibrated on 9x9 only (docs/experiment-reference.md),
+  # and the default panels hold them, so a new experiment on any other board
+  # is refused before anything is written.
+  def test_create_refuses_a_board_other_than_9_with_the_michi_panel
+    in_tmpdir do
+      %w[5 13 19].each do |size|
+        arguments = REQUIRED + %W[--board-size #{size}]
+        error = assert_raises(ArgumentError, size) { SetupExperiment.create('experiments/x', arguments) }
+        assert_includes error.message, "board_size #{size}"
+        assert_includes error.message, 'calibrated for 9×9 only'
+        assert_includes error.message, 'MichiWeak'
+        refute Dir.exist?('experiments/x'), size
+      end
+    end
+  end
+
+  def test_the_prompts_refuse_a_board_other_than_9_with_the_michi_panel
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      answers = prompt_answers('board_size' => '13')
+      with_stdin("#{answers.join("\n")}\n") do
+        error = assert_raises(SetupExperiment::Refused) { SetupExperiment.settings(database) }
+        assert_includes error.message, 'calibrated for 9×9 only'
+      end
+      assert_empty database.settings
+      assert_empty database.opponents
+    end
+  end
+
+  # A stored experiment is checked against its own panels: a michi command
+  # in either one refuses any board but 9x9, and without michi other sizes
+  # still run.
+  def test_loading_refuses_a_board_other_than_9_when_a_panel_holds_michi
+    stored = SetupExperiment.settings_from_arguments(REQUIRED + %w[--board-size 13])
+    michi = { name: 'MichiWeak', command: 'michi gtp --sims 80 --play-until-end', copies: 1 }
+    brown = { name: 'Brown', command: 'brown', copies: 1 }
+    [[[michi], []], [[brown], [michi.slice(:name, :command).merge(kind: 'bot')]]].each do |opponents, benchmark|
+      in_tmpdir do
+        database = ExperimentDatabase.new('experiment.sqlite3')
+        database.save_settings(stored)
+        database.save_opponents(opponents)
+        database.save_benchmark_opponents(benchmark)
+        error = assert_raises(SetupExperiment::Refused) { SetupExperiment.settings(database) }
+        assert_includes error.message, 'board_size 13'
+        assert_includes error.message, 'calibrated for 9×9 only'
+      end
+    end
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.save_settings(stored)
+      database.save_opponents([brown])
+      database.save_benchmark_opponents([{ name: 'Brown', kind: 'bot', command: 'brown' }])
+      assert_equal 13, SetupExperiment.settings(database)['board_size']
+    end
+  end
+
+  # On 9x9 the michi panel loads.
+  def test_loading_accepts_9x9_with_the_michi_panel
+    in_tmpdir do
+      SetupExperiment.create('experiments/x', REQUIRED)
+      database = ExperimentDatabase.new('experiments/x/experiment.sqlite3')
+      assert_equal 9, SetupExperiment.settings(database)['board_size']
     end
   end
 

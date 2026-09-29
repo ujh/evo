@@ -10,7 +10,14 @@ set -eu
 # networks, writes it all to a results file, prints a summary, and deletes
 # the experiment.
 #
-#   scripts/profile-workload.sh small|large [--results FILE] [--keep] [--tiny]
+# The workloads keep their panel when the defaults change: after creating
+# the experiment, and before any run, the script replaces its opponents
+# and benchmark panel with those the workloads were defined with (the
+# pinned panel below): tournament Brown `brown` x5 and AmiGo `amigogtp`
+# x10; benchmark Brown, AmiGo, GnuGoLevel0 `gnugo --level 0 --mode gtp`,
+# Gen0Champion, PreviousCheckpoint.
+#
+#   scripts/profile-workload.sh small|large [--results FILE] [--keep] [--tiny] [--default-panel]
 #
 # --results FILE  where the results go (default
 #                 ${TMPDIR:-/tmp}/evo-profile-WORKLOAD-TIMESTAMP.txt); each
@@ -19,12 +26,15 @@ set -eu
 # --tiny          a 4-network, 2-round, 2-benchmark-game version, only to
 #                 test this script. It is not the workload and its numbers
 #                 mean nothing.
+# --default-panel the panels a new experiment gets today (SetupExperiment's
+#                 defaults) instead of the pinned one, to measure what the
+#                 defaults cost against it.
 #
 # Numbers that are recorded need a quiet machine (see docs/performance.md).
 # On Ctrl-C or a failed invocation the experiment is kept for inspection.
 
 usage() {
-  printf 'usage: %s small|large [--results FILE] [--keep] [--tiny]\n' "$0" >&2
+  printf 'usage: %s small|large [--results FILE] [--keep] [--tiny] [--default-panel]\n' "$0" >&2
   exit 2
 }
 
@@ -39,11 +49,13 @@ shift
 results=''
 keep=0
 tiny=0
+default_panel=0
 while [ $# -gt 0 ]; do
   case $1 in
     --results) [ $# -ge 2 ] || usage; results=$2; shift 2 ;;
     --keep) keep=1; shift ;;
     --tiny) tiny=1; shift ;;
+    --default-panel) default_panel=1; shift ;;
     *) usage ;;
   esac
 done
@@ -90,6 +102,27 @@ if [ "$tiny" -eq 1 ]; then
 fi
 experiment="$root/experiments/$name"
 
+# The pinned panel, as SQL on the new experiment's database: the opponents
+# and benchmark panel the workloads were defined with (docs/performance.md,
+# "Fixed workloads"), before the michi levels and GNU Go joined the
+# defaults.
+pinned_panel_sql="begin;
+  delete from opponents;
+  insert into opponents (position, name, command, copies) values
+    (0, 'Brown', 'brown', 5), (1, 'AmiGo', 'amigogtp', 10);
+  delete from benchmark_opponents;
+  insert into benchmark_opponents (position, name, kind, command) values
+    (0, 'Brown', 'bot', 'brown'), (1, 'AmiGo', 'bot', 'amigogtp'),
+    (2, 'GnuGoLevel0', 'bot', 'gnugo --level 0 --mode gtp'),
+    (3, 'Gen0Champion', 'initial_champion', null),
+    (4, 'PreviousCheckpoint', 'previous_checkpoint', null);
+  commit;"
+if [ "$default_panel" -eq 1 ]; then
+  panel='default (SetupExperiment defaults)'
+else
+  panel='pinned (tournament Brown x5, AmiGo x10; benchmark Brown, AmiGo, GnuGoLevel0, Gen0Champion, PreviousCheckpoint)'
+fi
+
 [ -n "$results" ] || results="${TMPDIR:-/tmp}/evo-profile-$name-$(date +%Y%m%d-%H%M%S).txt"
 case $results in /*) ;; *) results="$caller/$results" ;; esac
 case $results in
@@ -135,6 +168,7 @@ out "# Workload profile: $workload$( [ "$tiny" -eq 0 ] || printf ' TINY TEST RUN
 out "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 out "git: $(git rev-parse HEAD)$(git diff --quiet HEAD 2>/dev/null || printf ' (uncommitted changes)')"
 out "experiment: experiments/$name, seed $seed, concurrency $concurrency"
+out "panel: $panel"
 out "free disk before (df, experiments/): $free_gib GiB, required $min_free_gib GiB"
 out ''
 out '## Hardware'
@@ -161,6 +195,18 @@ out '## Create'
 out "command: $create"
 # shellcheck disable=SC2086
 mise run new-experiment "$name" $settings --seed "$seed" >> "$results" 2>&1
+if [ "$default_panel" -eq 0 ]; then
+  out 'panel: pinned, set with sqlite3 before any run'
+  sqlite3 "$experiment/experiment.sqlite3" "$pinned_panel_sql"
+else
+  out 'panel: the defaults new-experiment stored'
+fi
+out 'opponents: name|command|copies'
+sqlite3 "$experiment/experiment.sqlite3" 'select name, command, copies from opponents order by position' |
+  sed 's/^/    /' >> "$results"
+out 'benchmark_opponents: name|kind|command'
+sqlite3 "$experiment/experiment.sqlite3" 'select name, kind, command from benchmark_opponents order by position' |
+  sed 's/^/    /' >> "$results"
 out ''
 
 # Samples every second the resident memory of every process under this
@@ -332,5 +378,5 @@ else
   out "experiment deleted"
 fi
 
-printf '\n== %s workload%s ==%s\nresults: %s (logs next to it)\n' "$workload" \
-  "$( [ "$tiny" -eq 0 ] || printf ' (TINY TEST RUN, NOT THE WORKLOAD)')" "$summary" "$results"
+printf '\n== %s workload%s ==\npanel: %s%s\nresults: %s (logs next to it)\n' "$workload" \
+  "$( [ "$tiny" -eq 0 ] || printf ' (TINY TEST RUN, NOT THE WORKLOAD)')" "$panel" "$summary" "$results"
