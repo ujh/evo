@@ -66,6 +66,11 @@ description = "Show experiment statistics: mise run stats NAME [--watch | --csv]
 run = "./stats"
 raw = true
 
+[tasks.archive-experiment]
+description = "Shrink a finished experiment to its kept generations' champions, irreversibly: mise run archive-experiment NAME [--yes]"
+run = "./archive-experiment"
+raw = true
+
 [tasks.profile-workload]
 description = "Profile a fixed workload of docs/performance.md on a quiet machine: mise run profile-workload small|large [--results FILE] [--keep] [--tiny]"
 run = "sh scripts/profile-workload.sh"

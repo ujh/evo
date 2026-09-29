@@ -1337,7 +1337,15 @@ class ReproducibleRoundsTest < Minitest::Test
     commands
   end
 
-  def test_the_initial_population_gets_its_seed_and_is_recorded
+# scripts/compare-arena-scoring.rb regenerates an archived experiment's
+# generation 0 from its settings with the arguments the runner gives.
+def test_the_initial_population_arguments_come_from_the_settings_alone
+  seed = Seeds.derive(1, 'initial-population')
+  assert_equal %W[2 9 1 10 0.01 1.0 0.5 0.02 0.02 none 0.3 0.01 #{seed}],
+               RunGeneration.initial_population_arguments(RunGenerationHelpers::SETTINGS)
+end
+
+def test_the_initial_population_gets_its_seed_and_is_recorded
     in_experiment(generation: '0') do
       store = database
       gen = build_generation(generation: '0', store:)

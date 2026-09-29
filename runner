@@ -31,4 +31,7 @@ begin
 rescue SetupExperiment::PromptAborted => e
   warn "\n#{e.message}. Nothing was saved; start again, or create the experiment with mise run new-experiment."
   exit 1
+rescue SetupExperiment::Refused => e
+  warn e.message
+  exit 1
 end

@@ -26,6 +26,23 @@ class ExperimentDatabase
     @rankings = @db[:rankings]
   end
 
+  # The setting the archive writes into an experiment it shrank.
+  ARCHIVED = 'archived'.freeze
+
+  # The `archived` setting of the database at `path` (when it was archived),
+  # or nil, read without migrating; nil too for a database without a
+  # settings table.
+  def self.archived_on(path, readonly:)
+    db = Sequel.sqlite(path, readonly:, timeout: 5_000)
+    # Not table_exists?, which takes any failed query, a hot journal's
+    # included, for a missing table.
+    return nil if db[:sqlite_master].where(type: 'table', name: 'settings').empty?
+
+    db[:settings].where(key: ARCHIVED).get(:value)
+  ensure
+    db&.disconnect
+  end
+
   # Settings are stored as strings.
   def settings
     @db[:settings].to_hash(:key, :value)

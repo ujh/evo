@@ -1,0 +1,42 @@
+#!/usr/bin/env ruby
+# Shrinks a finished experiment to the champions of its kept generations
+# and every table but networks (see ArchiveExperiment). Irreversible, so it
+# asks first unless given --yes.
+require 'bundler/setup'
+require 'optparse'
+require_relative 'ruby/archive_experiment'
+
+options = {}
+parser = OptionParser.new do |opts|
+  opts.banner = 'Usage: mise run archive-experiment NAME [--yes]'
+  opts.on('--yes', 'Archive without asking') { options[:yes] = true }
+end
+begin
+  parser.parse!
+rescue OptionParser::ParseError => e
+  warn e.message
+  warn parser.help
+  exit 1
+end
+
+name = ARGV.first
+if name.nil? || ARGV.size > 1
+  warn parser.help
+  exit 1
+end
+
+confirm = lambda do |question|
+  next true if options[:yes]
+
+  print "#{question}\nType yes to archive: "
+  $stdin.gets&.strip == 'yes'
+end
+
+begin
+  result = ArchiveExperiment.new(File.join('experiments', name)).call(confirm:)
+  exit(result == :declined ? 1 : 0)
+rescue ArchiveExperiment::Refused => e
+  warn e.message
+  warn 'Nothing was changed.'
+  exit 1
+end

@@ -40,8 +40,10 @@ refereed matches), so a failure shows which kind of check broke. For
 development without the
 external programs, use `mise run setup` and `mise run test` (or `test-c` and
 `test-ruby` on their own). Other useful tasks are `mise run build`,
-`mise run clean`, `mise run doctor`, `mise run smoke`, and `mise run profile-workload`
-(the fixed workloads in `docs/performance.md`).
+`mise run clean`, `mise run doctor`, `mise run smoke`, `mise run profile-workload`
+(the fixed workloads in `docs/performance.md`), and `mise run archive-experiment NAME`,
+which shrinks a finished experiment to its kept generations' champions
+(irreversibly; see `docs/experiment-reference.md`).
 
 ## Running the evolution of the neural net
 
