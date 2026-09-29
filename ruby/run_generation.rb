@@ -162,7 +162,7 @@ class RunGeneration
   def verify_networks
     show('Verifying networks ...')
     directory = network_dir(generation)
-    shown ="networks/#{generation}/"
+    shown = "networks/#{generation}/"
     unless Dir.exist?(directory)
       raise NetworksDamaged, "#{shown} is missing, but generation #{generation}'s setup is saved. " \
                              "#{cannot_breed_again}"
