@@ -778,8 +778,31 @@ class GamesFromRankingTest < Minitest::Test
     names.map { |name| { 'name' => name, 'score' => 0 } }
   end
 
-  def games(names)
-    build_generation.send(:games_from_ranking, ranking(names))
+  # Bots are named as setup_players names their copies (Brown1, Brown2, ...)
+  # and record their opponent; networks (.ann) have no 'opponent' key.
+  def players(names)
+    names.compact.to_h do |name|
+      next [name, { 'command' => "../evo #{name}" }] if name.end_with?('.ann')
+
+      [name, { 'command' => name.downcase, 'external' => true, 'opponent' => name[/\A\D+/] }]
+    end
+  end
+
+  def games(names, random = Random.new(1))
+    build_generation.send(:games_from_ranking, ranking(names), players(names), random)
+  end
+
+  def pairs(names)
+    games(names).map { |game| game.values.compact.sort }
+  end
+
+  # The pairing before copies were kept apart: neighbours in the ranking.
+  def neighbour_games(names, random)
+    names.each_slice(2).map do |pair|
+      pair = pair.shuffle(random:)
+      pair << nil if pair.length == 1
+      { 'black' => pair.first, 'white' => pair.last }
+    end
   end
 
   # String keys, as ExperimentDatabase#state loads them: the runner keeps
@@ -795,9 +818,53 @@ class GamesFromRankingTest < Minitest::Test
     assert_equal [{ 'black' => 'c.ann', 'white' => nil }], games(%w[a.ann b.ann c.ann]).drop(1)
   end
 
-  # Bots play in the ranking like networks, so their place in it can be compared.
+  # Bots play in the ranking like networks, so their place in it can be
+  # compared, and different bots play each other.
   def test_external_players_are_paired_like_networks
-    assert_equal %w[Brown1 Brown2], games(%w[Brown1 Brown2 a.ann b.ann]).first.values.sort
+    assert_equal [%w[AmiGo1 Brown1], %w[a.ann b.ann]], pairs(%w[Brown1 AmiGo1 a.ann b.ann])
+  end
+
+  # A game between two copies of one bot says nothing about either, so the
+  # first copy plays the nearest later player that is not a copy of it, and
+  # the skipped copy keeps its place for the next pair.
+  def test_two_adjacent_copies_are_split
+    assert_equal [%w[Brown1 a.ann], %w[Brown2 b.ann]], pairs(%w[Brown1 Brown2 a.ann b.ann])
+  end
+
+  def test_the_order_is_otherwise_unchanged
+    assert_equal [%w[a.ann b.ann], %w[AmiGo1 Brown1], %w[Brown2 c.ann], %w[d.ann e.ann]],
+                 pairs(%w[a.ann b.ann Brown1 Brown2 AmiGo1 c.ann d.ann e.ann])
+    assert_equal [%w[Brown1 a.ann], %w[Brown2 b.ann], %w[Brown3 c.ann]],
+                 pairs(%w[Brown1 Brown2 Brown3 a.ann b.ann c.ann])
+    assert_equal [%w[AmiGo1 Brown1], %w[AmiGo2 Brown2], %w[AmiGo3 a.ann]],
+                 pairs(%w[AmiGo1 AmiGo2 Brown1 Brown2 AmiGo3 a.ann])
+  end
+
+  # With only copies of one bot left there is no better choice.
+  def test_a_tail_of_only_copies_is_paired_in_order
+    assert_equal [%w[Brown1 a.ann], %w[Brown2 Brown3]], pairs(%w[Brown1 Brown2 Brown3 a.ann])
+    assert_equal [%w[a.ann b.ann], %w[AmiGo1 AmiGo2], %w[AmiGo3 AmiGo4]], pairs(%w[a.ann b.ann AmiGo1 AmiGo2 AmiGo3 AmiGo4])
+  end
+
+  def test_the_odd_player_out_after_a_skip_sits_the_round_out
+    assert_equal [{ 'black' => 'Brown2', 'white' => nil }], games(%w[Brown1 Brown2 a.ann]).drop(1)
+    assert_equal [%w[Brown1 a.ann]], pairs(%w[Brown1 Brown2 a.ann]).take(1)
+    assert_equal [%w[Brown1 Brown2], %w[Brown3]], pairs(%w[Brown1 Brown2 Brown3])
+  end
+
+  # Networks have no 'opponent', so they are never copies of one another.
+  def test_networks_are_never_copies_of_one_another
+    assert_equal [%w[a.ann b.ann], %w[Brown1 c.ann]], pairs(%w[a.ann b.ann Brown1 c.ann])
+  end
+
+  # Where no two copies are adjacent in a pair, the games, colours
+  # included, are those of the pairing before copies were kept apart.
+  def test_a_ranking_without_adjacent_copies_pairs_and_colours_as_before
+    [%w[a.ann b.ann c.ann d.ann e.ann],
+     %w[Brown1 a.ann Brown2 AmiGo1 AmiGo2 b.ann c.ann],
+     %w[a.ann Brown1 Brown2 AmiGo1 AmiGo2 Brown3 b.ann]].each do |names|
+      assert_equal neighbour_games(names, Random.new(7)), games(names, Random.new(7)), names.join(' ')
+    end
   end
 
   # Early networks are far too weak for GNU Go, and its games set most of a
@@ -821,8 +888,8 @@ class GamesFromRankingTest < Minitest::Test
       store.save_opponents([{ name: 'Pachi', command: 'pachi --playouts 10', copies: 2 }])
       store.save_scoring(SetupExperiment::DEFAULT_SCORING)
       players = build_generation(store:).send(:setup_players)
-      assert_equal({ 'Pachi1' => { 'command' => 'pachi --playouts 10', 'external' => true },
-                     'Pachi2' => { 'command' => 'pachi --playouts 10', 'external' => true },
+      assert_equal({ 'Pachi1' => { 'command' => 'pachi --playouts 10', 'external' => true, 'opponent' => 'Pachi' },
+                     'Pachi2' => { 'command' => 'pachi --playouts 10', 'external' => true, 'opponent' => 'Pachi' },
                      '0001.ann' => { 'command' => '../evo ../networks/1/0001.ann' } }, players)
     end
   end
@@ -1738,6 +1805,26 @@ class ReproducibleRoundsTest < Minitest::Test
       gen = build_generation(settings: { 'tournament_rounds' => 3 })
       gen.send(:setup_next_round)
       gen.send(:data).values_at('games', 'ranking')
+    end
+  end
+
+  # A resume loads the state from the database, so the copies' opponent
+  # must survive it: a fresh generation reads the saved players, and the
+  # round it pairs keeps Brown1 and Brown2 apart.
+  def test_a_round_paired_from_the_saved_state_keeps_copies_apart
+    in_experiment do
+      store = ExperimentDatabase.new(':memory:')
+      store.save_opponents([{ name: 'Brown', command: 'brown', copies: 2 }])
+      store.save_scoring(SetupExperiment::DEFAULT_SCORING)
+      write_networks(1, { 'a.ann' => 'a', 'b.ann' => 'b' }, store:)
+      setup = build_generation(store:, settings: { 'tournament_rounds' => 3 })
+      tournament = setup.send(:setup_tournament)
+      scores = { 'Brown1' => 3, 'Brown2' => 2, 'a.ann' => 1, 'b.ann' => 0 }
+      store.save_state(1, tournament.merge('ranking' => scores.map { |name, score| { 'name' => name, 'score' => score } }))
+      resumed = build_generation(store:, settings: { 'tournament_rounds' => 3 })
+      capture_io { resumed.send(:setup_next_round) }
+      games = store.state(1)['games']
+      assert_equal [%w[Brown1 a.ann], %w[Brown2 b.ann]], games.map { |game| game.values.sort }
     end
   end
 

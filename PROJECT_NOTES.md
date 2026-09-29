@@ -136,11 +136,8 @@ The idea is to use the network in place of the random moves of plain Monte Carlo
 
 The benchmark takes about 28 of a small generation's 30 s: it still plays every game through `gogui-twogtp` with the GNU Go referee, most of its time in the games against GNU Go level 0. Moving its games into the arena needs openings, which the arena lacks (see the past-champions question above), and changes their scoring from the referee's to Tromp–Taylor. GNU Go opponents, once they return to the tournament through the ladder, took about 7 s a game through GoGui; what a GNU Go game costs in the arena is not measured yet.
 
-The tournament also plays games between copies of the same bot. Brown and AmiGo are deterministic, so such a game repeats itself and its point goes to whichever copy got the winning color. That adds noise to the bots' ranking, not information. (Games between different bots are intended; they place the bots in the ranking.)
+Another tournament improvement:
 
-Other tournament improvements:
-
-- Skip pairings between two copies of the same bot. This is mainly for accuracy, but games between bots are also a large share of the games with a bot (41 of 101 in the 25 Sep 2026 profile in `docs/performance.md`).
 - Later, a ladder of opponents: add the next stronger bot only once the networks beat the strongest one in the panel. The panel starts with Brown (random moves) and AmiGo; it lives in each experiment's `opponents` table, which the runner reads every generation, so a ladder can add rows. A measured intermediate bot should come before GNU Go level 0, then GNU Go level 10. Keep it simple until networks actually get past AmiGo. A changing panel changes what a tournament score means; the benchmark panel is stored apart (`benchmark_opponents`), so checkpoints stay comparable while the ladder moves.
 
 The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
