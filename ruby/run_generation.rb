@@ -79,6 +79,10 @@ class RunGeneration
   # that matches its birth. Its parents are gone, so it cannot be bred again.
   NetworksDamaged = Class.new(Stopped)
 
+  # Raised when evolve or initial-population did not breed the population.
+  # The setup is not saved, so a resume breeds it again with the same seeds.
+  BreedingFailed = Class.new(Stopped)
+
   def setup
     timings.time(:setup) do
       timings.time(:setup_clear) { empty_work }
@@ -601,7 +605,8 @@ class RunGeneration
     timings.time(:setup_save) { save_data(tournament) }
   end
 
-  # Runs initial-population in networks/0.partial/ and records the births.
+  # Runs initial-population in networks/0.partial/ and records the births,
+  # all in one transaction.
   def create_initial_population
     seed = Seeds.derive(experiment_seed, 'initial-population')
     command = "../../initial-population #{self.class.initial_population_arguments(settings).join(' ')}"
@@ -610,20 +615,27 @@ class RunGeneration
       # Stop before storing anything, so generation 0 never starts short of
       # networks, as breeding does when evolve fails.
       success, output = run_initial_population(command)
-      raise "initial-population failed: #{command}" unless success
+      initial_population_failed("initial-population failed: #{command}") unless success
 
       networks = Dir['*.ann'].sort
       expected = settings['population_size']
-      raise "initial-population wrote #{networks.size} networks, expected #{expected}: #{command}" unless networks.size == expected
-
-      networks.zip(initial_genes(output, networks.size, command)) do |network, network_genes|
-        genome = timings.time(:setup_hash) { Digest::SHA256.file(network).hexdigest }
-        timings.time(:setup_store) do
-          store.record_birth(generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
-                             differs_from_first: nil, differs_from_second: nil, seed:, genome:, **network_genes)
-        end
+      unless networks.size == expected
+        initial_population_failed("initial-population wrote #{networks.size} networks, expected #{expected}: #{command}")
       end
+
+      births = networks.zip(initial_genes(output, networks.size, command)).map do |network, network_genes|
+        genome = timings.time(:setup_hash) { Digest::SHA256.file(network).hexdigest }
+        { generation: 0, child: network, first_parent: nil, second_parent: nil, operator: 'initial',
+          differs_from_first: nil, differs_from_second: nil, seed:, genome:, **network_genes }
+      end
+      timings.time(:setup_store) { store.record_births(births) }
     end
+  end
+
+  # Stops the run for an initial-population run that failed or printed
+  # output the runner cannot use. Nothing is stored, so a resume runs it again.
+  def initial_population_failed(reason)
+    raise BreedingFailed, "#{reason}\nThe run stopped; resume after fixing the cause."
   end
 
   # The settings with the genes of generation 0, in initial-population's
@@ -654,15 +666,19 @@ class RunGeneration
   # experiment's feature set.
   def initial_genes(output, count, command)
     lines = output.lines.select { |line| line.start_with?('genes') }
-    raise "initial-population printed #{lines.size} genes lines for #{count} networks: #{command}" unless lines.size == count
+    unless lines.size == count
+      initial_population_failed("initial-population printed #{lines.size} genes lines for #{count} networks: #{command}")
+    end
 
     shape = [settings['hidden_layers'], settings['hidden_layers'].zero? ? 0 : settings['layer_size']]
     lines.map do |line|
       genes = parse_genes(line, command)
-      raise "initial-population printed genes of another shape: #{line.chomp}" unless genes.values_at(:layers, :width) == shape
+      unless genes.values_at(:layers, :width) == shape
+        initial_population_failed("initial-population printed genes of another shape: #{line.chomp}")
+      end
       unless genes[:features] == experiment_features
-        raise "initial-population printed genes of the feature set #{genes[:features]}, " \
-              "but the experiment's is #{experiment_features}: #{line.chomp}"
+        initial_population_failed("initial-population printed genes of the feature set #{genes[:features]}, " \
+                                  "but the experiment's is #{experiment_features}: #{line.chomp}")
       end
 
       genes
@@ -678,10 +694,10 @@ class RunGeneration
   # A genes line of initial-population or evolve (ann_print_genes_line in
   # lib/ann.h) as a birth's gene columns, plus :features (the feature set as
   # written), :feature_step, and :fw_NAME for each move feature of the set.
-  # Anything else raises.
+  # Anything else stops the run (BreedingFailed).
   def parse_genes(line, command)
     genes = parse_genes_fields(line.chomp)
-    raise "malformed genes line #{line.chomp.inspect}: #{command}" if genes.nil? || genes.value?(nil)
+    initial_population_failed("malformed genes line #{line.chomp.inspect}: #{command}") if genes.nil? || genes.value?(nil)
 
     genes
   end
@@ -737,12 +753,15 @@ class RunGeneration
       jobs = Array.new(total) { |i| evolve_job(previous_generation, i, Array.new(2) { select_parent(candidates) }) }
       print "\rGenerating population ... 0/#{total}"
       jobs.each { |job| pool.submit(job.pool_command, job) }
-      total.times do |finished|
+      births = Array.new(total) do |finished|
         job, _duration, status = pool.next_finished
         stop_breeding(job, status)
-        record_child(job, status)
-        print "\rGenerating population ... #{finished + 1}/#{total}"
+        read_child(job, status).tap { print "\rGenerating population ... #{finished + 1}/#{total}" }
       end
+      # One transaction for all, not a commit per birth. A stop before this
+      # stores none; the setup is not saved then either, so a resume breeds
+      # every child again.
+      timings.time(:setup_store) { store.record_births(births) }
     end
     puts "\rGenerating population ... done         "
     timings.time(:setup_sync) { publish_networks }
@@ -771,11 +790,11 @@ class RunGeneration
     EvolveJob.new(child, parents, seed, path, command)
   end
 
-  # Records the birth of a child evolve finished: it wrote the child into
-  # networks/N.partial/, which setup emptied, so a child exists only if this
-  # evolve wrote it. Then deletes the job's output files. Output breeding
-  # cannot use stops it (breeding_failed).
-  def record_child(job, status)
+  # The birth of a child evolve finished, to be stored with the others: it
+  # wrote the child into networks/N.partial/, which setup emptied, so a
+  # child exists only if this evolve wrote it. Deletes the job's output
+  # files. Output breeding cannot use stops it (breeding_failed).
+  def read_child(job, status)
     breeding_failed(job, status, "evolve failed to breed #{job.child}") unless status&.success? && File.exist?(job.path)
 
     output = read_utf8(job.out)
@@ -789,14 +808,11 @@ class RunGeneration
 
     genes = parse_child_genes(job, status, genes_lines.first)
     genome = timings.time(:setup_hash) { Digest::SHA256.file(job.path).hexdigest }
-    timings.time(:setup_store) do
-      store.record_birth(generation: generation.to_i, child: job.child, first_parent: job.parents[0],
-                         second_parent: job.parents[1], operator: summary[:operator],
-                         differs_from_first: differs(summary[:first]), differs_from_second: differs(summary[:second]),
-                         seed: job.seed, genome:, parent: summary[:parent], structure: summary[:structure],
-                         activation_changed: summary[:activation_changed] == '1', **genes)
-    end
     FileUtils.rm_f([job.out, job.err])
+    { generation: generation.to_i, child: job.child, first_parent: job.parents[0], second_parent: job.parents[1],
+      operator: summary[:operator], differs_from_first: differs(summary[:first]),
+      differs_from_second: differs(summary[:second]), seed: job.seed, genome:, parent: summary[:parent],
+      structure: summary[:structure], activation_changed: summary[:activation_changed] == '1', **genes }
   end
 
   def parse_child_genes(job, status, line)
@@ -818,9 +834,10 @@ class RunGeneration
   def breeding_failed(job, status, reason)
     pool.terminate
     stderr = read_utf8(job.err)
-    raise "#{reason}: #{job.command}\n" \
-          "evolve #{exit_reason(status)}. " \
-          "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}"
+    raise BreedingFailed, "#{reason}: #{job.command}\n" \
+                          "evolve #{exit_reason(status)}. " \
+                          "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}\n" \
+                          'The run stopped; a resume breeds every child again.'
   end
 
   # evolve's summary line. differs is -1 when the child's shape differs from

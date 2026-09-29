@@ -245,6 +245,11 @@ class ExperimentDatabase
     @births.insert_conflict(:replace).insert(birth.slice(*BIRTH_COLUMNS))
   end
 
+  # A generation's births, in one transaction: all or none.
+  def record_births(births)
+    @db.transaction { births.each { |birth| record_birth(**birth) } }
+  end
+
   # A database opened read-only before the runner migrated it lacks the
   # newer columns, and its rows lack those keys.
   def births(generation)

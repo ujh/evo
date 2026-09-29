@@ -155,7 +155,8 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
   # an evolve_pool (`pool` are its options). The block returns [success,
   # stdout, status, stderr] (the last two optional). `stale_child` is
   # left in networks/1.partial/0.ann, as an interrupted earlier run would.
-  def breed(scores:, settings: {}, stale_child: nil, pool: {}, &evolve)
+  # `prepare` gets the database before breeding, to stub it.
+  def breed(scores:, settings: {}, stale_child: nil, pool: {}, prepare: nil, &evolve)
     settings = { 'keep_every' => 0 }.merge(settings)
     # A database of its own, so a test can breed more than once.
     @database = nil
@@ -172,6 +173,7 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
 
       commands = []
       store = database
+      prepare&.call(store)
       gen = build_generation(settings: settings, store:)
       fake = evolve_pool(**pool) do |cmd|
         commands << cmd
@@ -384,6 +386,42 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
                     birth[:differs_from_first], birth[:differs_from_second], birth[:seed]]
       assert_equal Digest::SHA256.hexdigest(state[:children]["#{i}.ann"]), birth[:genome]
     end
+  end
+
+  # The births are stored together once the last child is back, not one
+  # commit each as the children finish.
+  def test_births_are_stored_once_every_child_finished
+    stored = []
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, settings: { 'population_size' => 3 }) do |cmd|
+      stored << database.births(1).size
+      write_child(cmd)
+    end
+    assert_nil state[:error]
+    assert_equal [0, 0, 0], stored
+    assert_equal %w[0.ann 1.ann 2.ann], state[:births].map { |b| b[:child] }
+  end
+
+  # A birth that cannot be stored leaves none: they share one transaction.
+  def test_a_birth_that_cannot_be_stored_leaves_none
+    calls = 0
+    prepare = lambda do |store|
+      store.define_singleton_method(:record_birth) do |**birth|
+        raise Sequel::Error, 'disk full' if (calls += 1) == 2
+
+        super(**birth)
+      end
+    end
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }, prepare:) { |cmd| write_child(cmd) }
+    assert_match(/disk full/, state[:error].message)
+    assert_empty state[:births]
+    assert_nil state[:data]
+  end
+
+  # A breeding failure stops the run with its report, as an arena stop does.
+  def test_a_breeding_failure_is_a_stop
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [false, '', exit_status(2), "bad parent\n"] }
+    assert_kind_of RunGeneration::Stopped, state[:error]
+    assert_instance_of RunGeneration::BreedingFailed, state[:error]
   end
 
   # The summary and the child's genes line fill the rest of its birth.
@@ -725,7 +763,7 @@ class GenesLineTest < Minitest::Test
       ALL.sub('fw_capture=9.75', 'fw_capture='),
       ALL.sub('liberties feature_step', 'liberties  feature_step')
     ].each do |line|
-      error = assert_raises(RuntimeError, line) { parse(line) }
+      error = assert_raises(RunGeneration::BreedingFailed, line) { parse(line) }
       assert_match(/malformed genes line/, error.message)
     end
   end
@@ -1656,7 +1694,7 @@ def test_the_initial_population_gets_its_seed_and_is_recorded
       in_experiment(generation: '0') do
         store = database
         gen = build_generation(generation: '0', store:)
-        error = assert_raises(RuntimeError, output) { populate(gen, output:) }
+        error = assert_raises(RunGeneration::BreedingFailed, output) { populate(gen, output:) }
         assert_match(/genes/, error.message)
         assert_empty store.births(0)
         refute Dir.exist?('../networks/0')
@@ -1680,11 +1718,29 @@ def test_the_initial_population_gets_its_seed_and_is_recorded
     in_experiment(generation: '0') do
       store = database
       gen = build_generation(generation: '0', store:)
-      error = assert_raises(RuntimeError) { populate(gen, networks:, result:) }
+      error = assert_raises(RunGeneration::BreedingFailed) { populate(gen, networks:, result:) }
       assert_empty store.births(0)
       refute Dir.exist?('../networks/0')
       assert_nil store.state(0)
       error.message
+    end
+  end
+
+  # Generation 0's births share one transaction too: one that cannot be
+  # stored leaves none, and no saved setup.
+  def test_an_initial_birth_that_cannot_be_stored_leaves_none
+    in_experiment(generation: '0') do
+      store = database
+      calls = 0
+      store.define_singleton_method(:record_birth) do |**birth|
+        raise Sequel::Error, 'disk full' if (calls += 1) == 2
+
+        super(**birth)
+      end
+      gen = build_generation(generation: '0', store:)
+      assert_raises(Sequel::Error) { populate(gen) }
+      assert_empty store.births(0)
+      assert_nil store.state(0)
     end
   end
 

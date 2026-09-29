@@ -27,9 +27,9 @@ require_relative 'awake_clock'
 # the births. They leave small untimed gaps (loading the previous
 # generation's state, pairing round 1), so they add up to a little less
 # than `setup`. setup_hash and setup_store, the summed time of hashing each
-# network and of storing its birth, are within setup_breed. `champion`,
-# at a checkpoint, is reading its champion's file and the last round's save
-# that stores it, within that round's time.
+# network and of storing the births in one transaction, are within
+# setup_breed. `champion`, at a checkpoint, is reading its champion's file
+# and the last round's save that stores it, within that round's time.
 class GenerationTimings
   AWAKE = -> { AwakeClock.now }
 

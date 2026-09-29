@@ -210,6 +210,23 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # A generation's births go in together, replacing a rebred child's row.
+  def test_records_a_generations_births_together
+    with_store do |store|
+      store.record_birth(**BIRTH)
+      store.record_births([BIRTH.merge(operator: 'crossover'), BIRTH.merge(child: '0002.ann')])
+      assert_equal [BIRTH.merge(operator: 'crossover'), BIRTH.merge(child: '0002.ann')], store.births(2)
+    end
+  end
+
+  # One transaction: a birth that cannot be stored leaves none of them.
+  def test_records_a_generations_births_all_or_none
+    with_store do |store|
+      assert_raises(Sequel::Error) { store.record_births([BIRTH, BIRTH.merge(child: '0002.ann', genome: nil)]) }
+      assert_empty store.births(2)
+    end
+  end
+
   def test_initial_networks_are_births_without_parents
     with_store do |store|
       initial = BIRTH.merge(generation: 0, child: '0001.ann', first_parent: nil, second_parent: nil,
