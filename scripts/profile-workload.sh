@@ -188,8 +188,23 @@ sampler='
 # field KEY LINE: the value of KEY=VALUE in LINE.
 field() { printf '%s\n' "$2" | tr ' ' '\n' | awk -F= -v k="$1" '$1 == k { print $2 }'; }
 
-# setup_parts LINE: the parts of setup in LINE that ran, as "clear 0.1 s, breed 30.2 s, ...".
-setup_parts() { printf '%s\n' "$1" | tr ' ' '\n' | awk -F= '$1 ~ /^setup_/ { sub(/^setup_/, "", $1); p = p (p ? ", " : "") $1 " " $2 " s" } END { print p }'; }
+# setup_parts LINE: the parts of setup in LINE that ran, as
+# "clear 0.1 s, breed 30.2 s (store 5.0 s within it), ...". store is within
+# breed, so it is not listed as a part of its own.
+setup_parts() {
+  printf '%s\n' "$1" | tr ' ' '\n' | awk -F= '
+    $1 ~ /^setup_/ { sub(/^setup_/, "", $1); name[++n] = $1; value[$1] = $2 }
+    END {
+      for (i = 1; i <= n; i++) {
+        k = name[i]
+        if (k == "store") continue
+        s = k " " value[k] " s"
+        if (k == "breed" && ("store" in value)) s = s " (store " value["store"] " s within it)"
+        p = p (p ? ", " : "") s
+      }
+      print p
+    }'
+}
 
 summary=''
 run_generation() {

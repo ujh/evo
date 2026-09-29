@@ -17,10 +17,12 @@ require_relative 'awake_clock'
 # pairing. Its worker time is the summed wall time of its pool jobs (arena
 # chunks), so above the round's time when jobs run in parallel. Its Ruby time is the round's time the runner spent not waiting
 # for a job: pairing, queueing, reading results, scoring, and storing.
-# The parts of setup are within `setup` and, but for setup_store, follow
-# one another: emptying work/, exporting the parents, breeding the
+# The parts of setup are within `setup` and, but for setup_store, come one
+# after another: emptying work/, exporting the parents, breeding the
 # children or running initial-population and storing its networks, saving
-# the state, and exporting the networks. setup_store, the summed time of
+# the state, and exporting the networks. They leave small untimed gaps
+# (loading the previous generation's state, pairing round 1), so they add
+# up to a little less than `setup`. setup_store, the summed time of
 # hashing and storing each network and its birth, is within setup_breed.
 class GenerationTimings
   AWAKE = -> { AwakeClock.now }
