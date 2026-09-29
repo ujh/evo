@@ -23,7 +23,8 @@ can play as a tournament and benchmark opponent:
   are loaded from the working directory.
 - The move history holds 10,000 moves (passes included) instead of 1,083;
   once it is full, play and genmove answer "? Error - move history full"
-  instead of writing past the arrays.
+  instead of writing past the arrays. MAX_GAME_LEN also caps a playout's
+  length (mcplayout), which now stops at move 10,001 instead of 1,083.
 
 diff -ruN a/Makefile b/Makefile
 --- a/Makefile

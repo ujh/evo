@@ -283,8 +283,8 @@ selfplay() {
   done
   printf 'quit\n'
 }
-selfplay untimed | $michi >"$scratch/untimed" 2>&1 || true
-selfplay timed | $michi >"$scratch/timed" 2>&1 || true
+(cd "$scratch" && selfplay untimed | $michi >untimed 2>&1) || true
+(cd "$scratch" && selfplay timed | $michi >timed 2>&1) || true
 untimed=$(answers "$scratch/untimed" | grep -v '^= *$' | tr '\n' ' ')
 timed=$(answers "$scratch/timed" | grep -v '^= *$' | tr '\n' ' ')
 if [ -z "$untimed" ] || [ "$untimed" != "$timed" ] || grep -q '^?' "$scratch/timed"; then
@@ -295,12 +295,64 @@ else
   printf 'michi time commands: the same %s moves with and without them\n' "$(answers "$scratch/untimed" | grep -vc '^= *$')"
 fi
 
+# played NAME OPTIONS: the moves michi-c2 (with OPTIONS after gtp) plays
+# in the 20-move self-play of $scratch/selfplay20.in, run in $scratch.
+awk 'BEGIN {
+  print "boardsize 9"; print "clear_board"; print "komi 6.5"
+  for (i = 0; i < 10; i++) { print "genmove b"; print "genmove w" }
+  print "quit"
+}' >"$scratch/selfplay20.in"
+played() {
+  # shellcheck disable=SC2086
+  (cd "$scratch" && michi gtp $2 <selfplay20.in >"$1" 2>"$1.err") || true
+  answers "$scratch/$1" | grep -v '^= *$' | tr '\n' ' '
+}
+
+# --sims sets the playouts: the same seed at 5 and 500 plays other moves.
+few=$(played sims-5 '--sims 5 --seed 3')
+many=$(played sims-500 '--sims 500 --seed 3')
+if [ -z "$few" ] || [ "$few" = "$many" ]; then
+  fail "michi --sims: 5 and 500 playouts gave the same moves (or none): $few"
+else
+  printf 'michi --sims: 5 and 500 playouts played different games\n'
+fi
+
+# --seed 0 is a fixed seed, not the clock: two runs play the same moves.
+zero=$(played seed-0 '--sims 100 --seed 0')
+sleep 1
+zero_again=$(played seed-0-again '--sims 100 --seed 0')
+if [ -z "$zero" ] || [ "$zero" != "$zero_again" ]; then
+  fail "michi --seed 0: two runs played different moves:
+  $zero
+  $zero_again"
+else
+  printf 'michi --seed 0: two runs played the same game\n'
+fi
+
+# --play-until-end changes play after an opponent's pass (michi-c2 decides
+# then whether to pass early): black's moves after white's passes differ.
+printf 'boardsize 9\nclear_board\nkomi 6.5\nplay b E5\nplay w pass\nplay b C3\nplay w pass\ngenmove b\nplay w pass\ngenmove b\nquit\n' \
+  >"$scratch/until-end.in"
+until_end() {
+  # shellcheck disable=SC2086
+  (cd "$scratch" && michi gtp --sims 200 --seed 1 $2 <until-end.in >"$1" 2>"$1.err") || true
+  answers "$scratch/$1" | grep -v '^= *$' | tr '\n' ' '
+}
+early=$(until_end until-end-off '')
+late=$(until_end until-end-on '--play-until-end')
+if [ -z "$early" ] || [ "$early" = "$late" ]; then
+  fail "michi --play-until-end: the same moves with and without it (or none): $early"
+else
+  printf 'michi --play-until-end: %swithout it, %swith it\n' "$early" "$late"
+fi
+
 # replay NAME OPTIONS: feeds $scratch/NAME.in to michi-c2 (with OPTIONS
-# after gtp) and requires exit status 0.
+# after gtp), in $scratch so that nothing it might write lands in the
+# checkout, and requires exit status 0.
 replay() {
   status=0
   # shellcheck disable=SC2086
-  michi gtp $2 <"$scratch/$1.in" >"$scratch/$1" 2>"$scratch/$1.err" || status=$?
+  (cd "$scratch" && michi gtp $2 <"$1.in" >"$1" 2>"$1.err") || status=$?
   if [ "$status" -ne 0 ]; then
     fail "michi $1: exit status $status: $(tail -3 "$scratch/$1") $(cat "$scratch/$1.err")"
     return 1
