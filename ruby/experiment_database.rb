@@ -145,7 +145,8 @@ class ExperimentDatabase
       )
       [@db[:players], @rankings, @db[:pending_games]].each { |table| table.where(generation:).delete }
       @db[:players].multi_insert(players.map do |name, player|
-        { generation:, name:, command: player.fetch('command', ''), external: player['external'] ? true : false }
+        { generation:, name:, command: player.fetch('command', ''), external: player['external'] ? true : false,
+          opponent: player['opponent'] }
       end)
       insert_ranking(generation, state.fetch('ranking', []), players)
       @db[:pending_games].multi_insert(state.fetch('games', []).each_with_index.map do |game, i|
@@ -292,7 +293,10 @@ class ExperimentDatabase
     return nil unless row
 
     players = @db[:players].where(generation:).order(:name).all.to_h do |player|
-      [player[:name], { 'command' => player[:command] }.merge(player[:external] ? { 'external' => true } : {})]
+      entry = { 'command' => player[:command] }
+      entry['external'] = true if player[:external]
+      entry['opponent'] = player[:opponent] if player[:opponent]
+      [player[:name], entry]
     end
     {
       'round' => row[:round],

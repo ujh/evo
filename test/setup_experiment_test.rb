@@ -416,8 +416,9 @@ class SetupExperimentTest < Minitest::Test
       assert_equal [{ name: 'Brown', command: 'brown', copies: 5 }, { name: 'AmiGo', command: 'amigogtp', copies: 10 }],
                    database.opponents
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
-      # Rules 3: every game in the arena, scored by Tromp-Taylor.
-      assert_equal '3', database.scoring['rules']
+      # Rules 4: every game in the arena, scored by Tromp-Taylor, and no
+      # game between two copies of one bot while another player is left.
+      assert_equal '4', database.scoring['rules']
       assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
   end
@@ -492,7 +493,20 @@ class SetupExperimentTest < Minitest::Test
       database.save_scoring(database.scoring.merge('rules' => '2'))
       database.close
       error = assert_raises(RuntimeError) { capture_io { run_setup } }
-      assert_includes error.message, 'rules "2", but the code scores by "3"'
+      assert_includes error.message, 'rules "2", but the code scores by "4"'
+    end
+  end
+
+  # An experiment begun while copies of one bot could play each other
+  # continues only with the code it began with.
+  def test_an_experiment_scored_by_rules_3_does_not_run
+    in_tmpdir do
+      fake_checkout
+      database = ExperimentDatabase.new('experiments/x/experiment.sqlite3')
+      database.save_scoring(database.scoring.merge('rules' => '3'))
+      database.close
+      error = assert_raises(RuntimeError) { capture_io { run_setup } }
+      assert_includes error.message, 'rules "3", but the code scores by "4"'
     end
   end
 

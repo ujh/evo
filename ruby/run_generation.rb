@@ -221,7 +221,7 @@ class RunGeneration
     state = data.merge('round' => round, 'ranking' => ranking)
     if round < settings['tournament_rounds']
       show("Pairing round #{round + 1}/#{settings['tournament_rounds']} ...")
-      save_data(state.merge('games' => games_from_ranking(ranking, colors_rng(round))))
+      save_data(state.merge('games' => games_from_ranking(ranking, state['players'], colors_rng(round))))
     elsif keep?(generation.to_i)
       show('Storing the champion ...')
       timings.time(:champion) { save_data(state.merge('games' => []), champion: champion(ranking)) }
@@ -1008,16 +1008,18 @@ class RunGeneration
     @rng ||= Random.new(Seeds.derive(experiment_seed, 'selection', generation.to_i))
   end
 
-  # The version of the scoring logic below and in ArenaResult: what counts
-  # as a win or a draw, and what stops the run. 3: every tournament game is
+  # The version of the tournament rules: who plays whom (games_from_ranking),
+  # and the scoring logic below and in ArenaResult, what counts as a win or
+  # a draw and what stops the run. 4: two copies of one bot do not play each
+  # other while another player is left to pair. 3: every tournament game is
   # played in the arena and scored by Tromp-Taylor; a bot that resigns
   # loses, a network out of main time loses, and a game the arena could not
   # finish stops the run instead of being scored. (2: games with a bot went
   # through gogui-twogtp and its GNU Go referee, and failed games were
-  # stored without points.) Bump it when that changes, so an experiment
-  # begun under other rules refuses to run. The points themselves are in
-  # the experiment's scoring.
-  SCORING_RULES = '3'.freeze
+  # stored without points.) Bump it when any of these rules change, so an
+  # experiment begun under other rules refuses to run. The points
+  # themselves are in the experiment's scoring.
+  SCORING_RULES = '4'.freeze
 
   def setup_tournament
     data = {
@@ -1026,29 +1028,42 @@ class RunGeneration
       'setup_complete' => true
     }
     data['ranking'] = shuffle_ties(data['players'].keys.map { |player| { 'name' => player, 'score' => 0 } }, 0)
-    data['games'] = games_from_ranking(data['ranking'], colors_rng(0))
+    data['games'] = games_from_ranking(data['ranking'], data['players'], colors_rng(0))
     data
   end
 
-  def games_from_ranking(ranking, random = colors_rng(0))
+  # Pairs the ranking from the top, each player with the next one, except
+  # that two copies of one bot (the same 'opponent' in `players`) do not
+  # play each other: the first plays the nearest later player that is not a
+  # copy of it, and the copies it passed keep their places for the next
+  # pairs. Only when nothing but copies of that bot is left are they paired
+  # with each other. Networks have no 'opponent', so they are never copies.
+  # `random` picks each pair's colours; the odd player out gets a bye.
+  def games_from_ranking(ranking, players, random = colors_rng(0))
     games = []
     ranked_players = ranking.map { |r| r['name'] }
-    loop do
-      players = ranked_players.shift(2).shuffle(random:)
-      break if players.empty?
-
-      players << nil if players.length == 1
-      games << { 'black' => players.first, 'white' => players.last }
+    until ranked_players.empty?
+      first = ranked_players.shift
+      partner = ranked_players.index { |player| !copies?(players, first, player) } || 0
+      pair = [first, *ranked_players.delete_at(partner)].shuffle(random:)
+      pair << nil if pair.length == 1
+      games << { 'black' => pair.first, 'white' => pair.last }
     end
     games
   end
 
-  # The experiment's opponents, each copy numbered from 1, then the
-  # networks in networks/N/.
+  def copies?(players, player, other)
+    opponent = players.dig(player, 'opponent')
+    !opponent.nil? && opponent == players.dig(other, 'opponent')
+  end
+
+  # The experiment's opponents, each copy numbered from 1 and recording
+  # which opponent it is, then the networks in networks/N/.
   def setup_players
     players = store.opponents.each_with_object({}) do |opponent, hash|
       (1..opponent[:copies]).each do |i|
-        hash["#{opponent[:name]}#{i}"] = { 'command' => opponent[:command], 'external' => true }
+        hash["#{opponent[:name]}#{i}"] = { 'command' => opponent[:command], 'external' => true,
+                                           'opponent' => opponent[:name] }
       end
     end
     networks = Dir.children(network_dir(generation)).select { |name| name.end_with?('.ann') }.sort

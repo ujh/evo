@@ -276,7 +276,8 @@ class ExperimentDatabaseTest < Minitest::Test
 
   STATE = {
     'round' => 1, 'setup_complete' => true,
-    'players' => { '0.ann' => { 'command' => '../evo 0.ann' }, 'Brown1' => { 'command' => 'brown', 'external' => true } },
+    'players' => { '0.ann' => { 'command' => '../evo 0.ann' },
+                   'Brown1' => { 'command' => 'brown', 'external' => true, 'opponent' => 'Brown' } },
     'ranking' => [{ 'name' => 'Brown1', 'score' => 1 }, { 'name' => '0.ann', 'score' => 0 }],
     'games' => [{ 'black' => '0.ann', 'white' => 'Brown1' }, { 'black' => '1.ann', 'white' => nil }]
   }.freeze
@@ -286,6 +287,16 @@ class ExperimentDatabaseTest < Minitest::Test
       store.save_state(2, STATE)
       assert_equal STATE, store.state(2)
       assert_nil store.state(3)
+    end
+  end
+
+  # Migration 013: each copy of a bot records which opponent it is; a
+  # network has none, so its state has no 'opponent' key at all.
+  def test_a_bots_opponent_is_stored_and_a_network_has_none
+    with_store do |store|
+      store.save_state(2, STATE)
+      assert_equal({ '0.ann' => nil, 'Brown1' => 'Brown' }, store.instance_variable_get(:@db)[:players].to_hash(:name, :opponent))
+      refute store.state(2)['players']['0.ann'].key?('opponent')
     end
   end
 

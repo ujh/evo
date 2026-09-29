@@ -135,7 +135,7 @@ class ArchiveExperimentTest < Minitest::Test
     after = read { |db| db[:settings].to_hash(:key, :value) }
     assert_equal settings, after.except('archived')
     assert after['archived'], 'no archived setting'
-    read { |db| assert_equal [12], db[:schema_info].select_map(:version) }
+    read { |db| assert_equal [13], db[:schema_info].select_map(:version) }
   end
 
   def test_stats_prints_the_same_after_the_archive
