@@ -54,10 +54,10 @@
  * at most 1000000; MAIN_TIME and RESPONSE_DEADLINE are above 0, GRACE
  * may be 0. RESPONSE_DEADLINE and GRACE are 10 s each for the runner:
  * hang guards with a wide margin, since one missed deadline stops a run.
- * scripts/bot-response-times.sh checks the margin: Brown, AmiGo, and GNU
- * Go level 0 answered setup, play, and quit within 0.03 s at worst, over
- * 300 games eight at a time on a busy machine. The grace only matters at
- * the end of main time.
+ * scripts/bot-response-times.sh checks the margin: Brown, AmiGo, michi-c2
+ * at 1200 playouts, and GNU Go level 0 answered setup, play, and quit
+ * within 0.03 s at worst, over 300 games eight at a time on a busy
+ * machine. The grace only matters at the end of main time.
  *
  * MANIFEST is a text file of lines, each a kind and its fields separated
  * by single tabs, with no empty field and no control character (bytes
@@ -171,8 +171,8 @@
  * failed write: exit 1. SIGINT, SIGTERM, SIGHUP, and SIGQUIT kill the
  * running bots, and then the arena by the same signal, without a record
  * for the game in progress (bot.h). A SIGKILL leaves no time for that: a
- * bot that exits at stdin EOF, as Brown, AmiGo, and GNU Go do, then ends
- * by itself, but one that ignores EOF keeps running.
+ * bot that exits at stdin EOF, as Brown, AmiGo, michi-c2, and GNU Go do,
+ * then ends by itself, but one that ignores EOF keeps running.
  */
 
 #define _POSIX_C_SOURCE 200809L

@@ -72,7 +72,7 @@ run = "./archive-experiment"
 raw = true
 
 [tasks.profile-workload]
-description = "Profile a fixed workload of docs/performance.md on a quiet machine: mise run profile-workload small|large [--results FILE] [--keep] [--tiny]"
+description = "Profile a fixed workload of docs/performance.md on a quiet machine: mise run profile-workload small|large [--results FILE] [--keep] [--tiny] [--default-panel]"
 run = "sh scripts/profile-workload.sh"
 raw = true
 

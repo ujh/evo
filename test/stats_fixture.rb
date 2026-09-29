@@ -28,6 +28,16 @@ module StatsFixture
     'c.ann' => GENES.merge(act_output: 'relu', copy_chance: 0.005, weight_changes: 4.0, weight_step: 0.6, structure_rate: 0.01,
                            feature_step: 0.008, fw_capture: 1.02, fw_self_atari: -0.97)
   }.freeze
+  # Its own panels, not the defaults, so a change of the defaults leaves the
+  # fixture as described above.
+  OPPONENTS = [{ name: 'Brown', command: 'brown', copies: 5 }, { name: 'AmiGo', command: 'amigogtp', copies: 10 }].freeze
+  BENCHMARK = [
+    { name: 'Brown', kind: 'bot', command: 'brown' },
+    { name: 'AmiGo', kind: 'bot', command: 'amigogtp' },
+    { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
+    { name: 'Gen0Champion', kind: 'initial_champion', command: nil },
+    { name: 'PreviousCheckpoint', kind: 'previous_checkpoint', command: nil }
+  ].freeze
   SETTINGS = { 'tournament_rounds' => 2, 'keep_every' => 2, 'benchmark_games' => 4, 'seed' => 1, 'board_size' => 9,
                'features' => FEATURES }.freeze
 
@@ -35,7 +45,9 @@ module StatsFixture
   def self.create(path)
     FileUtils.mkdir_p(File.dirname(path))
     writer = ExperimentDatabase.new(path)
-    SetupExperiment.save_rules(writer)
+    writer.save_opponents(OPPONENTS)
+    writer.save_benchmark_opponents(BENCHMARK)
+    writer.save_scoring(SetupExperiment::DEFAULT_SCORING)
     writer.save_settings(SETTINGS)
     populate(writer)
     writer.close

@@ -46,14 +46,18 @@ match() {
 }
 
 # Each opponent in DEFAULT_OPPONENTS and each bot in DEFAULT_BENCHMARK
-# (ruby/setup_experiment.rb) plays at least once, and so does the engine
-# itself. GNU Go level 0 is a benchmark bot; level 10 plays because it comes
-# back as a tournament opponent later, and its move generation checks the
-# gg_sort patch. michi-c2 plays at a fixed number of playouts and seed, as
-# the runner's commands will give it, against Brown, which it beats
-# without resigning, so the referee scores the game.
+# (ruby/setup_experiment.rb) plays at least once with its command, and so
+# does the engine itself. The michi levels and GNU Go get a fixed --seed, as
+# the runner adds one to their commands. They play Brown, which they beat
+# without resigning, so the referee scores the game. GNU Go level 0 plays
+# twice: with --capture-all-dead (the tournament's command) and without (the
+# benchmark's). Level 10 is in no panel; it plays because its move
+# generation checks the gg_sort patch.
 match brown-amigo brown amigogtp
-match michi-brown 'michi gtp --sims 100 --seed 1' brown
+match michi-weak-brown 'michi gtp --sims 80 --play-until-end --seed 1' brown
+match michi-mid-brown 'michi gtp --sims 300 --play-until-end --seed 1' brown
+match michi-strong-brown 'michi gtp --sims 1200 --play-until-end --seed 1' brown
+match gnugo0-dead-brown 'gnugo --level 0 --mode gtp --capture-all-dead --seed 1' brown
 match gnugo0-brown 'gnugo --level 0 --mode gtp' brown
 match amigo-gnugo10 amigogtp 'gnugo --level 10 --mode gtp'
 match evo-brown './engine/evo engine/example.ann' brown

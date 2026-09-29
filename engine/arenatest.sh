@@ -1044,8 +1044,9 @@ interrupt sigint INT 130
 interrupt sigterm TERM 143
 
 # After a SIGKILL the arena cannot clean up: a bot that exits at stdin EOF,
-# as Brown, AmiGo and GNU Go do, ends by itself, but one that ignores EOF
-# is left running (in its own process group). This pins what the docs say.
+# as Brown, AmiGo, michi-c2 and GNU Go do, ends by itself, but one that
+# ignores EOF is left running (in its own process group). This pins what
+# the docs say.
 {
   printf 'bot\tfake\ngame\tg\tfake\tfake\n'
   printf 'command\tg\tblack\t./fakebot --pid %s --log %s --stay genmove=hang\n' "$tmp/killed-b.pid" "$tmp/killed.log"
