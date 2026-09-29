@@ -33,7 +33,7 @@ class CheckpointBenchmarkTest < Minitest::Test
       copy_dat(pick ? pick.call(game) : fixture, game.prefix)
       File.write("#{game.prefix}-0.sgf", '(;SZ[9])')
     end
-    capture_io do
+    @out, = capture_io do
       @played_any = CheckpointBenchmark.new(generation, SETTINGS.merge('benchmark_games' => 2).merge(settings), pool,
                                             database).call
     end
@@ -221,6 +221,25 @@ class CheckpointBenchmarkTest < Minitest::Test
       assert_equal %w[AmiGo-0-black AmiGo-0-white Brown-0-black],
                    commands.map { |c| c[%r{-sgffile benchmark/(\S+)}, 1] }.sort
       assert_equal 'opponent', database.benchmark_games(0).find { |r| r[:network_color] == 'white' && r[:opponent] == 'Brown' }[:winner]
+    end
+  end
+
+  # The line shows the benchmark starting until its first game is in, then
+  # counts the games, each status covering the one before.
+  def test_the_progress_line_shows_the_benchmark_starting_then_each_game
+    in_experiment do
+      only_opponents("Brown", "AmiGo")
+      store_generations(0)
+      database.record_benchmark_game(generation: 0, opponent: "Brown", opening: 0, network_color: "white",
+                                     network: "b.ann", winner: "opponent")
+      run_benchmark(0)
+      assert_equal ["Benchmark: starting 3 games ...", "Benchmark ... Game: 2/4", "Benchmark ... Game: 3/4",
+                    "Benchmark ... Game: 4/4", "Benchmark ... done"],
+                   @out.split(/[\r\n]/).map(&:rstrip).reject(&:empty?)
+      @out.split("\r").reject(&:empty?).each_cons(2) do |before, after|
+        assert_operator after.length, :>=, [before.rstrip.length, 70].max, after.inspect
+      end
+      assert @out.end_with?("\n")
     end
   end
 

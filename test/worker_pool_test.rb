@@ -325,6 +325,131 @@ class WorkerPoolTest < Minitest::Test
     end
   end
 
+  # Streaming jobs
+
+  # Every event a streaming job gives, in order, until its exit event.
+  def stream_events(pool)
+    events = []
+    events << Timeout.timeout(10) { pool.next_finished } until events.last.is_a?(WorkerPool::Exited)
+    events
+  end
+
+  # The runner scores each arena record as it arrives, so the job hands
+  # back each line of its stdout (without the newline, the last one also
+  # without one) before its exit.
+  def test_a_streaming_job_hands_back_each_line_of_its_stdout_then_its_exit
+    pool = WorkerPool.new(1)
+    pool.submit_streaming("printf 'one\\n\\ntwo\\tfields\\nlast'; exit 3", :chunk)
+    events = stream_events(pool)
+    pool.stop
+    assert_equal ['one', '', "two\tfields", 'last'], events[0..-2].map(&:text)
+    assert(events[0..-2].all? { |event| event.is_a?(WorkerPool::Line) && event.identifier == :chunk })
+    exited = events.last
+    assert_equal :chunk, exited.identifier
+    assert_equal 3, exited.status.exitstatus
+    assert_operator exited.duration, :>, 0
+  end
+
+  def test_a_streaming_job_without_output_hands_back_only_its_exit
+    pool = WorkerPool.new(1)
+    pool.submit_streaming('true', :quiet)
+    events = stream_events(pool)
+    pool.stop
+    assert_equal [WorkerPool::Exited], events.map(&:class)
+    assert events.last.status.success?
+  end
+
+  # A line arrives while the job still runs, not only once it exited.
+  def test_a_line_arrives_before_the_job_exits
+    Dir.mktmpdir do |dir|
+      pool = WorkerPool.new(1)
+      pool.submit_streaming("echo first; while [ ! -e #{dir}/go ]; do sleep 0.01; done; echo second", :chunk)
+      assert_equal 'first', Timeout.timeout(5) { pool.next_finished }.text
+      File.write("#{dir}/go", '')
+      assert_equal %w[second], stream_events(pool)[0..-2].map(&:text)
+      pool.stop
+    end
+  end
+
+  # UTF-8 whatever the locale (US-ASCII under LANG=C), with bytes that are
+  # not UTF-8 replaced, as the runner read the arena's output file.
+  def test_lines_are_utf8_with_invalid_bytes_replaced
+    verbose, $VERBOSE = $VERBOSE, nil
+    external = Encoding.default_external
+    Encoding.default_external = Encoding::US_ASCII
+    pool = WorkerPool.new(1)
+    pool.submit_streaming("printf 'Gr\\303\\266\\303\\237e caf\\351\\n'", :chunk)
+    line = stream_events(pool).first.text
+    pool.stop
+    assert_equal Encoding::UTF_8, line.encoding
+    assert_equal 'Größe caf�', line
+  ensure
+    Encoding.default_external = external
+    $VERBOSE = verbose
+  end
+
+  # Each job's pipe is its own: a long job started while a short one's
+  # pipe is open must not hold that pipe's write end, or the short job's
+  # EOF, and so its exit, would wait for the long job.
+  def test_parallel_streaming_jobs_each_see_the_end_of_their_own_output
+    Dir.mktmpdir do |dir|
+      pool = WorkerPool.new(2)
+      pool.submit_streaming("echo short; while [ ! -e #{dir}/go ]; do sleep 0.01; done", :short)
+      assert_equal 'short', Timeout.timeout(5) { pool.next_finished }.text
+      pool.submit_streaming("echo long; touch #{dir}/go; exec sleep 5", :long)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      events = []
+      events << Timeout.timeout(10) { pool.next_finished } until events.any? { |e| e.is_a?(WorkerPool::Exited) }
+      assert_equal :short, events.last.identifier
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2.5
+      pool.terminate
+      pool.stop
+    end
+  end
+
+  # Ctrl-C can come just before the runner queues its chunks: they come
+  # back as exit events without lines, not started, so waiting never blocks.
+  def test_a_halted_pool_hands_back_streaming_jobs_as_not_started
+    Dir.mktmpdir do |dir|
+      pool = WorkerPool.new(2)
+      pool.halt
+      3.times { |i| pool.submit_streaming("echo line; touch #{dir}/#{i}", i) }
+      events = Timeout.timeout(5) { Array.new(3) { pool.next_finished } }
+      pool.stop
+      assert_equal [0, 1, 2], events.map(&:identifier).sort
+      events.each do |event|
+        assert_kind_of WorkerPool::Exited, event
+        assert_equal 0, event.duration
+        assert_same WorkerPool::NOT_STARTED, event.status
+      end
+      assert_empty Dir.children(dir)
+    end
+  end
+
+  def test_terminate_reaches_a_streaming_job
+    Dir.mktmpdir do |dir|
+      pool = WorkerPool.new(1)
+      pool.submit_streaming("echo $$ > #{dir}/pid; echo started; exec sleep 30", :chunk)
+      assert_equal 'started', Timeout.timeout(5) { pool.next_finished }.text
+      assert_equal 1, pool.terminate
+      assert_equal Signal.list['TERM'], stream_events(pool).last.status.termsig
+      refute alive?(pid_in("#{dir}/pid"))
+      pool.stop
+    end
+  end
+
+  # Plain jobs, the benchmark's and breeding's, keep their tuple.
+  def test_plain_and_streaming_jobs_share_the_pool
+    pool = WorkerPool.new(1)
+    pool.submit('echo not captured > /dev/null', :plain)
+    pool.submit_streaming('echo captured', :streaming)
+    identifier, seconds, status = Timeout.timeout(5) { pool.next_finished }
+    assert_equal [:plain, true], [identifier, status.success?]
+    assert_kind_of Float, seconds
+    assert_equal %w[captured], stream_events(pool)[0..-2].map(&:text)
+    pool.stop
+  end
+
   def test_size_below_one_is_rejected
     assert_raises(ArgumentError) { WorkerPool.new(0) }
   end

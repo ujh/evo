@@ -11,8 +11,9 @@ require_relative 'game_result'
 # format exactly (cut off when the arena died, for example) is not a result,
 # and a scheduled game without a result fails with NO_RESULT, so a chunk
 # always yields a result for every game in it. ArenaResult.chunk reads the
-# legacy invocation's output, ArenaResult.mixed_chunk that of
-# `arena --mixed`, whose format engine/arena.c's header comment defines.
+# legacy invocation's output, ArenaResult::MixedStream that of
+# `arena --mixed` a line at a time, as it arrives; engine/arena.c's header
+# comment defines its format.
 class ArenaResult
   NO_RESULT = 'arena: no result'.freeze
   NEITHER_PLAYS = 'arena: neither network can play'.freeze
@@ -50,12 +51,20 @@ class ArenaResult
     end
   end
 
-  # The results of one `arena --mixed` chunk, as Chunk has them, plus what
-  # the runner needs to decide whether to go on:
+  # Output `arena --mixed` never writes, which shows an arena that cannot be
+  # trusted; the message says what it wrote.
+  Broken = Class.new(StandardError)
+
+  # Reads the output of one `arena --mixed` chunk a line at a time (add),
+  # as the runner gets it while the arena plays, and says what the chunk
+  # gave:
   #
-  # header? says the output starts with HEADER; trailer is the count of the
-  # trailer "done N", nil without one; complete? says the arena finished
-  # the chunk normally, as Chunk#complete? does, with the header too.
+  # results maps every scheduled ID, in schedule order, to its
+  # ArenaResult, NO_RESULT for one without a valid record so far. header?
+  # says the output started with HEADER; trailer is the count of the
+  # trailer "done N" when it is the last line so far, else nil; complete?
+  # says the arena finished the chunk normally: the header, every line
+  # valid, a record for each scheduled ID, then a trailer counting them.
   #
   # failures maps each failure record's ID, in schedule order, to its
   # result (failed? true): a game the arena could not finish, which is
@@ -63,13 +72,66 @@ class ArenaResult
   # (NO_RESULT). A chunk may be complete and still have failures; either
   # a failure or an incomplete chunk means its other games cannot be
   # trusted to have been played.
-  MixedChunk = Struct.new(:results, :header, :trailer, :complete) do
-    def header?
-      header
+  class MixedStream
+    def initialize(ids)
+      @ids = ids
+      @scheduled = ids.to_h { |id| [id, true] }
+      @found = {}
+      @lines = 0
+      @header = false
+      @valid = true
+      @trailer = nil
     end
 
+    # Reads one line, without its newline; bytes that are not UTF-8 (a
+    # bot's answer in a message) become U+FFFD. Returns [ID, ArenaResult]
+    # for a valid record, which the runner stores at once unless it is a
+    # failure, and nil for the header, the trailer, or a line that is not
+    # a record (which leaves the chunk incomplete). A record before the
+    # header, for an ID not scheduled, or a second one for an ID raises
+    # Broken: the record already taken may be wrong too.
+    def add(line)
+      line = line.dup.force_encoding(Encoding::UTF_8).scrub
+      first = @lines.zero?
+      @lines += 1
+      # A trailer followed by more output was not the trailer.
+      @valid = false if @trailer
+      @trailer = nil
+      if first && line == HEADER
+        @header = true
+        return
+      end
+
+      if (count = line[TRAILER, 1])
+        @trailer = Integer(count, 10)
+        return
+      end
+
+      record = ArenaResult.parse_mixed_line(line)
+      unless record
+        @valid = false
+        return
+      end
+
+      id, = record
+      raise Broken, 'wrote a record before its header' unless @header
+      raise Broken, "wrote a record for #{id}, which is not in its manifest" unless @scheduled.key?(id)
+      raise Broken, "wrote a second record for #{id}" if @found.key?(id)
+
+      @found[id] = record.last
+      record
+    end
+
+    def header? = @header
+
+    attr_reader :trailer
+
     def complete?
-      complete
+      @header && @valid && @found.size == @ids.size && @trailer == @ids.size
+    end
+
+    def results
+      @ids.to_h { |id| [id, @found.fetch(id) { ArenaResult.new(failure: NO_RESULT) }] }
     end
 
     def failures
@@ -88,16 +150,6 @@ class ArenaResult
     lines, trailer = split(text)
     results, valid = collect(lines.map { |line| parse_line(line) }, ids)
     Chunk.new(results, valid && trailer == ids.size)
-  end
-
-  # Reads `arena --mixed` output. Bytes that are not UTF-8 (a bot's answer
-  # in a message) become U+FFFD.
-  def self.mixed_chunk(text, ids)
-    lines, trailer = split(text.dup.force_encoding(Encoding::UTF_8).scrub)
-    header = lines.first == HEADER
-    lines.shift if header
-    results, valid = collect(lines.map { |line| parse_mixed_line(line) }, ids)
-    MixedChunk.new(results, header, trailer, header && valid && trailer == ids.size)
   end
 
   # The lines of `text` without the trailer, and the trailer's count or nil.

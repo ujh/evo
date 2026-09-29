@@ -43,6 +43,19 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # An arena chunk's overhead is shared out once the chunk ends, among the
+  # games it stored while it ran.
+  def test_adds_seconds_to_the_duration_of_the_given_games
+    with_store do |store|
+      store.record(**GAME)
+      store.record(**GAME, black: '1.ann', white: '2.ann', duration: 0.5)
+      store.record(**GAME, black: '3.ann', white: '4.ann', duration: 0.75)
+      store.record(**GAME, round: 2, duration: 1.0)
+      store.add_duration(3, 1, [%w[0.ann Brown1], %w[3.ann 4.ann]], 0.125)
+      assert_equal [2.375, 0.5, 0.875, 1.0], store.games(3).map { |row| row[:duration] }
+    end
+  end
+
   def test_a_replayed_game_replaces_its_row
     # Resuming replays a game whose row was written just before a crash.
     with_store do |store|

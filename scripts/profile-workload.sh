@@ -50,8 +50,10 @@ done
 
 # The workloads. Settings are those of the experiments they are modeled on
 # (bigrun and even-bigger), with keep_every 1 so generation 0 runs the
-# benchmark; the seeds are those experiments' seeds.
-concurrency=8
+# benchmark; the seeds are those experiments' seeds. Concurrency 3: the
+# M3 has only 4 performance cores, and the OS and other work need one
+# (owner, 29 Sep 2026; docs/performance.md).
+concurrency=3
 case $workload in
   small)
     seed=777
