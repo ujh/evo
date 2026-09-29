@@ -15,7 +15,10 @@ set -eu
 # and benchmark panel with those the workloads were defined with (the
 # pinned panel below): tournament Brown `brown` x5 and AmiGo `amigogtp`
 # x10; benchmark Brown, AmiGo, GnuGoLevel0 `gnugo --level 0 --mode gtp`,
-# Gen0Champion, PreviousCheckpoint.
+# Gen0Champion, PreviousCheckpoint. It then checks that the database holds
+# the requested panel (the pinned one, or the defaults with
+# --default-panel), exits if not, and names the stored panel in the
+# summary.
 #
 #   scripts/profile-workload.sh small|large [--results FILE] [--keep] [--tiny] [--default-panel]
 #
@@ -117,6 +120,15 @@ pinned_panel_sql="begin;
     (3, 'Gen0Champion', 'initial_champion', null),
     (4, 'PreviousCheckpoint', 'previous_checkpoint', null);
   commit;"
+# The same panel as the rows the database must then hold, in sqlite3's
+# output format (name|command|copies, then name|kind|command).
+pinned_opponents='Brown|brown|5
+AmiGo|amigogtp|10'
+pinned_benchmark='Brown|bot|brown
+AmiGo|bot|amigogtp
+GnuGoLevel0|bot|gnugo --level 0 --mode gtp
+Gen0Champion|initial_champion|
+PreviousCheckpoint|previous_checkpoint|'
 if [ "$default_panel" -eq 1 ]; then
   panel='default (SetupExperiment defaults)'
 else
@@ -168,7 +180,7 @@ out "# Workload profile: $workload$( [ "$tiny" -eq 0 ] || printf ' TINY TEST RUN
 out "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 out "git: $(git rev-parse HEAD)$(git diff --quiet HEAD 2>/dev/null || printf ' (uncommitted changes)')"
 out "experiment: experiments/$name, seed $seed, concurrency $concurrency"
-out "panel: $panel"
+out "panel requested: $panel"
 out "free disk before (df, experiments/): $free_gib GiB, required $min_free_gib GiB"
 out ''
 out '## Hardware'
@@ -201,12 +213,38 @@ if [ "$default_panel" -eq 0 ]; then
 else
   out 'panel: the defaults new-experiment stored'
 fi
+stored_opponents=$(sqlite3 "$experiment/experiment.sqlite3" 'select name, command, copies from opponents order by position')
+stored_benchmark=$(sqlite3 "$experiment/experiment.sqlite3" 'select name, kind, command from benchmark_opponents order by position')
 out 'opponents: name|command|copies'
-sqlite3 "$experiment/experiment.sqlite3" 'select name, command, copies from opponents order by position' |
-  sed 's/^/    /' >> "$results"
+printf '%s\n' "$stored_opponents" | sed 's/^/    /' >> "$results"
 out 'benchmark_opponents: name|kind|command'
-sqlite3 "$experiment/experiment.sqlite3" 'select name, kind, command from benchmark_opponents order by position' |
-  sed 's/^/    /' >> "$results"
+printf '%s\n' "$stored_benchmark" | sed 's/^/    /' >> "$results"
+
+# Checks that the database holds the requested panel, so a pin that did not
+# take cannot pass as the workload: the pinned rows above, or with
+# --default-panel SetupExperiment's defaults.
+if [ "$default_panel" -eq 1 ]; then
+  expected=$(mise exec -- ruby -e 'require_relative "ruby/setup_experiment"
+    SetupExperiment::DEFAULT_OPPONENTS.each { |o| puts [o[:name], o[:command], o[:copies]].join("|") }
+    puts "--"
+    SetupExperiment::DEFAULT_BENCHMARK.each { |b| puts [b[:name], b[:kind], b[:command]].join("|") }')
+else
+  expected=$(printf '%s\n--\n%s' "$pinned_opponents" "$pinned_benchmark")
+fi
+stored=$(printf '%s\n--\n%s' "$stored_opponents" "$stored_benchmark")
+if [ "$stored" != "$expected" ]; then
+  out "panel check FAILED: the database does not hold the requested panel; expected:"
+  printf '%s\n' "$expected" | sed 's/^/    /' >> "$results"
+  printf 'the panel in %s is not the requested one (%s); stored (opponents, --, benchmark_opponents):\n%s\nexpected:\n%s\n%s is kept.\n' \
+    "$experiment/experiment.sqlite3" "$panel" "$stored" "$expected" "$experiment" >&2
+  exit 1
+fi
+# What the summary names: the stored panel itself, read back from the
+# database.
+stored_panel="$( [ "$default_panel" -eq 1 ] && printf default || printf pinned ), checked against the database: tournament $(sqlite3 "$experiment/experiment.sqlite3" \
+  "select group_concat(name || ' x' || copies, ', ') from (select name, copies from opponents order by position)"); benchmark $(sqlite3 "$experiment/experiment.sqlite3" \
+  "select group_concat(name, ', ') from (select name from benchmark_opponents order by position)")"
+out "panel check: the database holds the requested panel ($stored_panel)"
 out ''
 
 # Samples every second the resident memory of every process under this
@@ -379,4 +417,4 @@ else
 fi
 
 printf '\n== %s workload%s ==\npanel: %s%s\nresults: %s (logs next to it)\n' "$workload" \
-  "$( [ "$tiny" -eq 0 ] || printf ' (TINY TEST RUN, NOT THE WORKLOAD)')" "$panel" "$summary" "$results"
+  "$( [ "$tiny" -eq 0 ] || printf ' (TINY TEST RUN, NOT THE WORKLOAD)')" "$stored_panel" "$summary" "$results"
