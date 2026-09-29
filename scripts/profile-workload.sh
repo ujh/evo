@@ -66,7 +66,9 @@ case $workload in
     ;;
   large)
     seed=5318103715471647440
-    min_free_gib=25
+    # Peak about 9 GiB: while generation 1 is bred, networks/0/ and
+    # networks/1.partial/ (4.3 GiB each) plus a small database.
+    min_free_gib=15
     settings="--board-size 9 --population-size 1000 --hidden-layers 10 --layer-size 200
       --max-hidden-layers 100 --max-layer-size 1000 --features shapes,tactics,last_move,liberties
       --cross-over-rate 0.4 --game-length 10 --max-moves 200 --tournament-rounds 10
@@ -241,14 +243,15 @@ run_generation() {
   reentry=''
   if [ "$generation" -gt 0 ]; then
     # A one-generation run first re-enters the last finished generation:
-    # it empties work/ and exports that generation's networks, then finds
-    # nothing left to play. That is in this invocation's wall time,
-    # /usr/bin/time, and runner profile, but not in its timings line. Its
-    # length comes from the two generation headers' clock times, to the
-    # second.
+    # it empties work/ and deletes the network directories it no longer
+    # needs (its networks/N/ stays; a finished tournament skips verifying
+    # it), then finds nothing left to play. That is in this invocation's
+    # wall time, /usr/bin/time, and runner profile, but not in its timings
+    # line. Its length comes from the two generation headers' clock times,
+    # to the second.
     reentry=$(awk '/^\*\*\* GENERATION / { split($5, t, ":"); s[++n] = t[1] * 3600 + t[2] * 60 + t[3] }
       END { if (n >= 2) { d = s[2] - s[1]; if (d < 0) d += 86400; print d } }' "$log")
-    out "note: this invocation first re-entered generation $((generation - 1)) (emptied work/ and exported its networks) before generation $generation; its wall time, /usr/bin/time and runner profile include that, the timings line does not. Re-entry took about ${reentry:-?} s (generation headers, 1 s resolution)."
+    out "note: this invocation first re-entered generation $((generation - 1)) (emptied work/ and deleted stale network directories) before generation $generation; its wall time, /usr/bin/time and runner profile include that, the timings line does not. Re-entry took about ${reentry:-?} s (generation headers, 1 s resolution)."
   fi
   timings=$(grep '^timings ' "$log" || true)
   out "timings line: ${timings:-none}"
@@ -272,7 +275,9 @@ run_generation() {
   out 'benchmark games: games|failures|summed duration s'
   sqlite3 "$db" "select count(*), sum(failure is not null), round(sum(duration), 3)
     from benchmark_games where generation = $generation" | sed 's/^/    /' >> "$results"
-  out 'stored networks: generation|count|bytes'
+  # Only checkpoint champions are stored; the generation's networks are
+  # files in networks/N/ (their count and bytes are in the arena load line).
+  out 'stored networks (checkpoint champions): generation|count|bytes'
   sqlite3 "$db" "select generation, count(*), sum(length(weights)) from networks group by generation" |
     sed 's/^/    /' >> "$results"
   out "disk: experiment $(du -sk "$experiment" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), database $(du -sk "$db" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), networks/ $(du -sk "$experiment/networks" | awk '{ printf "%.2f GiB", $1 / 1048576 }'), work/ $(du -sk "$experiment/work" | awk '{ printf "%.2f GiB", $1 / 1048576 }'); df free $(df -Pk "$experiment" | awk 'NR == 2 { printf "%.1f GiB", $4 / 1048576 }')"
