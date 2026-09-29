@@ -101,6 +101,8 @@ Brown's internal final-status algorithm assumes the board has been filled accord
 
 Before treating results as reliable, specify the board size, suicide policy, ko rule, and how GNU Go adjudicates unfinished benchmark games. The local engine uses simple ko and accepts suicide through `play`, although its generated moves exclude suicide. Those conventions should agree with the surrounding match system.
 
+**Owner question: Tromp–Taylor rewards capturing dead stones.** A network that passes with AmiGo's dead stones still in its area loses by the arena's Tromp–Taylor count games the GNU Go referee gives it (7 of 50 in the comparison in `docs/experiment-reference.md`), so the tournament selects for capturing dead stones before passing. A GNU Go opponent, once a ladder brings it back into the tournament, would lose games it wins on the board, since it passes with dead stones left. Before that, decide on another ending for those games (for example, bots play on until the dead stones are captured) or a referee.
+
 ## Comparing the owner's two proposed directions
 
 ### Go features: what is still open
@@ -147,6 +149,8 @@ The first experiment should have a comfortable elapsed-time cap and checkpoint r
 
 The opponent ladder needs bots between AmiGo and GNU Go, and beyond GNU Go once networks get there. Candidates: michi, Pachi, Fuego, GNU Go at levels 0–10, and others. GNU Go level 0 is already too strong here, so its higher levels are unlikely to fill the AmiGo-to-GNU-Go gap. First try an adjustable playout limit on Pachi or a C version of Michi. For each candidate, find out whether it builds on macOS (clang) and Linux (GCC), speaks the GTP commands the arena controller needs, accepts or ignores time controls, and how strong and fast each setting is on 9×9 (against AmiGo, GNU Go level 0, and the other candidates, with varied openings and both colours). Calibrate candidates in separate matches, then include a qualifying bot in new experiments' fixed benchmark panels before deciding whether to use it for tournament selection. Each one that qualifies goes into the external tools release (`scripts/external-tools.txt`) and the installer.
 
+**Owner question: the 10 s bot deadlines as settings.** The arena waits at most 10 s for a bot's answer to setup, `play` and `quit`, and 10 s past its main time for `genmove` (`RunGeneration::RESPONSE_DEADLINE` and `GENMOVE_GRACE`, constants; `docs/experiment-reference.md`). They do not limit thinking, but a bot that loads a large model at startup (KataGo, for example) could miss the first setup deadline and stop the run as `launch`. When such a bot, or search with per-move time control, is added, make both experiment settings, and revisit that the clock is absolute main time only (no byo-yomi, no `time_left`).
+
 **Next: a fast bot stronger than AmiGo for the normal rounds.** GNU Go is strong but slow in our settings (about 7 s per game), and the networks do not need an opponent that strong yet (owner, 27 Sep 2026). Look for a bot that is somewhat stronger than AmiGo but plays quickly, and add it to the default `opponents` panel.
 
 ## Code cleanup
@@ -176,6 +180,10 @@ Consider porting Evo's own C code to Rust, keeping the libraries it uses (such a
 ### Neural network library
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). Extra feature inputs only widen the input layer, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes, both activations, its genes, and its feature set with its feature weights (format version 2). GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
+
+## Tooling for agents
+
+**Owner request: check running subagents automatically.** In a planned run the orchestrator checks every running agent by hand for progress (its commits, working tree, worktrees and processes; `docs/orchestration.md`, "Watching running agents"), since an agent once finished its work and never reported. Build tooling that does it without being asked: for example a heartbeat or watchdog script, a Claude Code hook, or a plugin that tracks subagent liveness and prompts the orchestrator when an agent stops making progress. Open questions: what counts as progress for a step that runs a long measurement, and whether a hook can see subagents at all.
 
 ## Proposed sequence
 
