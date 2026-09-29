@@ -455,8 +455,8 @@ fi
 # start, since the PATH holds none of them.
 status=0
 env PATH=/usr/bin:/bin sh "$root/scripts/bot-response-times.sh" 1 1 >"$scratch/times" 2>&1 || status=$?
-if [ "$status" -eq 0 ] || ! grep -q '^6 of 6 games failed' "$scratch/times"; then
-  fail "bot-response-times.sh: expected it to fail with '6 of 6 games failed', got status $status: $(cat "$scratch/times")"
+if [ "$status" -eq 0 ] || ! grep -q '^12 of 12 games failed' "$scratch/times"; then
+  fail "bot-response-times.sh: expected it to fail with '12 of 12 games failed', got status $status: $(cat "$scratch/times")"
 fi
 
 if [ "$failed" -ne 0 ]; then

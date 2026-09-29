@@ -6,10 +6,13 @@ set -eu
 # that deadline's margin: sh scripts/bot-response-times.sh [GAMES [LANES
 # [DEADLINE]]].
 #
-# Brown, AmiGoGtp, and GNU Go level 0 play GAMES (default 20) relayed 9x9
-# games through engine/botdriver for each ordered pairing (6 pairings),
-# LANES (default 4) games at a time, as a tournament runs several chunks
-# at once, each GNU Go game with its own seed. It prints, per bot, the
+# The tournament's bots, with the default opponents' commands
+# (ruby/setup_experiment.rb): Brown, AmiGoGtp, michi-c2 at MichiStrong's
+# playouts (the most of the three levels), and GNU Go level 0 with
+# --capture-all-dead play GAMES (default 20) relayed 9x9 games through
+# engine/botdriver for each ordered pairing (12 pairings), LANES (default
+# 4) games at a time, as a tournament runs several chunks at once, each
+# michi and GNU Go game with its own seed. It prints, per bot, the
 # worst time of its setup (known_command, boardsize, clear_board, komi,
 # and time_settings together, the first of them including the bot's
 # start, so an upper bound for any one of them), play, genmove, and quit,
@@ -32,19 +35,24 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/evo-bot-times.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 trap 'exit 1' HUP INT TERM
 
-# The bot of a short name, with GNU Go's seed from the game number.
+# The bot of a short name, with michi's and GNU Go's seed from the game
+# number.
 command_of() {
   case $1 in
     brown) printf 'brown' ;;
     amigo) printf 'amigogtp' ;;
-    gnugo0) printf 'gnugo --level 0 --mode gtp --seed %s' "$2" ;;
+    michi) printf 'michi gtp --sims 1200 --play-until-end --seed %s' "$2" ;;
+    gnugo0) printf 'gnugo --level 0 --mode gtp --capture-all-dead --seed %s' "$2" ;;
   esac
 }
+bots='brown amigo michi gnugo0'
+pairings=$(for b in $bots; do for w in $bots; do [ "$b" = "$w" ] || printf '%s:%s ' "$b" "$w"; done; done)
+pairing_count=$(printf '%s\n' $pairings | wc -l | tr -d ' ')
 
 # lane K: plays every game whose number is K modulo LANES.
 lane() {
   k=0
-  for pairing in brown:amigo amigo:brown brown:gnugo0 gnugo0:brown amigo:gnugo0 gnugo0:amigo; do
+  for pairing in $pairings; do
     black=${pairing%:*}
     white=${pairing#*:}
     n=0
@@ -82,12 +90,12 @@ done
 # fails the check: its times say nothing about the margin.
 failures=$(cat "$scratch"/game-*.failed 2>/dev/null | wc -l | tr -d ' ')
 if [ "$failures" -ne 0 ]; then
-  printf '%d of %d games failed:\n' "$failures" $((games * 6))
+  printf '%d of %d games failed:\n' "$failures" $((games * pairing_count))
   sed 's/^/  /' "$scratch"/game-*.failed
   exit 1
 fi
 
-printf '%d games (%d per pairing, %d at a time) in %d s; load average: %s\n' $((games * 6)) "$games" "$lanes" \
+printf '%d games (%d per pairing, %d at a time) in %d s; load average: %s\n' $((games * pairing_count)) "$games" "$lanes" \
   $(($(date +%s) - start)) "$(uptime | sed 's/.*load average[s]*: //')"
 cat "$scratch"/game-*.times | awk -F '\t' -v deadline="$deadline" '
   $3 != "ok" { failures++ }
