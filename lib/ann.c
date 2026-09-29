@@ -197,7 +197,51 @@ static int write_f64(FILE *out, double d) {
     return fwrite(b, 1, 8, out) == 8;
 }
 
-genann *ann_binary_read(FILE *in, ann_genes *genes, ann_features *features) {
+genann *ann_allocate(int inputs, int hidden_layers, int hidden, int outputs) {
+    if (hidden_layers < 0 || inputs < 1 || outputs < 1 || (hidden_layers > 0 && hidden < 1)) return NULL;
+    if (inputs > GENANN_MAX_DIMENSION || hidden_layers > GENANN_MAX_DIMENSION
+            || hidden > GENANN_MAX_DIMENSION || outputs > GENANN_MAX_DIMENSION) return NULL;
+
+    const long long hidden_weights = hidden_layers
+        ? (long long)(inputs + 1) * hidden + (long long)(hidden_layers - 1) * (hidden + 1) * hidden : 0;
+    const long long output_weights = (long long)(hidden_layers ? hidden + 1 : inputs + 1) * outputs;
+    const long long total_weights = hidden_weights + output_weights;
+    const long long total_neurons = (long long)inputs + (long long)hidden * hidden_layers + outputs;
+    if (total_weights > INT_MAX / 32 || total_neurons > INT_MAX / 32) return NULL;
+
+    genann *ann = calloc(1, sizeof(genann) + sizeof(double) * (total_weights + total_neurons + (total_neurons - inputs)));
+    if (ann == NULL) return NULL;
+
+    ann->inputs = inputs;
+    ann->hidden_layers = hidden_layers;
+    ann->hidden = hidden;
+    ann->outputs = outputs;
+    ann->total_weights = total_weights;
+    ann->total_neurons = total_neurons;
+    ann->weight = (double *)((char *)ann + sizeof(genann));
+    ann->output = ann->weight + ann->total_weights;
+    ann->delta = ann->output + ann->total_neurons;
+    ann->activation_hidden = genann_act_sigmoid_cached;
+    ann->activation_output = genann_act_sigmoid_cached;
+    return ann;
+}
+
+// ann_allocate, with sigmoid_cached's lookup table filled, as genann_init
+// fills it. The table is static and its values never change, so once a
+// process is enough.
+static genann *allocate_for_play(int inputs, int hidden_layers, int hidden, int outputs) {
+    static int lookup_filled = 0;
+    genann *ann = ann_allocate(inputs, hidden_layers, hidden, outputs);
+    if (ann != NULL && !lookup_filled) {
+        genann_init_sigmoid_lookup(ann);
+        lookup_filled = 1;
+    }
+    return ann;
+}
+
+typedef genann *(*allocator)(int inputs, int hidden_layers, int hidden, int outputs);
+
+static genann *read_network(FILE *in, ann_genes *genes, ann_features *features, allocator allocate) {
     char magic[sizeof(MAGIC)];
     uint32_t version, sizes[4], codes[2];
 
@@ -275,7 +319,7 @@ genann *ann_binary_read(FILE *in, ann_genes *genes, ann_features *features) {
                 inputs, ann_layout_inputs(groups, side * side), side, side);
         return NULL;
     }
-    genann *ann = genann_init(inputs, hidden_layers, hidden, outputs);
+    genann *ann = allocate(inputs, hidden_layers, hidden, outputs);
     if (ann == NULL) {
         fprintf(stderr, "ann_binary_read: invalid network dimensions %d %d %d %d\n",
                 inputs, hidden_layers, hidden, outputs);
@@ -304,6 +348,14 @@ genann *ann_binary_read(FILE *in, ann_genes *genes, ann_features *features) {
     if (genes) *genes = read_genes;
     if (features) *features = read_features;
     return ann;
+}
+
+genann *ann_binary_read(FILE *in, ann_genes *genes, ann_features *features) {
+    return read_network(in, genes, features, genann_init);
+}
+
+genann *ann_binary_read_for_play(FILE *in, ann_genes *genes, ann_features *features) {
+    return read_network(in, genes, features, allocate_for_play);
 }
 
 int ann_binary_write(const genann *ann, const ann_genes *genes, const ann_features *features, FILE *out) {

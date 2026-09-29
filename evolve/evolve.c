@@ -43,7 +43,10 @@ void seed() {
 }
 
 // Exits with an error, instead of returning NULL, when the file cannot be
-// opened or does not hold a network.
+// opened or does not hold a network. The drawing load, not the play load:
+// main seeds the generator before loading the parents, so a child depends
+// on the draws of genann_init's random fill, and a seed breeds the same
+// child only while they stay.
 static genann *load_nn(char *name, ann_genes *genes, ann_features *features) {
   printf("Loading %s ...", name);
   FILE *fd = fopen(name, "rb");
@@ -267,34 +270,15 @@ int allowed_structure_changes(genann const *ann, shape_bounds const *bounds, str
 
 // A network of the given shape with the parent's activations and all
 // weights 0. genann_init would fill it with random weights, drawing from the
-// generator, so it is laid out here as genann_init lays it out (and as
-// genann_copy and genann_free expect): building a network draws nothing.
+// generator; ann_allocate lays it out the same way without drawing, so
+// building a network draws nothing.
 static genann *blank(genann const *parent, int hidden_layers, int hidden) {
-  int inputs = parent->inputs, outputs = parent->outputs;
   if (hidden_layers == 0) hidden = 0;
-  long long hidden_weights = hidden_layers
-    ? (long long)(inputs + 1) * hidden + (long long)(hidden_layers - 1) * (hidden + 1) * hidden : 0;
-  long long output_weights = (long long)(hidden_layers ? hidden + 1 : inputs + 1) * outputs;
-  long long total_weights = hidden_weights + output_weights;
-  long long total_neurons = (long long)inputs + (long long)hidden * hidden_layers + outputs;
-  genann *ann = NULL;
-  // The same limit as genann_init's, so the sizes fit its int counters.
-  if (total_weights <= INT_MAX / 32 && total_neurons <= INT_MAX / 32) {
-    ann = calloc(1, sizeof(genann) + sizeof(double) * (total_weights + total_neurons + (total_neurons - inputs)));
-  }
+  genann *ann = ann_allocate(parent->inputs, hidden_layers, hidden, parent->outputs);
   if (ann == NULL) {
     fprintf(stderr, "Could not build a network with %d hidden layers of %d\n", hidden_layers, hidden);
     exit(1);
   }
-  ann->inputs = inputs;
-  ann->hidden_layers = hidden_layers;
-  ann->hidden = hidden;
-  ann->outputs = outputs;
-  ann->total_weights = (int)total_weights;
-  ann->total_neurons = (int)total_neurons;
-  ann->weight = (double *)((char *)ann + sizeof(genann));
-  ann->output = ann->weight + ann->total_weights;
-  ann->delta = ann->output + ann->total_neurons;
   ann->activation_hidden = parent->activation_hidden;
   ann->activation_output = parent->activation_output;
   return ann;
