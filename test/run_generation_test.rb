@@ -267,6 +267,17 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     assert_empty state[:work]
   end
 
+  # evolve writing the child and its output does not make up for a failing exit.
+  def test_evolve_exiting_with_an_error_stops_breeding_though_it_wrote_the_child
+    state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) do |cmd|
+      _, stdout = write_child(cmd)
+      [false, stdout, exit_status(1)]
+    end
+    assert_match(/evolve failed to breed 0\.ann/, state[:error]&.message)
+    assert_includes state[:error].message, 'exited with status 1'
+    assert_nil state[:data]
+  end
+
   # Every child's parents are drawn before any evolve runs, two per child in
   # child order, as serial breeding drew them, so the order children finish
   # in changes neither their parents nor their bytes.
