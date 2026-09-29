@@ -2288,11 +2288,11 @@ class InMemoryStateTest < Minitest::Test
   # A fresh experiment database with round 0 of generation 1 set up: six
   # networks and Brown1, so every round has a bye. The ranking is not in
   # [-score, name] order, as setup_tournament's shuffled ties are not.
-  def fresh_store
+  def fresh_store(networks = NETWORKS)
     store = ExperimentDatabase.new(':memory:')
     SetupExperiment.save_rules(store)
     store.save_scoring(SCORING)
-    players = NETWORKS.to_h { |name| [name, { 'command' => "../evo #{name}" }] }
+    players = networks.to_h { |name| [name, { 'command' => "../evo #{name}" }] }
     players['Brown1'] = { 'command' => 'brown', 'external' => true }
     ranking = players.keys.reverse.map { |name| { 'name' => name, 'score' => 0 } }
     games = ranking.map { |r| r['name'] }.each_slice(2).map { |black, white| { 'black' => black, 'white' => white } }
@@ -2319,7 +2319,7 @@ class InMemoryStateTest < Minitest::Test
           'f' => { result: 'W+T', finish: 'time', moves: %w[C3] } }.freeze
   PLAY = lambda do |id, game|
     network = [game['black'], game['white']].find { |name| name.end_with?('.ann') }
-    game.value?('Brown1') ? arena_played(id, **BOT.fetch(network[0])) : ARENA.call(id, game)
+    game.value?('Brown1') ? arena_played(id, **BOT.fetch(network[0], {})) : ARENA.call(id, game)
   end
 
   def build(store, concurrency: 2, **pool_options)
@@ -2378,16 +2378,20 @@ class InMemoryStateTest < Minitest::Test
 
   # However many chunks a round is dealt into, and in whatever order their
   # games finish, a seeded tournament ends with the same games and ranking.
+  # Twenty networks and Brown1 play ten games a round: 4, 8, and 10 chunks.
   def test_the_same_games_and_ranking_at_any_concurrency
-    runs = [[1, {}], [2, { interleave: true }], [3, { reverse: true }], [8, { interleave: true, reverse: true }]]
+    networks = ('a'..'t').map { |letter| "#{letter}.ann" }
+    runs = [[1, {}], [2, { interleave: true }], [8, { interleave: true, reverse: true }]]
     ends = runs.map do |concurrency, pool_options|
-      store = fresh_store
-      in_experiment { play(build(store, concurrency:, **pool_options)) }
-      final(store)
+      store = fresh_store(networks)
+      gen = build(store, concurrency:, **pool_options)
+      in_experiment { play(gen) }
+      [gen.instance_variable_get(:@pool).identifiers.size / ROUNDS, final(store)]
     end
+    assert_equal [4, 8, 10], ends.map(&:first)
     # Every game but the byes, which have no row.
-    assert_equal GAMES - ROUNDS, ends.first[1].size
-    ends.drop(1).each { |other| assert_equal ends.first, other }
+    assert_equal 10 * ROUNDS, ends.first[1][1].size
+    ends.drop(1).each { |other| assert_equal ends.first[1], other[1] }
   end
 
   def test_the_state_is_loaded_once_per_generation
