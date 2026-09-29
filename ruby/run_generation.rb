@@ -308,7 +308,7 @@ class RunGeneration
     end
   end
 
-  # Tests of what a single chunk does deal one chunk per worker.
+  # Overridden in tests.
   def chunks_per_worker = CHUNKS_PER_WORKER
 
   # How long the arena waits for a bot's answer to any command but genmove,
