@@ -6,7 +6,7 @@ This is a personal repo with no Jira key. Use a short, descriptive PR title with
 
 1. Bring the branch up to date with its base, because the repository only merges a PR that is. Run `git fetch origin`. Before the first push, and only while no other branch is built on this one, rebase onto `origin/BASE`. Otherwise merge `origin/BASE` into it instead: that needs no force push and leaves the base of a branch stacked on this one where it is. Review and CI then cover what will actually merge.
 2. Run `mise run test`, plus any smoke run the change calls for. Fix failures first. Once a code file changes, earlier results are stale, so run them again.
-3. List what the change makes newly true. Search the whole repository, including files the diff does not touch, for text that still says the old thing, and correct it.
+3. List what the change makes newly true. Search the whole repository, including files the diff does not touch, for text that still says the old thing, and correct it. Before a change that deletes data for good (dropping rows, tables or files, archiving an experiment), also search for every reader of that data (its table, its columns, the helpers that read it) and check that each still works on the result: archiving two experiments once removed networks that a comparison script sampled, and only the whole-branch review noticed.
 4. Review the whole branch (`git diff origin/BASE...HEAD`) under the [review rules](#review-rules) below, and loop until a round is clean.
 5. Check that the commits hold what you meant (`git show --stat`; an amend without `-a` leaves unstaged edits out), then push and open the PR against BASE.
 6. Run `mise run pr-checks <pr>`. It waits for CI and fails unless every check passed on the local `HEAD` and GitHub reports the PR neither conflicting with its base nor behind it. GitHub reports a PR as behind only where branch protection requires branches to be up to date, which is `main` alone, so a stacked PR can be behind its base branch and still pass; step 1 keeps it up to date. If a check fails, fix the cause. Do not skip or disable it. If the PR is behind or conflicts, follow the command the script prints, then go on as step 7 says. Run it on a commit that is pushed: it waits for GitHub to show the local `HEAD`, so on an unpushed commit it takes about five minutes to fail.
@@ -20,7 +20,7 @@ The review is done by a reviewer with fresh context, such as a subagent that has
 
 ### What counts as a finding
 
-A finding names a `file:line`, the defect, and a concrete failure: inputs the real system produces (real `gh`, GoGui, or GNU Go output, real settings), and the wrong result they lead to. It also cites its evidence: the line, a command and its output, or a test. A finding without a realistic failure is dropped, not reported as a nit.
+A finding names a `file:line`, the defect, and a concrete failure: inputs the real system produces (real `gh`, GoGui, or GNU Go output, real settings), and the wrong result they lead to. It also cites its evidence: the line, a command and its output, or a test. A claim about how an external tool behaves names the platform and the exact command, since reviewers who ran the same tool elsewhere have reported different results (GNU Go's exit status at stdin EOF). A finding without a realistic failure is dropped, not reported as a nit.
 
 These are not findings:
 
@@ -43,9 +43,8 @@ Tests follow the risk. In experiment code (the engine, `evolve`, `initial-popula
 1. Fix every blocker and important finding.
 2. Review again, from scratch: a fresh reviewer reviews the whole change as the first round did, not only the fixes, so a fix that breaks something elsewhere or leaves the design lopsided is found. Give it the list of earlier findings and what happened to each (fixed, or declined with the reason), only so it does not raise them again.
 3. The loop ends when a round has no blocker and no important finding. Nits do not start another round. Fix a nit only if it is a small change to lines the change already touches and no later step rewrites; otherwise mention it when reporting (in a planned run, a nit about lines a later step touches goes into that step).
-4. If the third round still has a blocker or important finding, stop and report to the owner. The change is probably too large, or its approach needs a decision.
 
-Don't stop for sign-off on findings within these rounds. Ask the owner only when a finding needs a decision only the owner can make, such as changing scope or approach.
+The loop has no round limit (owner, 28 Sep 2026): go on until only nits are left, without asking. A stop after the third round would have cut reviews short that were still finding real defects: one plan took nine rounds, and every round before the clean one found real gaps. Ask the owner only when a finding needs a decision only the owner can make, such as changing scope or approach; the same kind of finding coming back round after round in a new form is a sign that the approach needs such a decision.
 
 ### Where the reviewer works
 
@@ -60,4 +59,4 @@ Give the reviewer:
 - the path to this file, and the instruction to apply its rules
 - in a planned run, the plan's owner decisions and declined findings, for a whole-branch review the per-commit findings and what happened to each, and the request to report out-of-scope items (`docs/orchestration.md`, step brief): problems outside the change, such as on lines it did not touch, that are not findings here
 - for later rounds, the earlier findings and what happened to each
-- the checks it should run (see "Checks and their cost" in `docs/orchestration.md`)
+- the checks it should run (see "Checks and their cost" in `docs/orchestration.md`), each in the foreground with a time limit, and the instruction to report as soon as it is done

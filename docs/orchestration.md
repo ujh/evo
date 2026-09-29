@@ -5,7 +5,7 @@ Use this for any change bigger than one PR, or one that needs several design dec
 ## Roles
 
 - **Owner:** decides scope, trade-offs, and defaults, approves the plan, and says when to merge.
-- **Orchestrator** (the agent in the conversation): agrees the work with the owner, writes the plan and is its only editor, briefs every other agent, decides what the owner left open, keeps the learnings log and the out-of-scope list, and reports. The plan then has one writer and says what the orchestrator knows.
+- **Orchestrator** (the agent in the conversation): agrees the work with the owner, writes the plan and is its only editor, briefs every other agent, [watches them while they run](#watching-running-agents), decides what the owner left open, keeps the learnings log and the out-of-scope list, and reports. The plan then has one writer and says what the orchestrator knows.
 - **Step agent:** a fresh subagent that does one step, commits without pushing, and reports. It does not edit the plan.
 - **Reviewer:** a fresh subagent that has not seen the work. It reports findings under `docs/pull-requests.md` and never writes to a tree an agent is working in.
 
@@ -26,14 +26,17 @@ Write the plan to `plans/NAME.md` in the repository root. The directory is gitig
 - the declined findings, each with its reason; every reviewer gets this list, so it does not raise them again;
 - the design decisions you made;
 - the steps as a checklist, grouped by PR, in an order where the PRs can merge one after the other. Each step is small enough for one agent and one or two commits, and names the checks it needs beyond `mise run test` (a GCC build, a smoke run; see [Checks and their cost](#checks-and-their-cost)). A step of real runs and owner docs may be larger. The last code PR ends with a step of real runs, and the plan's last step folds the learnings log into the docs (both in step 5);
+- the measurements whose numbers the plan or docs will rely on, each marked **[quiet]** in its step ([Measurements](#measurements));
 - a learnings log: what worked, what went wrong, tool quirks, and what the owner asked to change about the process. Add to it as things happen, not from memory at the end;
 - a list of out-of-scope items: improvements that lie outside the plan's work, of two kinds. One is code that is not ideal: a confusing name, a duplicated rule, a slow or flaky test, a missing check. The other is the tools and scripts agents work with (mise tasks, the `pr-*` scripts, the test and smoke-run commands, the reference docs): a step that took many commands and could be one script, output too long or too vague to read, a check with no command to run it, a doc that sent an agent the wrong way. Each item says who raised it, in which step, and where (a file and line, or a command). The learnings log is about how the run works and ends up in these docs; this list is about the repository and may end up in `PROJECT_NOTES.md` (step 6).
 
 Each PR updates the docs it makes stale (`docs/pull-requests.md` step 3). Do not park those edits in a final docs step, or the PRs before it merge with stale text.
 
+The plan's own labels (a PR's place in the plan such as "PR 1b", a step number) mean nothing once the plan is deleted (step 7), so no repository file names them: commits, comments and docs cite commit ids and GitHub PR numbers.
+
 ### 3. Review the plan
 
-Have a fresh subagent review the plan before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here. Ask the reviewer to check the maths numerically and the external tools by running them, not by reading alone: measured numbers, not estimates, set a design's constants. Fold the findings into the plan. When a finding or the owner changes the design, have a fresh subagent review the whole plan again before any code, not only the changed parts: a change can leave other parts that no longer fit. The loop and its limit are those of `docs/pull-requests.md`.
+Have a fresh subagent review the plan before any code is written: missing cases, rules of the external tools (GoGui, GNU Go, GTP) that the design depends on, and docs that the change will make stale. Design gaps are cheapest here. Ask the reviewer to check the maths numerically and the external tools by running them, not by reading alone: measured numbers, not estimates, set a design's constants. Fold the findings into the plan. When a finding or the owner changes the design, have a fresh subagent review the whole plan again before any code, not only the changed parts: a change can leave other parts that no longer fit. The loop is that of `docs/pull-requests.md`: fresh whole-plan reviews until one has no blocker and no important finding.
 
 ### 4. Get the owner's approval
 
@@ -43,7 +46,7 @@ Show the plan to the owner and wait for their approval before any code is writte
 
 Take the PRs in the plan's order, and finish each one before the next begins: its steps, its whole-branch review loop, then push, open, and `mise run pr-checks`. Only then branch the next PR from it and start that PR's first step. So a PR stacked on another is built on commits whose review is done, and a fix to the base never has to move a branch already built on it.
 
-**Steps.** Give each step to a fresh step agent with the [step brief](#step-brief). When it reports, tick the step in the plan with its commit ids and what later steps need to know (a new interface, a name, a number), record the decisions it made, add to the learnings log, and copy its out-of-scope items into the plan's list. Do the same with the out-of-scope items of every reviewer's report, the plan review's included.
+**Steps.** Give each step to a fresh step agent with the [step brief](#step-brief). When it reports, check the report against every clause of the plan that names the step, the design decisions included: a clause the brief left out is work no step does, and only the whole-branch review can still catch it (a clock change in the design section was once never briefed, and so never built until that review). Then tick the step in the plan with its commit ids and what later steps need to know (a new interface, a name, a number), record the decisions it made, add to the learnings log, and copy its out-of-scope items into the plan's list. Do the same with the out-of-scope items of every reviewer's report, the plan review's included.
 
 **Per-commit review.** After each code commit, a fresh reviewer reviews that commit under `docs/pull-requests.md`, with the owner's decisions and the declined findings, so a defect is fixed before the PR's later steps build on it. Commits that change only docs get no review of their own, and neither does the commit of a PR with a single step: no later step builds on it before the PR's whole-branch review, which covers both. Fix blockers and important findings before the next step that depends on them:
 
@@ -59,7 +62,7 @@ Take the PRs in the plan's order, and finish each one before the next begins: it
 
 **Whole-process review.** Every third run, the learnings step also has a fresh agent review the whole process as one system: this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions, restructuring where the parts no longer fit rather than patching lines, since learnings folded in one run at a time drift apart. Do it sooner when a run's learnings log holds more than a handful of process items. The learnings step adds 1 to the count below; when that makes it 3 (or sooner, as above), it does the review and sets the count to 0.
 
-Runs since the last whole-process review: 0
+Runs since the last whole-process review: 0 (last review 29 Sep 2026, after #80–#86)
 
 ### 6. Report
 
@@ -77,20 +80,40 @@ Stop and ask only:
 
 - before the plan, for every decision that is the owner's (step 1);
 - for approval of the plan, unless given in advance (step 4);
-- when any review (plan, commit, or branch) is still not clean after its third round, or a finding needs a decision only the owner can make, such as changing scope, approach, or something the plan says must not change (`docs/pull-requests.md`, the loop);
+- when a finding of any review (plan, commit, or branch) needs a decision only the owner can make, such as changing scope, approach, or something the plan says must not change; the number of rounds alone is no reason to ask (`docs/pull-requests.md`, the loop);
+- before each [quiet] measurement, to pause other work ([Measurements](#measurements));
 - which triaged out-of-scope items go into `PROJECT_NOTES.md` (step 6);
-- for parallel work, and before merging.
+- for parallel work, and before merging, unless the owner granted merging ([While the owner is away](#while-the-owner-is-away)).
 
 Everything else the orchestrator decides and explains in the report and the PR descriptions. Do not stop for sign-off between steps.
 
+### While the owner is away
+
+The owner may let the orchestrator go on alone, for example overnight. That is an option the owner grants, with its scope, and it is recorded as an owner decision; it is never the default. Within what the owner granted, the orchestrator may:
+
+- decide a finding that needs an owner decision, where the plan and the earlier owner decisions point one way; a finding they do not settle waits for the owner, and work that does not depend on it goes on;
+- decide a PR or step the plan made conditional on measurements, from those measurements;
+- carry out an irreversible step the plan describes (such as archiving data) once it is built and its reviews are clean;
+- merge PRs whose review loop is clean and whose `mise run pr-checks` is green, as [merging a stack](#worktrees-and-stacked-prs) says;
+- run [quiet] measurements unattended, when the owner said nothing else runs on the machine, only while no agent of its own builds or runs tests, and recording the load average before each.
+
+It records each such decision in the plan as it makes it and lists them in the report, so the owner can check them on return.
+
+## Watching running agents
+
+A subagent can finish its work and never report, for example while it waits on a background job of its own; nothing tells the orchestrator, and the run stands still until the owner asks. So while an agent runs, the orchestrator checks it at regular intervals, with a background timer as the heartbeat: `git log` and `git status` in the agent's tree, `git worktree list`, and the process list (its builds, tests, runs), against what the step should be producing. An agent that shows no progress over two checks gets a message asking for its status and its report; one that still does not answer is stopped, and a fresh agent takes over the step from what is committed. No tool does these checks automatically yet (`PROJECT_NOTES.md`).
+
 ## Step brief
 
-Give the step agent the plan's path, the step, the owner's decisions and design decisions it touches, the checks the step names, and this file's path with the instruction to follow this section. Ask for a short report: commits, files, test count, every decision the plan did not settle, what later steps need to know, and its out-of-scope items. Give every reviewer the same request for out-of-scope items, next to its findings. The step agent:
+Give the step agent the plan's path, the step, every clause of the plan that names the step (the design decisions included; point to them or quote them, since a summary drops clauses), the owner's decisions it touches, the checks the step names, and this file's path with the instruction to follow this section. Ask for a short report: commits, files, test count, every decision the plan did not settle, what later steps need to know, and its out-of-scope items. Give every reviewer the same request for out-of-scope items, next to its findings, and the rule on foreground work below. The step agent:
 
 - writes tests first and checks that they fail before the code exists;
 - runs `mise run test` before each commit, and checks `git status` so no stray file is left or committed, and `git status --ignored` after adding files, since a rule such as `*.out` can hide a fixture the tests need;
 - where the tests stub the programs a change spans (the Ruby tests stub the C programs), runs a short seeded experiment through the real runner, such as the smoke run in `docs/experiment-reference.md`: a mismatch between the C output and the Ruby parser passes every test;
 - runs the other checks its step names;
+- runs every command in the foreground with an explicit time limit, never ends a turn waiting on background work, and reports as soon as the step is done ([Watching running agents](#watching-running-agents));
+- for a [quiet] measurement, writes its command or script and uses a provisional value where the code needs the number, and does not run it ([Measurements](#measurements));
+- cites commit ids and GitHub PR numbers, never the plan's labels ([the plan](#2-write-the-plan));
 - commits with the conventions in `CLAUDE.md` and does not push;
 - notes, without acting on it, anything outside its step that tripped it up or could be done better, in the code or in the tools and scripts it worked with (both kinds under [the plan](#2-write-the-plan)), and reports each as an out-of-scope item;
 - does not edit the plan: its report carries what the plan needs.
@@ -104,10 +127,20 @@ Each check earns its cost only where it can find something the others do not.
 | Plan review | Once before code; again, of the whole plan, after a finding or the owner changed it | Design gaps are cheapest before code. |
 | Per-commit review | Each code commit, unless the PR has only one step | Finds a defect before the PR's later steps build on it. |
 | Whole-branch review | Each PR, before its first push and after every later change, except a clean merge of commits already reviewed (`docs/pull-requests.md` step 7) | Sees how commits fit and what they left stale. |
-| Mutants | In each review of code, a few on the behavior the change adds or fixes | The only proof that a test catches a break. |
+| Mutants | In each review of code, a few on the behavior the change adds or fixes | The only proof that a test catches a break. On macOS a quick rebuild can run a stale binary and fake a survivor (`docs/code-reference.md`, make 3.81). |
 | GCC in Docker (`make test` in `gcc:14`) | In the whole-branch review of a PR that changes C; in a step, only when later steps rely on its floating-point results before CI sees them | The local build is clang and CI's is GCC: floating-point results and warnings differ. CI runs GCC on every push, so once per PR is enough. |
 | Seeded smoke run | Each step whose tests stub a program it changes | Stubs hide a mismatch between the programs. |
 | Real runs | Once, at the end of the last code PR | They find design consequences no review predicts. |
+
+## Measurements
+
+The machine runs other work that can take much CPU and memory, so a timing taken while it runs is unreliable. A measurement whose numbers the plan or the docs rely on is therefore marked **[quiet]** in the plan and split:
+
+- The step agent writes the measurement's command or script, and where the code needs the number, uses a provisional value.
+- The orchestrator asks the owner to pause the other work and whether that work needs the disk, and waits for the answer. It checks free disk with `df` before a large workload, records the load average, runs only the measurement, and tells the owner they can resume.
+- The step, or a follow-up commit, records the numbers or sets the value.
+
+Builds, test suites, smoke runs, and real runs for correctness need no quiet machine. A hang guard (a deadline of which one miss stops a run) is the opposite case: set it from the worst case under the machine's normal load with a wide margin, since a quiet measurement gives only a floor.
 
 ## Worktrees and stacked PRs
 
