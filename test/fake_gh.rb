@@ -4,7 +4,7 @@ require 'tmpdir'
 
 # Runs a script from scripts/ against a fake `gh` placed first on PATH.
 #
-# - `gh pr view PR --json headRefOid,statusCheckRollup` prints the next of
+# - `gh pr view PR --json ...` prints the next of
 #   the given views and repeats the last one. A String view is printed as
 #   is. With no views it fails, the way gh does for an unknown PR.
 # - `gh pr checks` succeeds at once.

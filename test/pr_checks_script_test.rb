@@ -16,8 +16,9 @@ class PrChecksScriptTest < Minitest::Test
       'startedAt' => '2026-09-24T19:03:47Z' }
   end
 
-  def view(rollup, head_ref: head, merge_state: 'CLEAN')
-    { 'headRefOid' => head_ref, 'mergeStateStatus' => merge_state, 'statusCheckRollup' => rollup }
+  def view(rollup, head_ref: head, merge_state: 'CLEAN', base: 'main')
+    { 'baseRefName' => base, 'headRefOid' => head_ref, 'mergeStateStatus' => merge_state,
+      'statusCheckRollup' => rollup }
   end
 
   def run_checks(*views)
@@ -61,13 +62,22 @@ class PrChecksScriptTest < Minitest::Test
     assert_equal 1, status
     assert_includes err, 'PR 7 is behind main'
     assert_includes err, 'gh pr update-branch 7'
+    assert_includes err, 'Review again only if the merge had conflicts or brought in commits not yet reviewed'
     refute_includes out, 'All checks passed'
   end
 
   def test_merge_conflicts_fail
     out, err, status = run_checks(view([success], merge_state: 'DIRTY'))
     assert_equal 1, status
-    assert_includes err, 'PR 7 has merge conflicts with main'
+    assert_includes err, 'PR 7 has merge conflicts with main. Merge origin/main locally'
+    refute_includes out, 'All checks passed'
+  end
+
+  def test_merge_conflicts_of_a_stacked_pr_name_its_base
+    out, err, status = run_checks(view([success], merge_state: 'DIRTY', base: 'fix/lower-pr'))
+    assert_equal 1, status
+    assert_includes err, 'PR 7 has merge conflicts with fix/lower-pr. Merge origin/fix/lower-pr locally'
+    refute_includes err, 'main'
     refute_includes out, 'All checks passed'
   end
 

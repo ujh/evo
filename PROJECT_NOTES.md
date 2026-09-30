@@ -169,10 +169,6 @@ Consider porting Evo's own C code to Rust, keeping the libraries it uses (such a
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). Extra feature inputs only widen the input layer, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes, both activations, its genes, and its feature set with its feature weights (format version 2). GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
 
-### `pr-checks` and stacked PRs
-
-`scripts/pr-checks.sh` prints "behind main" for a stacked PR, whose base is another PR's branch, and asks for a new review after a clean merge of the base, although `docs/pull-requests.md` step 7 exempts a clean merge of commits already reviewed. Compare against the PR's own base, and do not ask for a review after such a merge.
-
 ## Tooling for agents
 
 **Owner request: check running subagents automatically.** In a planned run the orchestrator checks every running agent by hand for progress (its commits, working tree, worktrees and processes; `docs/orchestration.md`, "Watching running agents"), since an agent once finished its work and never reported. Build tooling that does it without being asked: for example a heartbeat or watchdog script, a Claude Code hook, or a plugin that tracks subagent liveness and prompts the orchestrator when an agent stops making progress. Open questions: what counts as progress for a step that runs a long measurement, and whether a hook can see subagents at all.
