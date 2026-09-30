@@ -87,6 +87,39 @@ class RankingNoiseTest < Minitest::Test
     assert_operator f[:wins_rating], :<, 0.99
   end
 
+  # White wins two of three games.
+  def test_white_share_counts_whites_wins
+    games = [%w[a b b], %w[b c c], %w[c a c]].map { |black, white, winner| { round: 0, black:, white:, winner: } }
+    assert_in_delta 2 / 3r, R.figures(games + games.map { |g| g.merge(round: 1) }, %w[a b c])[:white_share]
+  end
+
+  # The bot x plays but is not measured: it tops the odd rounds and is last
+  # in the even ones, is White in all its games, and wins the most games,
+  # many of them against the weakest network, so counting it would move
+  # every measured figure.
+  def test_bots_play_in_the_fits_but_are_not_measured
+    games = [0, 1, 2, 3].flat_map do |round|
+      order = round.even? ? %w[x a b c] : %w[a c b x]
+      order.combination(2).map do |winner, loser|
+        # x is always White; otherwise the winner is Black.
+        black, white = loser == 'x' || winner == 'x' ? [[winner, loser].find { _1 != 'x' }, 'x'] : [winner, loser]
+        { round:, black:, white:, winner: }
+      end
+    end
+    games += (0...6).map { |i| { round: i % 4, black: 'c', white: 'x', winner: 'x' } }
+    networks = %w[a b c]
+    players = %w[a b c x]
+    f = R.figures(games, networks)
+    assert_in_delta R.split_half(games, players, networks), f[:half]
+    refute_in_delta R.split_half(games, players, players), f[:half], 1e-3
+    assert_in_delta R.colour_r2(games, networks), f[:colour_r2]
+    refute_in_delta R.colour_r2(games, players), f[:colour_r2], 1e-3
+    won = R.wins(games, players)
+    rating = R.ratings(games, players)
+    assert_in_delta R.spearman(networks.map { won[_1] }, networks.map { rating[_1] }), f[:wins_rating]
+    refute_in_delta R.spearman(players.map { won[_1] }, players.map { rating[_1] }), f[:wins_rating], 1e-3
+  end
+
   # a beats b, c, and d, b beats c and d, c beats d, in every round, with
   # the colours swapping each round.
   def test_figures_of_a_tournament_with_a_clear_order
