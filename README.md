@@ -98,7 +98,9 @@ checkpoints before it (a rolling set: older ones drop out, generation 0's
 stays). Each past champion is a separate opponent, `GenNChampion` for the
 checkpoint N. Generation 0 plays only the bots. The six bots also play each
 other, once per experiment: the first checkpoint plays those games along with
-its own, and a later one only those still missing (after an interrupted run).
+its own (a resume re-enters that checkpoint and finishes them), and a later one
+plays them only in an experiment that had none, such as one migrated from before
+them.
 
 Four settings control it:
 

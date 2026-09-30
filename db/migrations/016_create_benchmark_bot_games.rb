@@ -7,7 +7,7 @@
 # to play it. `winner` is 'black', 'white', or nil for a draw or a failed
 # game; the other columns are those of `benchmark_games`. An experiment
 # with settings gets benchmark_bot_games 40 (games per pair of bots), so it
-# plays them at its next checkpoint as new experiments do. The existing
+# plays them at the next checkpoint the runner enters. The existing
 # `benchmark_games` rows are left as they are.
 Sequel.migration do
   up do
