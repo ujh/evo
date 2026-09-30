@@ -1,10 +1,12 @@
-# Reads `gh pr view --json headRefOid,mergeStateStatus,statusCheckRollup` and
-# prints one line for each reason the PR is not green on $head. No output
+# Reads `gh pr view --json baseRefName,headRefOid,mergeStateStatus,statusCheckRollup`
+# and prints one line for each reason the PR is not green on $head. No output
 # means the PR can merge as far as CI goes. Run it with `jq -n`: `input` then
 # fails on blank input instead of printing nothing, which would read as green.
 #
-# The repository only merges a PR that is up to date with main, so BEHIND
-# (out of date) and DIRTY (conflicts) fail before any check is looked at.
+# A PR that conflicts with its base cannot merge, and branch protection on
+# main merges only a PR that is up to date with it, so DIRTY (conflicts, with
+# the base named) and BEHIND (out of date, reported only for a PR based on
+# main) fail before any check is looked at.
 # GitHub works out the merge state only when asked, so UNKNOWN means "ask
 # again". BLOCKED also shows while required checks are still running, but
 # with every check passed it means a required check is missing. Both are
@@ -21,7 +23,7 @@ input
 elif .mergeStateStatus == "BEHIND" then
   "BEHIND"
 elif .mergeStateStatus == "DIRTY" then
-  "CONFLICTS"
+  "CONFLICTS\t\(.baseRefName)"
 elif ((.statusCheckRollup // []) | length) == 0 then
   "NO CHECKS"
 else

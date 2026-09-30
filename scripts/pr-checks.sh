@@ -13,7 +13,7 @@ filter="$(dirname "$0")/pr-rollup.jq"
 # sh has no pipefail, so fetch before piping: a failed or empty gh call must
 # stop the script instead of feeding jq nothing, which would read as green.
 not_passed() {
-  json=$(gh pr view "$pr" --json headRefOid,mergeStateStatus,statusCheckRollup) || return 1
+  json=$(gh pr view "$pr" --json baseRefName,headRefOid,mergeStateStatus,statusCheckRollup) || return 1
   [ -n "$json" ] || { printf 'gh pr view returned nothing for PR %s.\n' "$pr" >&2; return 1; }
   printf '%s\n' "$json" | jq -rn --arg head "$head" -f "$filter"
 }
@@ -27,12 +27,16 @@ stop_early() {
       exit 1
       ;;
     BEHIND)
+      # Only main requires branches to be up to date, so only a PR based on
+      # main is ever behind.
       printf 'PR %s is behind main. Update it with: gh pr update-branch %s && git pull\n' "$pr" "$pr" >&2
-      printf 'Then repeat the tests and review, and run pr-checks again.\n' >&2
+      printf 'Then rerun the tests and run pr-checks again. Review again only if the merge had conflicts or brought in commits not yet reviewed (docs/pull-requests.md step 7).\n' >&2
       exit 1
       ;;
-    CONFLICTS)
-      printf 'PR %s has merge conflicts with main. Merge origin/main locally, resolve them, and push.\n' "$pr" >&2
+    CONFLICTS*)
+      base=$(printf '%s' "$1" | cut -f 2)
+      printf 'PR %s has merge conflicts with %s. Merge origin/%s locally, resolve them, and push.\n' "$pr" "$base" "$base" >&2
+      printf 'Then repeat the tests and review, and run pr-checks again.\n' >&2
       exit 1
       ;;
   esac

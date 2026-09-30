@@ -183,10 +183,6 @@ Consider porting Evo's own C code to Rust, keeping the libraries it uses (such a
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). Extra feature inputs only widen the input layer, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes, both activations, its genes, and its feature set with its feature weights (format version 2). GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
 
-### `pr-checks` and stacked PRs
-
-`scripts/pr-checks.sh` prints "behind main" for a stacked PR, whose base is another PR's branch, and asks for a new review after a clean merge of the base, although `docs/pull-requests.md` step 7 exempts a clean merge of commits already reviewed. Compare against the PR's own base, and do not ask for a review after such a merge.
-
 ### Stats tables and small numbers
 
 `ruby/stats_report.rb` formats with `%.3g`, so a feature weight near 0 (for example `-1.23e-05`) prints wider than the others and could push the all-features stats table past the 100 columns `test_once_mode_fits_in_100_columns` enforces. Rare; format such values so the column keeps its width.

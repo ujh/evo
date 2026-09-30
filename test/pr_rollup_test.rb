@@ -20,8 +20,9 @@ class PrRollupTest < Minitest::Test
       'startedAt' => '2026-09-24T19:03:47Z' }
   end
 
-  def run_filter(rollup, head: HEAD, merge_state: 'CLEAN')
-    input = JSON.generate('headRefOid' => head, 'mergeStateStatus' => merge_state, 'statusCheckRollup' => rollup)
+  def run_filter(rollup, head: HEAD, merge_state: 'CLEAN', base: 'main')
+    input = JSON.generate('baseRefName' => base, 'headRefOid' => head, 'mergeStateStatus' => merge_state,
+                          'statusCheckRollup' => rollup)
     out, status = Open3.capture2('jq', '-rn', '--arg', 'head', HEAD, '-f', FILTER, stdin_data: input)
     assert status.success?, 'jq failed'
     out.lines(chomp: true)
@@ -59,7 +60,7 @@ class PrRollupTest < Minitest::Test
   end
 
   def test_merge_conflicts_are_reported_before_checks
-    assert_equal ['CONFLICTS'], run_filter([check_run('SUCCESS')], merge_state: 'DIRTY')
+    assert_equal ["CONFLICTS\tfix/lower-pr"], run_filter([check_run('SUCCESS')], merge_state: 'DIRTY', base: 'fix/lower-pr')
   end
 
   def test_unknown_merge_state_is_reported_once_checks_pass
