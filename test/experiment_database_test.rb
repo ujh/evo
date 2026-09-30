@@ -6,7 +6,7 @@ class ExperimentDatabaseTest < Minitest::Test
   GAME = {
     generation: 3, round: 1, black: '0.ann', white: 'Brown1', black_external: false, white_external: true,
     winner: '0.ann', failure: nil, length: 93, referee_result: 'B+R', error_message: '', stderr: '', sgf: '(;SZ[9])',
-    duration: 2.25, time_black: 0.5, time_white: 1.25, scorer: 'gnugo', end_reason: 'resign'
+    duration: 2.25, time_black: 0.5, time_white: 1.25, scorer: 'tromp_taylor', end_reason: 'resign'
   }.freeze
 
   BENCHMARK_GAME = {
@@ -90,20 +90,16 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
-  def test_records_an_arena_game_with_its_scorer
-    with_store do |store|
-      store.record(**GAME, scorer: 'tromp_taylor')
-      assert_equal ['tromp_taylor'], store.games(3).map { |row| row[:scorer] }
-    end
-  end
-
   # Every row says who scored it, so a missing or unknown scorer fails
-  # instead of writing a row nobody can interpret.
+  # instead of writing a row nobody can interpret. The arena's Tromp-Taylor
+  # count scores every tournament game; GNU Go scored only the GoGui games
+  # of experiments that are gone.
   def test_a_game_without_a_known_scorer_is_refused
     with_store do |store|
       assert_raises(ArgumentError) { store.record(**GAME.except(:scorer)) }
       assert_raises(ArgumentError) { store.record(**GAME, scorer: nil) }
       assert_raises(ArgumentError) { store.record(**GAME, scorer: 'referee') }
+      assert_raises(ArgumentError) { store.record(**GAME, scorer: 'gnugo') }
       assert_empty store.games(3)
     end
   end
@@ -118,7 +114,7 @@ class ExperimentDatabaseTest < Minitest::Test
       db[:games].insert(GAME.except(:scorer, :end_reason))
       db.disconnect
       store = ExperimentDatabase.new(path)
-      assert_equal [GAME.merge(end_reason: nil)], store.games(3)
+      assert_equal [GAME.merge(scorer: 'gnugo', end_reason: nil)], store.games(3)
       store.close
     end
   end
@@ -133,21 +129,18 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
-  # An arena row says how the game ended, as every row says who scored it,
-  # and a game that failed is never stored: its reason is refused whoever
-  # scored it. A GoGui row has none.
-  def test_an_arena_game_needs_the_end_of_a_game_that_counts
+  # Every row says how the game ended, as it says who scored it, and a game
+  # that failed is never stored: its reason is refused.
+  def test_a_game_needs_the_end_of_a_game_that_counts
     with_store do |store|
-      assert_raises(ArgumentError) { store.record(**GAME, scorer: 'tromp_taylor', end_reason: nil) }
-      assert_raises(ArgumentError) { store.record(**GAME.except(:end_reason), scorer: 'tromp_taylor') }
+      assert_raises(ArgumentError) { store.record(**GAME, end_reason: nil) }
+      assert_raises(ArgumentError) { store.record(**GAME.except(:end_reason)) }
+      # As a GoGui game once was.
+      assert_raises(ArgumentError) { store.record(**GAME, scorer: 'gnugo', end_reason: nil) }
       %w[timeout illegal crash launch other].each do |end_reason|
-        %w[tromp_taylor gnugo].each do |scorer|
-          assert_raises(ArgumentError, end_reason) { store.record(**GAME, scorer:, end_reason:) }
-        end
+        assert_raises(ArgumentError, end_reason) { store.record(**GAME, end_reason:) }
       end
       assert_empty store.games(3)
-      store.record(**GAME, end_reason: nil)
-      assert_equal [nil], store.games(3).map { |row| row[:end_reason] }
     end
   end
 

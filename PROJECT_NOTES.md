@@ -159,10 +159,6 @@ michi-c2 at fixed playouts fills the gap between AmiGo and GNU Go level 0 (three
 
 The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
 
-### Backwards compatibility
-
-Old experiments need not keep working (owner, 26 Sep 2026). Find and remove the code that keeps them working, for example `scorer` defaulting rows from before migration 009 to `gnugo`, and `stats` handling gene columns missing before migration 010.
-
 ### Replace `stats` with a graphical viewer
 
 `stats`' text tables are not useful as they are (owner, 26 Sep 2026). Replace them with a proper app, for example a web app run locally, that reads the experiment database read-only and shows graphs: benchmark results per checkpoint, gene and feature-weight trends, shapes and activations over time, and where the bots rank, plus whatever else turns out to be interesting. Open questions: the technology (a small local Ruby web server with a charting library, or something else), what to show, and whether the CSV output stays.

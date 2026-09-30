@@ -14,8 +14,10 @@ class ExperimentDatabase
     generation round black white black_external white_external
     winner failure length referee_result error_message stderr sgf duration time_black time_white scorer end_reason
   ].freeze
-  # Who decided a game; see migration 009.
-  SCORERS = %w[gnugo tromp_taylor].freeze
+  # Who decided a game; see migration 009. The arena's Tromp-Taylor count
+  # decides every tournament game; the `gnugo` rows (GoGui games refereed by
+  # GNU Go) belonged to experiments that are gone.
+  SCORERS = %w[tromp_taylor].freeze
 
   def initialize(path, readonly: false)
     # The timeout (ms) lets a reader wait while the runner writes.
@@ -189,16 +191,14 @@ class ExperimentDatabase
   END_REASONS = %w[passes limit resign time network_error].freeze
 
   # A replayed game replaces its row. The scorer is required, so a row always
-  # says who decided it, and so is an arena game's end reason, so it always
-  # says how the game ended; a GoGui game has none.
+  # says who decided it, and so is the end reason, so it always says how the
+  # game ended.
   def record(**game)
     unless SCORERS.include?(game[:scorer])
       raise ArgumentError, "unknown scorer #{game[:scorer].inspect}, expected one of #{SCORERS.join(', ')}"
     end
-    end_reason = game[:end_reason]
-    unless end_reason.nil? ? game[:scorer] == 'gnugo' : END_REASONS.include?(end_reason)
-      raise ArgumentError, "a game scored by #{game[:scorer]} cannot end by #{end_reason.inspect}, " \
-                           "expected one of #{END_REASONS.join(', ')}"
+    unless END_REASONS.include?(game[:end_reason])
+      raise ArgumentError, "a game cannot end by #{game[:end_reason].inspect}, expected one of #{END_REASONS.join(', ')}"
     end
 
     @games.insert_conflict(:replace).insert(game.slice(*COLUMNS))

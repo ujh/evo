@@ -136,17 +136,14 @@ class ExperimentStats
   end
 
   # The parents a child has weights from. A mutation or a copy comes from
-  # the parent evolve picked; births from before the parent column name
-  # none, and there it is the one the child differs less from (the first
-  # when both are equal). A crossover that copied one parent has only its
-  # weights. A differs count is nil for a parent of another shape.
+  # the parent evolve picked. A crossover that copied one parent has only
+  # its weights. A differs count is nil for a parent of another shape.
   def inherited_from(birth)
     first, second = birth.values_at(:first_parent, :second_parent)
     one, two = birth.values_at(:differs_from_first, :differs_from_second)
     case birth[:operator]
     when 'mutation', 'copy'
-      picked = birth[:parent] || (two.nil? || (!one.nil? && one <= two) ? 'first' : 'second')
-      [picked == 'first' ? first : second]
+      [birth[:parent] == 'second' ? second : first]
     when 'crossover'
       return [first] if one&.zero?
       return [second] if two&.zero?
@@ -162,8 +159,7 @@ class ExperimentStats
   # differently even with the same weights; and a crossover takes the
   # picked parent's activations, so it can have all of the other parent's
   # weights but not its activations. `parents` are the previous
-  # generation's births by name (rows from before migration 010 have no
-  # activations, which then compare equal).
+  # generation's births by name.
   def identical?(birth, parents)
     return true if birth[:operator] == 'copy'
     return false if birth[:activation_changed]
@@ -187,10 +183,8 @@ class ExperimentStats
   # The networks' shapes: the hidden layers, their width, and the total
   # weights (FeatureGroups.total_weights, feature inputs included), each
   # summarized, and how many networks have each shape, as "LAYERSxWIDTH".
-  # Births from before migration 010 have no shape.
   def shape(births)
-    shaped = births.select { |birth| birth[:layers] }
-    shapes = shaped.map { |birth| birth.values_at(:layers, :width) }
+    shapes = births.map { |birth| birth.values_at(:layers, :width) }
     {
       layers: summary(shapes.map(&:first)),
       width: summary(shapes.map(&:last)),
@@ -200,9 +194,9 @@ class ExperimentStats
   end
 
   # How many networks have each hidden and each output activation; nil
-  # without activations.
+  # without births.
   def activation(births)
-    return nil if births.none? { |birth| birth[:act_hidden] }
+    return nil if births.empty?
 
     { hidden: :act_hidden, output: :act_output }.transform_values do |column|
       ACTIVATIONS.to_h { |name| [name, 0] }.merge(births.filter_map { |birth| birth[column] }.tally)
@@ -220,12 +214,11 @@ class ExperimentStats
   # networks: the most children one parent got, how many got none, and how
   # many got any. A crossover counts for both parents (both were
   # selected and crossed), a mutation or a copy only for the parent evolve
-  # picked. nil for the initial population, and for births from before
-  # migration 010, which do not name the picked parent. Unlike
-  # distinct_parents, this counts selection, not whose weights survive.
+  # picked. nil for the initial population. Unlike distinct_parents, this
+  # counts selection, not whose weights survive.
   def parents(generation, births)
     bred = births.reject { |birth| birth[:operator] == 'initial' }
-    return nil if generation.zero? || bred.empty? || bred.any? { |birth| birth[:parent].nil? }
+    return nil if generation.zero? || bred.empty?
 
     children = bred.flat_map do |birth|
       first, second = birth.values_at(:first_parent, :second_parent)

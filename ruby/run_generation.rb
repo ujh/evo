@@ -755,9 +755,7 @@ class RunGeneration
   ].freeze
 
   # initial-population's arguments for the experiment's generation 0, from
-  # its settings alone, so the same settings give the same networks:
-  # scripts/compare-arena-scoring.rb regenerates the generation 0 an
-  # archive dropped with them.
+  # its settings alone, so the same settings give the same networks.
   def self.initial_population_arguments(settings)
     [*settings.values_at('population_size', 'board_size', 'hidden_layers', 'layer_size'),
      *settings.values_at(*INITIAL_GENES), settings['features'], settings['initial_feature_noise'],

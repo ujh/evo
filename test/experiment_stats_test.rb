@@ -8,6 +8,8 @@ require_relative 'stats_fixture'
 # ExperimentStats on the experiment in StatsFixture.
 class ExperimentStatsTest < Minitest::Test
   PLAYERS = StatsFixture::PLAYERS
+  # Every birth has a shape and genes.
+  SHAPE_AND_GENES = { layers: 1, width: 10, **StatsFixture::GENES }.freeze
 
   def setup
     @dir = Dir.mktmpdir('evo-stats')
@@ -137,13 +139,6 @@ class ExperimentStatsTest < Minitest::Test
                                      ['c.ann', 'b.ann', 'mutation', nil, 5, 'second'])
   end
 
-  # Rows from before the parent column: a mutation came from the parent it
-  # differs less from, the first when both are equal.
-  def test_distinct_parents_of_mutations_without_a_parent_follow_the_differs_counts
-    assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'mutation', 40, 3], ['b.ann', 'c.ann', 'mutation', 3, 40])
-    assert_equal 1, distinct_parents(['a.ann', 'b.ann', 'mutation', 3, 3], ['a.ann', 'c.ann', 'mutation', 3, 3])
-  end
-
   def test_distinct_parents_count_both_parents_of_a_crossover
     assert_equal 2, distinct_parents(['a.ann', 'b.ann', 'crossover', 5, 7, 'first'])
   end
@@ -206,7 +201,7 @@ class ExperimentStatsTest < Minitest::Test
     reopen_writing do |writer|
       writer.record_birth(generation: 4, child: '0.ann', first_parent: 'a.ann', second_parent: 'b.ann',
                           operator: 'mutation', parent: 'first', activation_changed: true,
-                          differs_from_first: 0, differs_from_second: 5, seed: 0, genome: 'x0')
+                          differs_from_first: 0, differs_from_second: 5, seed: 0, genome: 'x0', **SHAPE_AND_GENES)
       writer.save_state(4, { 'round' => 0, 'players' => PLAYERS, 'ranking' => [] })
     end
     assert_equal 0, @stats.generation(4)[:population][:identical]
@@ -218,13 +213,13 @@ class ExperimentStatsTest < Minitest::Test
   def test_a_crossover_with_one_parents_weights_and_the_others_activations_is_not_identical
     reopen_writing do |writer|
       [%w[m.ann tanh sigmoid], %w[p.ann sigmoid_cached sigmoid_cached]].each_with_index do |(child, hidden, output), i|
-        writer.record_birth(generation: 3, child:, operator: 'initial', seed: i, genome: "p#{i}",
+        writer.record_birth(generation: 3, child:, operator: 'initial', seed: i, genome: "p#{i}", **SHAPE_AND_GENES,
                             act_hidden: hidden, act_output: output)
       end
       [['0.ann', 'sigmoid_cached', 0], ['1.ann', 'tanh', 1]].each_with_index do |(child, hidden, seed), i|
         writer.record_birth(generation: 4, child:, first_parent: 'm.ann', second_parent: 'p.ann', operator: 'crossover',
                             parent: 'second', activation_changed: false, differs_from_first: 0,
-                            differs_from_second: 3, seed:, genome: "c#{i}", act_hidden: hidden,
+                            differs_from_second: 3, seed:, genome: "c#{i}", **SHAPE_AND_GENES, act_hidden: hidden,
                             act_output: hidden == 'tanh' ? 'sigmoid' : 'sigmoid_cached')
       end
       writer.save_state(4, { 'round' => 0, 'players' => PLAYERS, 'ranking' => [] })
@@ -351,13 +346,6 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal({ max_children: 1, childless: 1, used: 2 }, parents)
   end
 
-  # Births from before migration 010 do not say which parent a mutation
-  # came from.
-  def test_children_per_parent_are_nil_without_the_picked_parent
-    assert_nil figures_of({ first_parent: 'a.ann', second_parent: 'b.ann', operator: 'crossover', parent: nil },
-                          { first_parent: 'b.ann', second_parent: 'c.ann', operator: 'mutation', parent: nil })[:parents]
-  end
-
   def test_children_per_parent_in_the_fixture
     assert_equal({ max_children: 3, childless: 0, used: 3 }, @stats.generation(1)[:parents])
     assert_nil @stats.generation(0)[:parents]
@@ -398,7 +386,7 @@ class ExperimentStatsTest < Minitest::Test
       births.each_with_index do |birth, i|
         writer.record_birth(generation: 4, child: "#{i}.ann", first_parent: 'a.ann', second_parent: 'b.ann',
                             operator: 'mutation', parent: 'first', seed: i, genome: "x#{i}", structure: 'none',
-                            layers: 1, width: 10, **StatsFixture::GENES, **birth)
+                            **SHAPE_AND_GENES, **birth)
       end
       writer.save_state(4, { 'round' => 0, 'players' => PLAYERS, 'ranking' => [] })
     end
@@ -411,7 +399,8 @@ class ExperimentStatsTest < Minitest::Test
     reopen_writing do |writer|
       births.each_with_index do |(first, second, operator, one, two, parent), i|
         writer.record_birth(generation: 4, child: "#{i}.ann", first_parent: first, second_parent: second, operator:,
-                            parent:, differs_from_first: one, differs_from_second: two, seed: i, genome: "x#{i}")
+                            parent:, differs_from_first: one, differs_from_second: two, seed: i, genome: "x#{i}",
+                            **SHAPE_AND_GENES)
       end
       writer.save_state(4, { 'round' => 0, 'players' => PLAYERS, 'ranking' => [] })
     end
