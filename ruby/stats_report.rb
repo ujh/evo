@@ -22,7 +22,7 @@ class ExperimentStats
     BENCHMARK_HEADINGS = %w[Rank Player Games Black White Draws Failed Score].freeze
     BENCHMARK_NOTE = <<~NOTE.freeze
       Strongest first, by the champion's score against each opponent; > marks the champion, placed above
-      the opponents it scored more than half against. Opponents without games come last.
+      the opponents it scored more than half against. Opponents without a scored game come last.
       Games: stored of planned; fewer means the benchmark is still playing or was stopped.
       Black, White: W-L of the champion with that color. Score: its share, a draw counting half.
     NOTE
