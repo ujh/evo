@@ -62,7 +62,7 @@ class PrChecksScriptTest < Minitest::Test
     assert_equal 1, status
     assert_includes err, 'PR 7 is behind main'
     assert_includes err, 'gh pr update-branch 7'
-    assert_includes err, 'Review again only if the merge had conflicts or brought in commits not yet reviewed'
+    assert_includes err, 'Review again unless docs/pull-requests.md step 7 exempts the merge'
     refute_includes out, 'All checks passed'
   end
 
