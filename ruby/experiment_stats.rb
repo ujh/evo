@@ -1,3 +1,4 @@
+require_relative 'benchmark_ratings'
 require_relative 'checkpoint_benchmark'
 require_relative 'feature_groups'
 
@@ -17,7 +18,18 @@ class ExperimentStats
   # created before it, and figures without it would be wrong.
   class MissingSetting < ArgumentError; end
 
+  # The database lacks a table the figures need: the runner has not
+  # migrated it since, and stats, which opens it read-only, cannot.
+  class Unmigrated < ArgumentError; end
+
+  UNMIGRATED = "the database predates the benchmark's bot games (migration 016): run the experiment once to " \
+               'migrate it; an archived experiment cannot be migrated'.freeze
+
   RESULTS = { 'network' => :win, 'opponent' => :loss }.freeze
+  # A game's score for the ratings: 1 for the network (a champion's game)
+  # or for Black (a bots' game), 0 for the other, a draw 1/2.
+  CHAMPION_SCORES = { 'network' => 1, 'opponent' => 0, nil => 1/2r }.freeze
+  BOT_SCORES = { 'black' => 1, 'white' => 0, nil => 1/2r }.freeze
   # Every generation counts each, so the CSV has the same columns for all.
   OPERATORS = %w[initial crossover mutation copy].freeze
   # The genes, the activations, and the structural changes as births store
@@ -33,7 +45,23 @@ class ExperimentStats
 
   # `database` is an ExperimentDatabase, normally opened read-only.
   def initialize(database)
+    raise Unmigrated, UNMIGRATED unless database.table?(:benchmark_bot_games)
+
     @database = database
+  end
+
+  # Every benchmark player rated on one scale (BenchmarkRatings) from every
+  # scored game: each checkpoint's champion, named as later checkpoints
+  # name it, against its opponents, and the panel's bots against each
+  # other. A Hash with the anchor, the latest champion with a scored game,
+  # and the rows; nil without a scored game. The fit is kept until another
+  # game is stored, so --watch refits only when there is news.
+  def benchmark_ratings
+    counts = database.benchmark_game_counts
+    return @ratings if @ratings_counts == counts
+
+    @ratings_counts = counts
+    @ratings = fit_ratings
   end
 
   def generations
@@ -316,6 +344,21 @@ class ExperimentStats
         [color.to_sym, results(games.select { |game| game[:network_color] == color })]
       end
     end
+  end
+
+  def fit_ratings
+    champion_games = database.benchmark_games(columns: %i[generation opponent winner failure]).reject { |game| game[:failure] }
+    bot_games = database.benchmark_bot_games(columns: %i[black white winner failure]).reject { |game| game[:failure] }
+    games = champion_games.map do |game|
+      [CheckpointBenchmark.champion_name(game[:generation]), game[:opponent], CHAMPION_SCORES.fetch(game[:winner])]
+    end
+    games += bot_games.map { |game| [game[:black], game[:white], BOT_SCORES.fetch(game[:winner])] }
+    return nil if games.empty?
+
+    anchor = BenchmarkRatings.anchor(database.benchmark_opponents)
+    latest = champion_games.map { |game| game[:generation] }.max
+    { anchor:, champion: latest && CheckpointBenchmark.champion_name(latest),
+      rows: BenchmarkRatings.new(games, anchor:).rows }
   end
 
   def benchmark_games

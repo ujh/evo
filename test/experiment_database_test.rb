@@ -674,6 +674,38 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # stats rates every checkpoint's games at once.
+  def test_returns_the_benchmark_games_of_every_generation_without_one
+    with_store do |store|
+      store.record_benchmark_game(**BENCHMARK_GAME, generation: 20)
+      store.record_benchmark_game(**BENCHMARK_GAME)
+      assert_equal [10, 20], store.benchmark_games.map { |game| game[:generation] }
+      assert_equal [{ generation: 10 }, { generation: 20 }], store.benchmark_games(columns: %i[generation])
+    end
+  end
+
+  def test_counts_the_benchmark_games_of_both_kinds
+    with_store do |store|
+      assert_equal [0, 0], store.benchmark_game_counts
+      store.record_benchmark_game(**BENCHMARK_GAME)
+      store.record_benchmark_bot_game(**BOT_GAME)
+      store.record_benchmark_bot_game(**BOT_GAME, black: 'AmiGo', white: 'Brown')
+      assert_equal [1, 2], store.benchmark_game_counts
+    end
+  end
+
+  # A database opened read-only is not migrated, so it can lack a table.
+  def test_tells_whether_a_table_exists
+    with_store do |store, path|
+      assert store.table?(:benchmark_bot_games)
+      store.close
+      Sequel.sqlite(path) { |db| db.drop_table(:benchmark_bot_games) }
+      reader = ExperimentDatabase.new(path, readonly: true)
+      refute reader.table?(:benchmark_bot_games)
+      reader.close
+    end
+  end
+
   def test_a_replayed_benchmark_game_replaces_its_row
     with_store do |store|
       store.record_benchmark_game(**BENCHMARK_GAME)
