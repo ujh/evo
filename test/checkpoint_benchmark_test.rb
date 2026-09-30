@@ -362,6 +362,192 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
+  # The panel's bots also play each other, once per experiment: every pair
+  # in panel order, each opening once with each bot as Black.
+  def bot_games
+    database.benchmark_bot_games.map { |row| row.values_at(:black, :white, :opening, :generation) }
+  end
+
+  def bot_prefixes(pool)
+    pool.commands.map { |c| c[%r{-sgffile benchmark/(\S+)}, 1] }.select { |prefix| prefix.match?(/-\d+\z/) }
+  end
+
+  def test_every_pair_of_panel_bots_plays_each_opening_with_each_bot_as_black
+    in_experiment do
+      only_opponents('Brown', 'AmiGo', 'GnuGoLevel0', 'Gen0Champion')
+      store_generations(0)
+      pool = run_benchmark(0, settings: { 'benchmark_bot_games' => 4 })
+      expected = [%w[Brown AmiGo], %w[Brown GnuGoLevel0], %w[AmiGo GnuGoLevel0]].flat_map do |a, b|
+        [0, 1].flat_map { |opening| [[a, b, opening, 0], [b, a, opening, 0]] }
+      end
+      assert_equal expected.sort, bot_games.sort
+      assert_equal 12, bot_prefixes(pool).size
+      # The champion's games are played as before, besides the bot games.
+      assert_equal 6, played(0).size
+      assert_equal 18, pool.commands.size
+      assert @played_any
+    end
+  end
+
+  def test_the_default_panel_plays_fifteen_pairs
+    in_experiment do
+      store_generations(0)
+      run_benchmark(0, settings: { 'benchmark_bot_games' => 2 })
+      assert_equal 30, bot_games.size
+      assert_equal 15, bot_games.map { |black, white| [black, white].sort }.uniq.size
+    end
+  end
+
+  def test_no_bot_games_when_the_setting_is_zero
+    in_experiment do
+      store_generations(0)
+      pool = run_benchmark(0, settings: { 'benchmark_bot_games' => 0 })
+      assert_empty bot_games
+      assert_empty bot_prefixes(pool)
+    end
+  end
+
+  # The seed names the game but not the checkpoint that plays it, so the
+  # game is the same whichever checkpoint gets to it. Both bots and the
+  # referee get it; Brown and AmiGo take none.
+  def test_a_bot_games_command_seeds_both_bots_and_the_referee_without_the_generation
+    [0, 10].each do |generation|
+      in_experiment(generation: generation.to_s) do
+        @database = ExperimentDatabase.new(':memory:')
+        @database.save_benchmark_opponents([{ name: 'MichiWeak', kind: 'bot', command: 'michi gtp --sims 150' },
+                                            { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
+                                            { name: 'Brown', kind: 'bot', command: 'brown' }])
+        store_generations(0, 10)
+        database.transaction do
+          %w[MichiWeak GnuGoLevel0 Brown].product(%w[black white]) do |opponent, color|
+            database.record_benchmark_game(generation:, opponent:, opening: 0, network_color: color, network: 'b.ann')
+          end
+        end
+        commands = run_benchmark(generation, settings: { 'benchmark_bot_games' => 2 }).commands
+        seed = Seeds.gnugo(1, 'benchmark-bots', 'MichiWeak', 'GnuGoLevel0', 0)
+        assert_includes commands,
+                        %(gogui-twogtp -black "michi gtp --sims 150 --seed #{seed}" ) +
+                        %(-white "gnugo --level 0 --mode gtp --seed #{seed}" ) +
+                        %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed}" -size 9 -komi 6.5 ) +
+                        '-auto -games 1 -sgffile benchmark/MichiWeak-GnuGoLevel0-0 -time 600s -force -maxmoves 204 ' \
+                        '-openings benchmark/openings/0 2> benchmark/MichiWeak-GnuGoLevel0-0.err'
+        reverse = Seeds.gnugo(1, 'benchmark-bots', 'GnuGoLevel0', 'MichiWeak', 0)
+        refute_equal seed, reverse
+        assert_includes commands.find { |c| c.include?('-sgffile benchmark/GnuGoLevel0-MichiWeak-0 ') },
+                        %(-black "gnugo --level 0 --mode gtp --seed #{reverse}" -white "michi gtp --sims 150 --seed #{reverse}")
+        brown = Seeds.gnugo(1, 'benchmark-bots', 'Brown', 'MichiWeak', 0)
+        assert_includes commands.find { |c| c.include?('-sgffile benchmark/Brown-MichiWeak-0 ') },
+                        %(-black "brown" -white "michi gtp --sims 150 --seed #{brown}" -referee "gnugo --mode gtp --chinese-rules --seed #{brown}")
+        assert_equal 6, commands.size
+        assert_equal Openings.sgf(9, Openings.moves(1, 0, 9, 4)), File.read('benchmark/openings/0/opening.sgf')
+      end
+    end
+  end
+
+  def test_stores_each_bot_game_and_deletes_its_files
+    in_experiment do
+      only_opponents('Brown', 'AmiGo')
+      store_generations(0)
+      run_benchmark(0, settings: { 'benchmark_bot_games' => 2 }) do |game|
+        game.prefix.end_with?('Brown-AmiGo-0') ? 'black_wins' : 'white_crashed'
+      end
+      assert_equal [{ generation: 0, black: 'AmiGo', white: 'Brown', opening: 0, winner: nil, failure: 'Brown crashed',
+                      length: 5, referee_result: 'W+71.5', error_message: 'The Go program terminated unexpectedly.',
+                      stderr: "White program died\n", duration: 1.5, time_black: 0.0, time_white: 0.0 },
+                    { generation: 0, black: 'Brown', white: 'AmiGo', opening: 0, winner: 'black', failure: nil,
+                      length: 93, referee_result: 'B+R', error_message: '', stderr: nil, duration: 1.5,
+                      time_black: 0.0, time_white: 0.0 }],
+                   database.benchmark_bot_games
+      assert_empty Dir['benchmark/Brown-AmiGo-*'] + Dir['benchmark/AmiGo-Brown-*']
+    end
+  end
+
+  def bot_outcomes(fixture)
+    in_experiment do
+      only_opponents('Brown', 'AmiGo')
+      store_generations(0)
+      run_benchmark(0, settings: { 'benchmark_bot_games' => 2 }) do |game|
+        game.prefix.end_with?('Brown-AmiGo-0') ? fixture : 'black_wins'
+      end
+      database.benchmark_bot_games.find { |row| row[:black] == 'Brown' }.values_at(:winner, :failure)
+    end
+  end
+
+  # The referee decides; any crash is a failure, whichever bot it was; a
+  # draw has no winner.
+  def test_a_bot_games_result_is_the_referees
+    assert_equal ['black', nil], bot_outcomes('black_wins')
+    assert_equal ['white', nil], bot_outcomes('white_wins')
+    assert_equal [nil, nil], bot_outcomes('draw')
+    assert_equal [nil, 'Brown crashed'], bot_outcomes('black_crashed')
+    assert_equal [nil, 'AmiGo crashed'], bot_outcomes('white_crashed')
+    assert_equal [nil, 'no referee score: ?'], bot_outcomes('no_referee_score')
+  end
+
+  # A bot game belongs to no checkpoint: once stored, no later checkpoint
+  # or resume plays it again.
+  def test_a_resumed_benchmark_plays_only_the_missing_bot_games
+    in_experiment do
+      only_opponents('Brown', 'AmiGo')
+      store_generations(0)
+      database.record_benchmark_bot_game(generation: 0, black: 'AmiGo', white: 'Brown', opening: 0, winner: 'white')
+      pool = run_benchmark(0, settings: { 'benchmark_bot_games' => 2 })
+      assert_equal %w[Brown-AmiGo-0], bot_prefixes(pool)
+      assert_equal [['AmiGo', 'Brown', 0, 0], ['Brown', 'AmiGo', 0, 0]], bot_games
+      assert_equal 'white', database.benchmark_bot_games.first[:winner]
+    end
+  end
+
+  def test_a_later_checkpoint_plays_only_the_bot_games_still_missing
+    in_experiment(generation: '10') do
+      only_opponents('Brown', 'AmiGo', 'GnuGoLevel0')
+      store_generations(0, 10)
+      database.record_benchmark_bot_game(generation: 0, black: 'Brown', white: 'AmiGo', opening: 0, winner: 'black')
+      database.record_benchmark_bot_game(generation: 0, black: 'AmiGo', white: 'Brown', opening: 0, winner: 'black')
+      pool = run_benchmark(10, settings: { 'benchmark_bot_games' => 2 })
+      assert_equal %w[AmiGo-GnuGoLevel0-0 Brown-GnuGoLevel0-0 GnuGoLevel0-AmiGo-0 GnuGoLevel0-Brown-0],
+                   bot_prefixes(pool).sort
+      assert_equal [['AmiGo', 'Brown', 0, 0], ['AmiGo', 'GnuGoLevel0', 0, 10], ['Brown', 'AmiGo', 0, 0],
+                    ['Brown', 'GnuGoLevel0', 0, 10], ['GnuGoLevel0', 'AmiGo', 0, 10], ['GnuGoLevel0', 'Brown', 0, 10]],
+                   bot_games
+      # All stored now: the next checkpoint plays its champion's games only.
+      FileUtils.rm_rf('benchmark')
+      store_generations(20)
+      assert_empty bot_prefixes(run_benchmark(20, settings: { 'benchmark_bot_games' => 2 }))
+    end
+  end
+
+  # A checkpoint whose champion's games are all in still plays the missing
+  # bot games, and says it played some.
+  def test_missing_bot_games_alone_are_played
+    in_experiment do
+      only_opponents('Brown', 'AmiGo')
+      store_generations(0)
+      %w[Brown AmiGo].product(%w[black white]) do |opponent, color|
+        database.record_benchmark_game(generation: 0, opponent:, opening: 0, network_color: color, network: 'b.ann')
+      end
+      pool = run_benchmark(0, settings: { 'benchmark_bot_games' => 2 })
+      assert_equal %w[AmiGo-Brown-0 Brown-AmiGo-0], pool.commands.map { |c| c[%r{-sgffile benchmark/(\S+)}, 1] }.sort
+      assert @played_any
+      refute_includes pool.commands.join, '../evo'
+    end
+  end
+
+  # The line's total is the checkpoint's champion games plus the bot games
+  # still missing when it starts.
+  def test_the_progress_line_counts_the_missing_bot_games
+    in_experiment do
+      only_opponents('Brown', 'AmiGo')
+      store_generations(0)
+      database.record_benchmark_game(generation: 0, opponent: 'Brown', opening: 0, network_color: 'white',
+                                     network: 'b.ann', winner: 'opponent')
+      database.record_benchmark_bot_game(generation: 0, black: 'AmiGo', white: 'Brown', opening: 1, winner: 'white')
+      run_benchmark(0, settings: { 'benchmark_bot_games' => 4 })
+      assert_equal ['Benchmark: starting 6 games ...', *(2..7).map { |n| "Benchmark ... Game: #{n}/7" }, 'Benchmark ... done'],
+                   @out.split(/[\r\n]/).map(&:rstrip).reject(&:empty?)
+    end
+  end
+
   # Ruby's benchmark library defines a Benchmark module, so the class has
   # another name. A fresh process, because this one has loaded the class
   # already, and outside Bundler, which hides the gem since Ruby 4.0.

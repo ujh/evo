@@ -8,7 +8,8 @@ require_relative '../ruby/setup_experiment'
 # generation 1 is no checkpoint, generation 2 is a checkpoint whose
 # benchmark is half played (of 4 games per opponent, AmiGo has all, Brown
 # and Gen0Champion 2, GnuGoLevel0 none), and generation 3 is still in its
-# first round. Generation 1 has children of two shapes and several
+# first round. Generation 2 also played four of the panel bots' games
+# against each other, one of them failed. Generation 1 has children of two shapes and several
 # activations. The networks see the shapes and tactics groups, so they have
 # no near_last weight. ExperimentStats and the stats script are tested on
 # it.
@@ -100,5 +101,13 @@ module StatsFixture
     bench.call('Brown', 0, 'white', 'network')
     bench.call('Gen0Champion', 0, 'black', 'opponent', nil, '0:c.ann')
     bench.call('Gen0Champion', 0, 'white', 'opponent', nil, '0:c.ann')
+
+    bot_game = lambda do |black, white, winner, failure = nil|
+      db.record_benchmark_bot_game(generation: 2, black:, white:, opening: 0, winner:, failure:, length: 40, duration: 0.5)
+    end
+    bot_game.call('Brown', 'AmiGo', 'white')
+    bot_game.call('AmiGo', 'Brown', 'black')
+    bot_game.call('Brown', 'GnuGoLevel0', nil, 'Brown crashed')
+    bot_game.call('GnuGoLevel0', 'Brown', nil) # draw
   end
 end

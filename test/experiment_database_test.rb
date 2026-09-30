@@ -191,8 +191,9 @@ class ExperimentDatabaseTest < Minitest::Test
     { '1' => '60', '10' => '600' }.each do |minutes, seconds|
       with_settings_at_13('board_size' => '9', 'game_length' => minutes) do |path|
         store = ExperimentDatabase.new(path)
-        # Migration 015 adds benchmark_champions.
-        assert_equal({ 'board_size' => '9', 'game_seconds' => seconds, 'benchmark_champions' => '10' }, store.settings)
+        # Migrations 015 and 016 add benchmark_champions and benchmark_bot_games.
+        assert_equal({ 'board_size' => '9', 'game_seconds' => seconds, 'benchmark_champions' => '10',
+                       'benchmark_bot_games' => '40' }, store.settings)
         store.close
       end
     end
@@ -258,7 +259,7 @@ class ExperimentDatabaseTest < Minitest::Test
   def test_migration_turns_the_previous_checkpoint_into_past_champions
     with_benchmark_at_14 do |path|
       store = ExperimentDatabase.new(path)
-      assert_equal({ 'keep_every' => '100', 'benchmark_champions' => '10' }, store.settings)
+      assert_equal({ 'keep_every' => '100', 'benchmark_champions' => '10', 'benchmark_bot_games' => '40' }, store.settings)
       assert_equal [%w[Brown bot], %w[Gen0Champion initial_champion], %w[PastChampions past_champions]],
                    store.benchmark_opponents.map { |o| o.values_at(:name, :kind) }
       assert_equal [[200, 'Gen0Champion', '0:4.ann'], [200, 'Gen100Champion', '100:3.ann'],
@@ -290,6 +291,83 @@ class ExperimentDatabaseTest < Minitest::Test
       db = Sequel.sqlite(path)
       error = assert_raises(RuntimeError) { Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 14) }
       assert_includes error.message, 'Gen100Champion'
+      db.disconnect
+    end
+  end
+
+  BOT_GAME = {
+    generation: 0, black: 'Brown', white: 'AmiGo', opening: 2, winner: 'white', failure: nil, length: 61,
+    referee_result: 'W+8.5', error_message: '', stderr: '', duration: 0.5, time_black: 0.125, time_white: 0.25
+  }.freeze
+
+  # The benchmark's bot-vs-bot games belong to no checkpoint: all of them,
+  # keyed by the two bots and the opening.
+  def test_records_and_returns_the_bot_games
+    with_store do |store|
+      store.record_benchmark_bot_game(**BOT_GAME, generation: 10, black: 'AmiGo', white: 'Brown')
+      store.record_benchmark_bot_game(**BOT_GAME)
+      assert_equal [BOT_GAME.merge(generation: 10, black: 'AmiGo', white: 'Brown'), BOT_GAME], store.benchmark_bot_games
+      assert_equal [{ black: 'AmiGo', winner: 'white' }, { black: 'Brown', winner: 'white' }],
+                   store.benchmark_bot_games(columns: %i[black winner])
+    end
+  end
+
+  def test_a_replayed_bot_game_replaces_its_row
+    with_store do |store|
+      store.record_benchmark_bot_game(**BOT_GAME)
+      store.record_benchmark_bot_game(**BOT_GAME, generation: 10, winner: nil, failure: 'AmiGo crashed')
+      assert_equal [BOT_GAME.merge(generation: 10, winner: nil, failure: 'AmiGo crashed')], store.benchmark_bot_games
+    end
+  end
+
+  # Migration 016: the bot games' table, and benchmark_bot_games 40 for an
+  # experiment that has settings.
+  def with_settings_at_15(settings)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 15)
+      db[:settings].multi_insert(settings.map { |key, value| { key:, value: } })
+      db.disconnect
+      yield path
+    end
+  end
+
+  def test_migration_adds_the_bot_games_and_their_setting
+    with_settings_at_15('keep_every' => '10') do |path|
+      store = ExperimentDatabase.new(path)
+      assert_equal({ 'keep_every' => '10', 'benchmark_bot_games' => '40' }, store.settings)
+      assert_empty store.benchmark_bot_games
+      store.close
+    end
+  end
+
+  def test_migration_keeps_a_bot_games_setting_that_is_there
+    with_settings_at_15('keep_every' => '10', 'benchmark_bot_games' => '2') do |path|
+      store = ExperimentDatabase.new(path)
+      assert_equal({ 'keep_every' => '10', 'benchmark_bot_games' => '2' }, store.settings)
+      store.close
+    end
+  end
+
+  def test_migration_gives_an_empty_database_no_bot_games_setting
+    with_settings_at_15({}) do |path|
+      store = ExperimentDatabase.new(path)
+      assert_empty store.settings
+      assert_empty store.benchmark_bot_games
+      store.close
+    end
+  end
+
+  def test_migrating_down_drops_the_bot_games_and_their_setting
+    with_settings_at_15('keep_every' => '10') do |path|
+      store = ExperimentDatabase.new(path)
+      store.record_benchmark_bot_game(**BOT_GAME)
+      store.close
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 15)
+      assert_equal({ 'keep_every' => '10' }, db[:settings].to_hash(:key, :value))
+      assert db[:sqlite_master].where(type: 'table', name: 'benchmark_bot_games').empty?
       db.disconnect
     end
   end
@@ -593,6 +671,38 @@ class ExperimentDatabaseTest < Minitest::Test
       store.record_benchmark_game(**BENCHMARK_GAME, generation: 20)
       assert_equal [other, BENCHMARK_GAME], store.benchmark_games(10)
       assert_empty store.benchmark_games(0)
+    end
+  end
+
+  # stats rates every checkpoint's games at once.
+  def test_returns_the_benchmark_games_of_every_generation_without_one
+    with_store do |store|
+      store.record_benchmark_game(**BENCHMARK_GAME, generation: 20)
+      store.record_benchmark_game(**BENCHMARK_GAME)
+      assert_equal [10, 20], store.benchmark_games.map { |game| game[:generation] }
+      assert_equal [{ generation: 10 }, { generation: 20 }], store.benchmark_games(columns: %i[generation])
+    end
+  end
+
+  def test_counts_the_benchmark_games_of_both_kinds
+    with_store do |store|
+      assert_equal [0, 0], store.benchmark_game_counts
+      store.record_benchmark_game(**BENCHMARK_GAME)
+      store.record_benchmark_bot_game(**BOT_GAME)
+      store.record_benchmark_bot_game(**BOT_GAME, black: 'AmiGo', white: 'Brown')
+      assert_equal [1, 2], store.benchmark_game_counts
+    end
+  end
+
+  # A database opened read-only is not migrated, so it can lack a table.
+  def test_tells_whether_a_table_exists
+    with_store do |store, path|
+      assert store.table?(:benchmark_bot_games)
+      store.close
+      Sequel.sqlite(path) { |db| db.drop_table(:benchmark_bot_games) }
+      reader = ExperimentDatabase.new(path, readonly: true)
+      refute reader.table?(:benchmark_bot_games)
+      reader.close
     end
   end
 

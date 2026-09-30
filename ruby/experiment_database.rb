@@ -45,6 +45,12 @@ class ExperimentDatabase
     db&.disconnect
   end
 
+  # Whether the database has the table `name`, read from sqlite_master: not
+  # table_exists?, as in archived_on.
+  def table?(name)
+    !@db[:sqlite_master].where(type: 'table', name: name.to_s).empty?
+  end
+
   # Settings are stored as strings.
   def settings
     @db[:settings].to_hash(:key, :value)
@@ -234,10 +240,35 @@ class ExperimentDatabase
     @db[:benchmark_games].insert_conflict(:replace).insert(game.slice(*BENCHMARK_COLUMNS))
   end
 
-  # A generation's benchmark games, with every column or only the given
-  # `columns`.
-  def benchmark_games(generation, columns: BENCHMARK_COLUMNS)
-    @db[:benchmark_games].where(generation:).order(:opponent, :opening, :network_color).select(*columns).all
+  # A generation's benchmark games, or every generation's without one, with
+  # every column or only the given `columns`.
+  def benchmark_games(generation = nil, columns: BENCHMARK_COLUMNS)
+    games = @db[:benchmark_games]
+    games = games.where(generation:) if generation
+    games.order(:generation, :opponent, :opening, :network_color).select(*columns).all
+  end
+
+  BENCHMARK_BOT_COLUMNS = %i[
+    generation black white opening winner failure length referee_result error_message stderr duration time_black time_white
+  ].freeze
+
+  # A bot-vs-bot benchmark game (migration 016); a replayed one replaces
+  # its row.
+  def record_benchmark_bot_game(**game)
+    @db[:benchmark_bot_games].insert_conflict(:replace).insert(game.slice(*BENCHMARK_BOT_COLUMNS))
+  end
+
+  # Every bot-vs-bot benchmark game, whichever checkpoint played it, with
+  # every column or only the given `columns`.
+  def benchmark_bot_games(columns: BENCHMARK_BOT_COLUMNS)
+    @db[:benchmark_bot_games].order(:black, :white, :opening).select(*columns).all
+  end
+
+  # How many benchmark games of the champions and between the bots are
+  # stored. The runner plays only games without a row, so the counts
+  # change whenever a game is stored.
+  def benchmark_game_counts
+    [@db[:benchmark_games].count, @db[:benchmark_bot_games].count]
   end
 
   # A network's genes, as the genes line of initial-population and evolve

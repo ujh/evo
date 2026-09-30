@@ -96,14 +96,21 @@ Brown, AmiGo, the three michi levels, GNU Go level 0, the top network of
 generation 0, and the top networks of the last `benchmark_champions`
 checkpoints before it (a rolling set: older ones drop out, generation 0's
 stays). Each past champion is a separate opponent, `GenNChampion` for the
-checkpoint N. Generation 0 plays only the bots.
+checkpoint N. Generation 0 plays only the bots. The six bots also play each
+other, once per experiment: the first checkpoint plays those games along with
+its own (a resume re-enters that checkpoint and finishes them), and a later one
+plays them only in an experiment that had none, such as one migrated from before
+them.
 
-Three settings control it:
+Four settings control it:
 
 - `benchmark_games` (default 20): games per opponent, an even number, half
   with each color.
 - `benchmark_champions` (default 10): how many past checkpoints' champions
   each checkpoint plays, besides generation 0's.
+- `benchmark_bot_games` (default 40): games per pair of bots, an even number,
+  half with each bot as Black; 0 for none. The 15 pairs of the six bots play
+  600 games in all.
 - `benchmark_opening_moves` (default 4): stones in each seeded opening. Every
   checkpoint plays the same openings, each once with each color, so
   checkpoints can be compared. With 0, the games against Brown, AmiGo, and
@@ -111,10 +118,10 @@ Three settings control it:
   get a seed per game).
 
 The results are in the `benchmark_games` table of
-`experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game, and
-`stats` shows the latest checkpoint's as a ranking, strongest first: the
-checkpoint's champion sits above the opponents it scored more than half
-against.
+`experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game (the bots'
+games against each other in `benchmark_bot_games`), and
+`stats` rates every player on one scale from all of these games: each
+checkpoint's champion, generation 0's, and the bots, with AmiGo at 0.
 
 The panel is stored in each experiment's database (table
 `benchmark_opponents`) when the experiment is created. To use another panel,
@@ -143,29 +150,40 @@ none is stored as failed) and their total time, the share
 of bred children identical to a parent, the distinct networks that passed on
 weights (a mutation or a copy comes from one parent only), the distinct genomes, and the
 lowest, median, and highest network score. A generation is done once its
-rounds and, at a checkpoint, its benchmark are played. The last table shows
-progress: the latest checkpoint's benchmark as a ranking, with the champion's
-wins and losses as Black and as White against each opponent and its share of
-the points. For example, after two generations
-of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (every feature group, the default; trimmed to the first and last table, and to the Brown and Gen0Champion rows; 26 Sep 2026, the times vary; the benchmark table in its current layout, 30 Sep 2026):
+rounds and, at a checkpoint, its benchmark are played (the champion's games;
+the bots' games against each other do not count). The last table shows
+progress: a Bradley–Terry rating in Elo of every benchmark player, AmiGo at 0,
+fitted over every checkpoint's benchmark games and the bots' games against each
+other, so champions of different checkpoints, and bots the latest champion
+always beats or always loses to, are compared through the players they met.
+Each row has the ± of about 95 % (with the other ratings held fixed, so
+narrower than the uncertainty against AmiGo), the player's scored games, and
+its points per game. The latest champion's row is bold on a terminal. For
+example, after two generations
+of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --benchmark-bot-games 2 --seed 3` (every feature group, the default; trimmed to the first and last table, without their notes; 30 Sep 2026, the times vary):
 
 ```text
 Generations
-+-----+------+-------+-------+------+--------+---------+---------+-----+-----+-----+
-| Gen | Done | Games | Draws | Time | Copies | Parents | Genomes | Min | Med | Max |
-+-----+------+-------+-------+------+--------+---------+---------+-----+-----+-----+
-|   0 |  yes |     9 |     0 | 2.1s |      - |       0 |       4 |   0 | 0.5 |   1 |
-|   1 |  yes |     9 |     0 | 2.2s |    25% |       2 |       4 |   0 | 0.5 |   1 |
-+-----+------+-------+-------+------+--------+---------+---------+-----+-----+-----+
++-----+------+-------+-------+-------+--------+---------+---------+-----+-----+-----+
+| Gen | Done | Games | Draws | Time  | Copies | Parents | Genomes | Min | Med | Max |
++-----+------+-------+-------+-------+--------+---------+---------+-----+-----+-----+
+|   0 |  yes |    18 |     0 | 14.5s |      - |       0 |       4 |   0 |   0 |   1 |
+|   1 |  yes |    18 |     0 | 10.7s |    25% |       2 |       4 |   0 |   0 |   0 |
++-----+------+-------+-------+-------+--------+---------+---------+-----+-----+-----+
 
-Benchmark: generation 1 (3.ann)
-+------+----------------+-------+-------+-------+-------+--------+-------+
-| Rank | Player         | Games | Black | White | Draws | Failed | Score |
-+------+----------------+-------+-------+-------+-------+--------+-------+
-|    1 | > Gen1Champion |       |       |       |       |        |       |
-|    2 | Gen0Champion   |   2/2 |   1-0 |   1-0 |     0 |      0 |  100% |
-|    3 | Brown          |   2/2 |   1-0 |   1-0 |     0 |      0 |  100% |
-+------+----------------+-------+-------+-------+-------+--------+-------+
+Benchmark ratings (all checkpoints, AmiGo = 0)
++------+--------------+--------+-----+-------+-------+
+| Rank | Player       | Rating | ±   | Games | Score |
++------+--------------+--------+-----+-------+-------+
+|    1 | MichiStrong  |    401 | 280 |    14 |   93% |
+|    2 | GnuGoLevel0  |    320 | 253 |    14 |   86% |
+|    3 | MichiMid     |    249 | 238 |    14 |   79% |
+|    4 | AmiGo        |      0 |   - |    14 |   50% |
+|    5 | MichiWeak    |      0 | 220 |    14 |   50% |
+|    6 | Gen0Champion |   -255 | 247 |    14 |   21% |
+|    7 | Gen1Champion |   -255 | 247 |    14 |   21% |
+|    8 | Brown        |   -530 | 365 |    14 |    0% |
++------+--------------+--------+-----+-------+-------+
 ```
 
 Between the two, for the latest 10 generations, five tables show how the
