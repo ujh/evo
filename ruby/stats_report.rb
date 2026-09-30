@@ -8,12 +8,16 @@ class ExperimentStats
   # hashes, oldest first.
   module Report
     CLEAR = "\e[2J\e[H".freeze
+    # Around each cell of a generation that is not done, with `dim`: italic
+    # and grey (bright black), then back to upright and the default color.
+    DIM = ["\e[3;90m", "\e[23;39m"].freeze
     # The generation table shows the latest generations only.
     GENERATION_ROWS = 50
     GENERATION_HEADINGS = %w[Gen Done Games Draws Time Copies Parents Genomes Min Med Max].freeze
     GENERATION_NOTE = <<~NOTE.freeze
       Done: rounds and benchmark played. Time: of all games. Copies: bred children identical to a parent.
       Parents: networks that passed on weights. Genomes: distinct children. Min, Med, Max: network scores.
+      In a terminal, a generation not done is grey and italic where its figures still change.
     NOTE
     BENCHMARK_HEADINGS = %w[Gen Network Opponent Games Black White Draws Failed].freeze
     BENCHMARK_NOTE = <<~NOTE.freeze
@@ -50,6 +54,10 @@ class ExperimentStats
       Kids: most children of one parent. Childless: parents with none. Widen..Remove: structural changes.
       Bots, then each bot: the best copy's rank by score, with the networks above it in brackets.
     NOTE
+    AGAINST_BOTS_NOTE = <<~NOTE.freeze
+      Tournament games between a network and a copy of the bot: the networks' wins of the games played,
+      and their share. Networks meet the bots near their own score.
+    NOTE
 
     module_function
 
@@ -66,18 +74,30 @@ class ExperimentStats
     end
 
     # The latest `limit` generations, and the benchmarks of the checkpoints
-    # among them.
-    def text(figures, limit: GENERATION_ROWS)
+    # among them. With `dim`, the rows of a generation that is not done
+    # are grey and italic in the tables whose figures change while it plays: the
+    # generations, the bots, and the benchmark. The genome figures come from
+    # births, which a generation has before it plays.
+    def text(figures, limit: GENERATION_ROWS, dim: false)
       return "#{NO_GENERATIONS}\n" if figures.empty?
 
       shown = figures.last(limit)
       title = "Generations#{" (latest #{shown.size} of #{figures.size})" if shown.size < figures.size}"
-      out = +"#{title}\n#{table(GENERATION_HEADINGS, shown.map { |f| generation_row(f) })}\n#{GENERATION_NOTE}"
-      out << genome_tables(shown.last(GENOME_ROWS))
+      rows = shown.map { |f| style(generation_row(f), f, dim) }
+      out = +"#{title}\n#{table(GENERATION_HEADINGS, rows)}\n#{GENERATION_NOTE}"
+      out << genome_tables(shown.last(GENOME_ROWS), dim)
       checkpoints = shown.select { |f| f[:benchmark] }
       return out if checkpoints.empty?
 
-      out << "\nBenchmark\n#{benchmark_table(checkpoints)}\n#{BENCHMARK_NOTE}"
+      out << "\nBenchmark\n#{benchmark_table(checkpoints, dim)}\n#{BENCHMARK_NOTE}"
+    end
+
+    # The row with each cell dimmed, if `dim` and the generation is not
+    # done.
+    def style(row, figures, dim)
+      return row unless dim && !figures[:finished]
+
+      row.map { |cell| "#{DIM.first}#{cell}#{DIM.last}" }
     end
 
     SUMMARY = %w[min median max].freeze
@@ -100,6 +120,7 @@ class ExperimentStats
       'bots.best_rank', 'bots.networks_above'
     ].freeze
     STANDING = %w[best_rank networks_above].freeze
+    AGAINST = %w[games wins draws].freeze
 
     # One row per generation. The header depends only on the tournament's
     # bot groups (`bot_groups`) and the benchmark panel (`opponents`, names
@@ -109,6 +130,7 @@ class ExperimentStats
     # checkpoint does not play, has empty cells.
     def csv(figures, opponents, bot_groups: [])
       headers = CSV_COLUMNS + bot_groups.flat_map { |group| STANDING.map { |key| "bots.#{group}.#{key}" } } +
+                bot_groups.flat_map { |group| AGAINST.map { |key| "against_bots.#{group}.#{key}" } } +
                 %w[benchmark.network benchmark.complete] + opponents.flat_map do |name|
                   %w[black white].flat_map { |color| %w[win loss draw failure].map { |result| "benchmark.#{name}.#{color}.#{result}" } }
                 end
@@ -130,7 +152,7 @@ class ExperimentStats
     def watch(stats, io, interval: 5, pause: ->(seconds) { sleep(seconds) })
       cache = {}
       loop do
-        io.print(CLEAR, text(figures(stats, cache)), "\nUpdated #{Time.now.strftime('%H:%M:%S')}; Ctrl-C to stop.\n")
+        io.print(CLEAR, text(figures(stats, cache), dim: io.tty?), "\nUpdated #{Time.now.strftime('%H:%M:%S')}; Ctrl-C to stop.\n")
         io.flush
         pause.call(interval)
       end
@@ -168,8 +190,8 @@ class ExperimentStats
     end
 
     # The genes, feature weights (none without features), shapes and
-    # activations, and breeding and bots tables.
-    def genome_tables(shown)
+    # activations, breeding and bots, and networks against bots tables.
+    def genome_tables(shown, dim)
       latest = shown.reverse.find { |f| f[:genes].values.any? { |gene| gene[:median] } }
       weights = shown.last ? shown.last[:genes].keys & ExperimentStats::FEATURE_WEIGHTS : []
       bots = shown.last&.fetch(:bots)&.keys&.grep(String) || []
@@ -183,7 +205,24 @@ class ExperimentStats
         out << features << "\n#{FEATURES_NOTE}"
       end
       out << "\nShapes and activations\n#{table(SHAPES_HEADINGS, shown.map { |f| shapes_row(f) }, left: [1, 2, 3])}\n#{SHAPES_NOTE}" \
-        "\nBreeding and bots\n#{table(BREEDING_HEADINGS + bots, shown.map { |f| breeding_row(f, bots) })}\n#{BREEDING_NOTE}"
+        "\nBreeding and bots\n#{table(BREEDING_HEADINGS + bots, shown.map { |f| style(breeding_row(f, bots), f, dim) })}\n#{BREEDING_NOTE}"
+      out << against_bots_table(shown, dim)
+    end
+
+    # Per generation and bot group, the networks' wins against it.
+    def against_bots_table(shown, dim)
+      bots = shown.last&.fetch(:against_bots)&.keys || []
+      return '' if bots.empty?
+
+      rows = shown.map { |f| style([f[:generation], *bots.map { |bot| wins_cell(f[:against_bots][bot]) }], f, dim) }
+      "\nNetworks against bots\n#{table(['Gen', *bots], rows)}\n#{AGAINST_BOTS_NOTE}"
+    end
+
+    # "WINS/GAMES SHARE%", or "-" without games.
+    def wins_cell(counts)
+      return '-' if counts.nil? || counts[:games].zero?
+
+      "#{counts[:wins]}/#{counts[:games]} #{(100.0 * counts[:wins] / counts[:games]).round}%"
     end
 
     # A row of medians per generation, then the min and max of `latest`, the
@@ -257,14 +296,15 @@ class ExperimentStats
     end
 
     # One row per checkpoint and opponent it plays, in panel order.
-    def benchmark_table(checkpoints)
+    def benchmark_table(checkpoints, dim)
       rows = checkpoints.flat_map do |f|
         benchmark = f[:benchmark]
         benchmark.keys.grep(String).map do |name|
           black, white = benchmark[name].values_at(:black, :white)
           played = [black, white].sum { |counts| counts.values.sum }
-          [f[:generation], benchmark[:network] || '-', name, "#{played}/#{benchmark[:games]}", "#{black[:win]}-#{black[:loss]}",
-           "#{white[:win]}-#{white[:loss]}", black[:draw] + white[:draw], black[:failure] + white[:failure]]
+          style([f[:generation], benchmark[:network] || '-', name, "#{played}/#{benchmark[:games]}",
+                 "#{black[:win]}-#{black[:loss]}", "#{white[:win]}-#{white[:loss]}", black[:draw] + white[:draw],
+                 black[:failure] + white[:failure]], f, dim)
         end
       end
       table(BENCHMARK_HEADINGS, rows, left: [1, 2])

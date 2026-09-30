@@ -371,7 +371,25 @@ passes on a tie, so they pass a lot: selection's problem, not a bug.
 - **Bots, Brown, AmiGo:** the rank of the best bot (and of each bot's best
   copy) by score, with the number of networks above it in brackets. `1 (0)`
   means the bot tops the ranking. Progress looks like the bracket numbers
-  growing: more networks score above the bots.
+  growing: more networks score above the bots. With many copies of each bot
+  the best copy often tops the ranking anyway, so read the next table too.
+
+### Networks against bots
+
+```
+| Gen | Brown       | AmiGo       | MichiWeak  | MichiMid  | MichiStrong | GnuGo    |
+|  85 |   44/46 96% |   20/90 22% |  15/48 31% |   2/42 5% |     0/40 0% |  0/18 0% |
+|  86 |   27/28 96% |   15/57 26% |  12/29 41% |   0/28 0% |     0/24 0% |  0/15 0% |
+```
+
+Per bot, of the tournament games between a network and a copy of the bot,
+how many the network won and the share. A copy belongs to the bot its
+`players.opponent` names. A generation has only some dozens of games per
+bot, so look at the trend over several rows. Progress looks like the
+shares rising, and games against the stronger bots being won at all. The
+tournament pairs players of similar scores, so these are the networks near
+the bot's score, not a random sample: a share is no strength estimate, the
+benchmark is.
 
 ### CSV columns
 
@@ -386,7 +404,8 @@ feature sets have the same columns;
 `population.operators.initial|crossover|mutation|copy`,
 `parents.max_children|childless|used` (`used`: parents with a child), and
 `bots.best_rank`, `bots.networks_above`, and the same per bot
-(`bots.Brown.best_rank`).
+(`bots.Brown.best_rank`), and per bot `against_bots.BOT.games|wins|draws`
+(empty where no network played it).
 
 ### Digging deeper: the births table
 

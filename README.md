@@ -161,14 +161,15 @@ Benchmark
 +-----+----------+--------------+-------+-------+-------+-------+--------+
 ```
 
-Between the two, for the latest 10 generations, four tables show how the
+Between the two, for the latest 10 generations, five tables show how the
 genomes evolve: Genes (the median of each gene, layers, width, and weights,
 with the range in the latest generation), Feature weights (the same for
 `feature_step` and each move feature's weight; not shown without move
 features), Shapes and activations (the most
 common of each), and Breeding and bots (the most children of one parent,
 parents without children, the structural changes, and where the best copy of
-each bot ranks among the networks).
+each bot ranks among the networks), and Networks against bots (per bot, the
+networks' wins of their tournament games against it).
 
 The tournament score only ranks one generation's networks against each other,
 so compare generations by the benchmark, not by the scores.

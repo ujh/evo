@@ -10,7 +10,8 @@ require_relative 'feature_groups'
 # activations, structural changes, children per parent) come from births,
 # and show whether the self-adapting genes drift (for instance copy_chance
 # toward its bound); the bot ranks come from the rankings and place the
-# networks against the fixed bots.
+# networks against the fixed bots, and the networks' results against each
+# bot show it more directly.
 class ExperimentStats
   # A setting the figures depend on is not stored: the experiment was
   # created before it, and figures without it would be wrong.
@@ -73,6 +74,7 @@ class ExperimentStats
       structure: structure(births),
       parents: parents(generation, births),
       bots: bots(generation),
+      against_bots: against_bots(generation, state.fetch('players', {})),
       benchmark:
     }
   end
@@ -254,6 +256,26 @@ class ExperimentStats
       [group, standing.call(external.select { |row| row[:name].match?(/\A#{Regexp.escape(group)}\d*\z/) })]
     end
     (standing.call(external) || { best_rank: nil, networks_above: nil }).merge(groups)
+  end
+
+  # How the networks did in the tournament against each bot group: the
+  # games between a network and a copy, and how many of them the network
+  # won or drew (nil for a group no network played). A copy belongs to the
+  # group its stored `opponent` names (migration 013), whatever its name.
+  # Games between two networks or two bots are left out.
+  def against_bots(generation, players)
+    group = players.transform_values { |player| player['opponent'] }
+    counts = database.games(generation, columns: %i[black white winner]).each_with_object({}) do |game, tally|
+      black, white = group.values_at(game[:black], game[:white])
+      next if black.nil? == white.nil?
+
+      network = black ? game[:white] : game[:black]
+      figures = tally[black || white] ||= { games: 0, wins: 0, draws: 0 }
+      figures[:games] += 1
+      figures[:wins] += 1 if game[:winner] == network
+      figures[:draws] += 1 if game[:winner].nil?
+    end
+    bot_groups.to_h { |name| [name, counts[name]] }
   end
 
   def median(sorted)
