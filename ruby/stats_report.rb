@@ -25,10 +25,6 @@ class ExperimentStats
       Games: stored of planned; fewer means the benchmark is still playing or was stopped.
       Black, White: W-L of the benchmarked network with that color.
     NOTE
-    # The benchmark table shows the latest checkpoints, whether or not they
-    # are among the generations shown: with keep_every above GENERATION_ROWS
-    # these often hold none.
-    BENCHMARK_CHECKPOINTS = 3
     NO_GENERATIONS = 'No generations yet.'.freeze
     # The genome tables show fewer generations: they are for the trend, and
     # --csv has every generation.
@@ -78,12 +74,13 @@ class ExperimentStats
       end
     end
 
-    # The latest `limit` generations, and the benchmarks of the latest
-    # `checkpoints` checkpoints. With `dim`, the rows of a generation that is not done
+    # The latest `limit` generations, and the benchmark of the latest
+    # checkpoint, whether or not it is among them: with keep_every above
+    # `limit` they often hold none. With `dim`, the rows of a generation that is not done
     # are grey and italic in the tables whose figures change while it plays: the
     # generations, the bots, and the benchmark. The genome figures come from
     # births, which a generation has before it plays.
-    def text(figures, limit: GENERATION_ROWS, checkpoints: BENCHMARK_CHECKPOINTS, dim: false)
+    def text(figures, limit: GENERATION_ROWS, dim: false)
       return "#{NO_GENERATIONS}\n" if figures.empty?
 
       shown = figures.last(limit)
@@ -91,10 +88,10 @@ class ExperimentStats
       rows = shown.map { |f| style(generation_row(f), f, dim) }
       out = +"#{title}\n#{table(GENERATION_HEADINGS, rows)}\n#{GENERATION_NOTE}"
       out << genome_tables(shown.last(GENOME_ROWS), dim)
-      benchmarked = figures.select { |f| f[:benchmark] }.last(checkpoints)
-      return out if benchmarked.empty?
+      checkpoint = figures.reverse.find { |f| f[:benchmark] }
+      return out unless checkpoint
 
-      out << "\nBenchmark\n#{benchmark_table(benchmarked, dim)}\n#{BENCHMARK_NOTE}"
+      out << "\nBenchmark\n#{benchmark_table(checkpoint, dim)}\n#{BENCHMARK_NOTE}"
     end
 
     # The row with each cell dimmed, if `dim` and the generation is not
@@ -300,18 +297,16 @@ class ExperimentStats
       bot.nil? || bot[:best_rank].nil? ? '-' : "#{bot[:best_rank]} (#{bot[:networks_above]})"
     end
 
-    # One row per checkpoint and opponent it plays, weakest opponent first
+    # One row per opponent the checkpoint `f` plays, weakest opponent first
     # (by_strength).
-    def benchmark_table(checkpoints, dim)
-      rows = checkpoints.flat_map do |f|
-        benchmark = f[:benchmark]
-        by_strength(benchmark).map do |name|
-          black, white = benchmark[name].values_at(:black, :white)
-          played = [black, white].sum { |counts| counts.values.sum }
-          style([f[:generation], benchmark[:network] || '-', name, "#{played}/#{benchmark[:games]}",
-                 "#{black[:win]}-#{black[:loss]}", "#{white[:win]}-#{white[:loss]}", black[:draw] + white[:draw],
-                 black[:failure] + white[:failure]], f, dim)
-        end
+    def benchmark_table(f, dim)
+      benchmark = f[:benchmark]
+      rows = by_strength(benchmark).map do |name|
+        black, white = benchmark[name].values_at(:black, :white)
+        played = [black, white].sum { |counts| counts.values.sum }
+        style([f[:generation], benchmark[:network] || '-', name, "#{played}/#{benchmark[:games]}",
+               "#{black[:win]}-#{black[:loss]}", "#{white[:win]}-#{white[:loss]}", black[:draw] + white[:draw],
+               black[:failure] + white[:failure]], f, dim)
       end
       table(BENCHMARK_HEADINGS, rows, left: [1, 2])
     end

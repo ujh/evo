@@ -58,18 +58,17 @@ class StatsTest < Minitest::Test
     refute_includes out, "\e[2J", 'once mode does not clear the screen'
   end
 
-  # One row per checkpoint and opponent, the opponents the network scored
-  # best against first (a draw half a win, failures left out), then those
-  # without a scored game, in panel order. Both checkpoints' benchmarks are
-  # incomplete; generation 0 has played no game and plays only the bots.
-  def test_prints_the_benchmark_of_each_checkpoint_by_opponent_weakest_first
+  # The latest checkpoint only, one row per opponent, the opponents the
+  # network scored best against first (a draw half a win, failures left
+  # out), then those without a scored game, in panel order. Its benchmark
+  # is incomplete.
+  def test_prints_the_benchmark_of_the_latest_checkpoint_by_opponent_weakest_first
     out, = stats('x')
     benchmark = out[out.index('Benchmark')..]
     header = cells(benchmark.lines.find { |l| l.include?('Network') })
     assert_equal %w[Gen Network Opponent Games Black White Draws Failed], header
     rows = benchmark.lines.select { |l| l.match?(/\A\|\s*\d/) }.map { |l| cells(l) }
-    assert_equal [%w[0 - Brown 0/4 0-0 0-0 0 0], %w[0 - AmiGo 0/4 0-0 0-0 0 0], %w[0 - GnuGoLevel0 0/4 0-0 0-0 0 0],
-                  %w[2 c.ann Brown 2/4 0-0 1-0 0 1], %w[2 c.ann AmiGo 4/4 2-0 0-1 1 0],
+    assert_equal [%w[2 c.ann Brown 2/4 0-0 1-0 0 1], %w[2 c.ann AmiGo 4/4 2-0 0-1 1 0],
                   %w[2 c.ann Gen0Champion 2/4 0-1 0-1 0 0], %w[2 c.ann GnuGoLevel0 0/4 0-0 0-0 0 0]], rows
   end
 
@@ -216,9 +215,9 @@ class StatsTest < Minitest::Test
     end
   end
 
-  # Only the latest generations, but the latest checkpoints' benchmarks
-  # even when their generations are older: with a checkpoint every 100
-  # generations, the latest 50 rows often hold none.
+  # Only the latest generations, but the latest checkpoint's benchmark even
+  # when its generation is older: with a checkpoint every 100 generations,
+  # the latest 50 rows often hold none.
   def test_the_tables_show_only_the_latest_generations_and_checkpoints
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
     figures = ExperimentStats::Report.figures(ExperimentStats.new(database))
@@ -228,11 +227,9 @@ class StatsTest < Minitest::Test
     assert_includes text, 'latest 3 of 4'
     generation_table, benchmark = text.split('Benchmark')
     assert_equal %w[1 2 3], generations.call(generation_table)
-    assert_equal %w[0 2], generations.call(benchmark)
+    assert_equal %w[2], generations.call(benchmark)
     generation_table, benchmark = ExperimentStats::Report.text(figures, limit: 1).split('Benchmark')
     assert_equal %w[3], generations.call(generation_table)
-    assert_equal %w[0 2], generations.call(benchmark)
-    benchmark = ExperimentStats::Report.text(figures, limit: 1, checkpoints: 1).split('Benchmark').last
     assert_equal %w[2], generations.call(benchmark)
   end
 
@@ -269,7 +266,7 @@ class StatsTest < Minitest::Test
       assert_equal %w[1], rows[false].map(&:first), title
     end
     benchmark = text[text.index('Benchmark')..].lines.select { |l| l.start_with?('|') }.drop(1)
-    assert(benchmark.all? { |l| l.include?(DIM) }, 'both checkpoints wait for their benchmarks')
+    assert(benchmark.all? { |l| l.include?(DIM) }, 'the latest checkpoint waits for its benchmark')
     %w[Genes Shapes].each { |title| refute_includes section(text, title), DIM, title }
     refute_includes ExperimentStats::Report.text(figures), DIM
   end

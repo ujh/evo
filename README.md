@@ -112,8 +112,8 @@ Three settings control it:
 
 The results are in the `benchmark_games` table of
 `experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game, and
-`stats` shows them per checkpoint and opponent for the latest three
-checkpoints, the opponents the network did best against first.
+`stats` shows the latest checkpoint's, per opponent, the opponents the
+network did best against first.
 
 The panel is stored in each experiment's database (table
 `benchmark_opponents`) when the experiment is created. To use another panel,
