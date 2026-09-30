@@ -28,14 +28,14 @@ class CheckpointBenchmarkTest < Minitest::Test
   # Runs the benchmark of `generation` in the current directory with a pool
   # that leaves the given fixture's files for every game (or the fixture the
   # block picks for the game), and returns the pool.
-  def run_benchmark(generation, settings: {}, fixture: 'black_wins', &pick)
+  def run_benchmark(generation, settings: {}, fixture: 'black_wins', heading: nil, &pick)
     pool = FakePool.new do |game|
       copy_dat(pick ? pick.call(game) : fixture, game.prefix)
       File.write("#{game.prefix}-0.sgf", '(;SZ[9])')
     end
     @out, = capture_io do
       @played_any = CheckpointBenchmark.new(generation, SETTINGS.merge('benchmark_games' => 2).merge(settings), pool,
-                                            database).call
+                                            database).call(heading:)
     end
     pool
   end
@@ -312,6 +312,64 @@ class CheckpointBenchmarkTest < Minitest::Test
       end
       assert_empty run_benchmark(0).commands
       refute @played_any
+    end
+  end
+
+  # RunExperiment asks every earlier checkpoint on every start, so a
+  # finished one neither ranks nor exports a network to find that out.
+  def test_a_finished_benchmark_exports_no_network
+    in_experiment do
+      only_opponents('Brown', 'Gen0Champion')
+      store_generations(0, 1)
+      %w[Brown Gen0Champion].product(%w[black white]) do |opponent, color|
+        database.record_benchmark_game(generation: 1, opponent:, opening: 0, network_color: color, network: 'b.ann')
+      end
+      database.define_singleton_method(:ranking) { |*| raise 'ranked a network' }
+      assert_empty run_benchmark(1).commands
+      refute @played_any
+      assert_empty Dir.glob('benchmark/*').reject { |path| File.directory?(path) }
+    end
+  end
+
+  # With the bot games stored too: three bots make three pairs, not four.
+  def test_a_finished_benchmark_with_its_bot_games_exports_no_network
+    in_experiment do
+      only_opponents('Brown', 'AmiGo', 'MichiWeak', 'Gen0Champion')
+      store_generations(0, 1)
+      %w[Brown AmiGo MichiWeak Gen0Champion].product(%w[black white]) do |opponent, color|
+        database.record_benchmark_game(generation: 1, opponent:, opening: 0, network_color: color, network: 'b.ann')
+      end
+      %w[Brown AmiGo MichiWeak].combination(2) do |a, b|
+        database.record_benchmark_bot_game(generation: 0, black: a, white: b, opening: 0, winner: 'black')
+        database.record_benchmark_bot_game(generation: 0, black: b, white: a, opening: 0, winner: 'black')
+      end
+      database.define_singleton_method(:ranking) { |*| raise 'ranked a network' }
+      assert_empty run_benchmark(1, settings: { 'benchmark_bot_games' => 2 }).commands
+      refute @played_any
+    end
+  end
+
+  # A heading, as RunExperiment gives an earlier checkpoint it catches up,
+  # comes before the benchmark's lines, and only when it plays a game.
+  def test_the_heading_comes_first_when_there_are_games_to_play
+    in_experiment do
+      only_opponents('Brown')
+      store_generations(0)
+      run_benchmark(0, heading: '*** BENCHMARK OF GENERATION 0 ***')
+      assert_equal ['*** BENCHMARK OF GENERATION 0 ***', 'Benchmark: starting 2 games ...'],
+                   @out.split(/[\r\n]/).map(&:rstrip).reject(&:empty?).first(2)
+    end
+  end
+
+  def test_no_heading_when_there_is_nothing_to_play
+    in_experiment do
+      only_opponents('Brown')
+      store_generations(0)
+      %w[black white].each do |color|
+        database.record_benchmark_game(generation: 0, opponent: 'Brown', opening: 0, network_color: color, network: 'b.ann')
+      end
+      run_benchmark(0, heading: '*** BENCHMARK OF GENERATION 0 ***')
+      assert_empty @out
     end
   end
 

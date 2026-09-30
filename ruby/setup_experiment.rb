@@ -107,14 +107,14 @@ class SetupExperiment
     'keep_every' => ['Keep the SGFs and the champion network of every Nth generation (0 for never)', '10', integer(0)],
     'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }, integer(0, (2**63) - 1)],
     # Half of a benchmark's games are played with each color.
-    'benchmark_games' => ['Benchmark games per opponent', '20', even(2)],
+    'benchmark_games' => ['Benchmark games per opponent', '100', even(2)],
     'benchmark_opening_moves' => ['Stones in each benchmark opening (0 for none)', '4', integer(0)],
     # The rolling set of earlier checkpoints' champions a checkpoint plays
     # besides generation 0's (the past_champions panel row).
     'benchmark_champions' => ['Past checkpoint champions each checkpoint plays, besides generation 0\'s', '10', integer(0)],
     # Played once per experiment, not at every checkpoint (migration 016),
     # half with each bot of the pair as Black.
-    'benchmark_bot_games' => ['Benchmark games per pair of panel bots (0 for none)', '40', even(0)],
+    'benchmark_bot_games' => ['Benchmark games per pair of panel bots (0 for none)', '100', even(0)],
     # The arena's for every tournament game, sent to each bot, and given to
     # both players and the referee of every benchmark game. A multiple of
     # 0.5, so an area-scored margin is never zero unless the game is a

@@ -1,3 +1,4 @@
+require 'fileutils'
 require 'json'
 
 class RunExperiment
@@ -26,6 +27,7 @@ class RunExperiment
       pool.halt
     end
     generation = start_generation
+    catch_up_benchmarks(generation, pool)
     loop do
       r = RunGeneration.call(generation.to_s, settings, pool, store)
       generation += 1
@@ -43,6 +45,27 @@ class RunExperiment
   private
 
   attr_accessor :settings, :store
+
+  # The checkpoints before `generation` play the benchmark games they lack,
+  # as after benchmark_games or benchmark_bot_games was raised (migration
+  # 017), in an emptied work/ as a generation's benchmark does. Their
+  # champions are in the database. `generation` itself is the one the run
+  # resumes with, and RunGeneration finishes its benchmark.
+  def catch_up_benchmarks(generation, pool)
+    every = settings['keep_every']
+    return unless every.positive?
+
+    checkpoints = (0...generation).step(every).to_a
+    return if checkpoints.empty?
+
+    FileUtils.rm_rf(RunGeneration::WORK)
+    FileUtils.mkdir(RunGeneration::WORK)
+    Dir.chdir(RunGeneration::WORK) do
+      checkpoints.each do |checkpoint|
+        CheckpointBenchmark.call(checkpoint, settings, pool, store, heading: "*** BENCHMARK OF GENERATION #{checkpoint} ***")
+      end
+    end
+  end
 
   # Resume with the last generation the database knows about.
   def start_generation
