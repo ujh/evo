@@ -288,6 +288,7 @@ class StatsTest < Minitest::Test
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
     stats = ExperimentStats.new(database)
     figures = ExperimentStats::Report.figures(stats)
+    brief_figures = ExperimentStats::Report.figures(stats, brief: true)
     ratings = stats.benchmark_ratings
     database.close
     text = ExperimentStats::Report.text(figures, ratings:, dim: true)
@@ -301,6 +302,12 @@ class StatsTest < Minitest::Test
     refute(benchmark.any? { |l| l.include?(DIM) }, 'the ratings are no generation\'s')
     %w[Genes Shapes].each { |title| refute_includes section(text, title), DIM, title }
     refute_includes ExperimentStats::Report.text(figures), DIM
+    # The brief --watch greys the same rows of its two tables.
+    brief = ExperimentStats::Report.brief_text(brief_figures, ratings:, dim: true)
+    ['Breeding', 'Networks against bots'].each do |title|
+      rows = rows_of(section(brief, title)).reject(&:empty?).group_by { |r| r.all? { |c| c.start_with?(DIM) && c.end_with?("\e[23;39m") } }
+      assert_equal %w[0 2 3], rows[true].map { |r| r.first.delete_prefix(DIM).to_i.to_s }, "brief #{title}"
+    end
   end
 
   # Piped output (not a terminal) has no escape codes.
