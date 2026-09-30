@@ -13,7 +13,7 @@ require_relative 'experiment_lock'
 # CheckpointBenchmark#top_network picks it. Nothing of an unfinished
 # generation is kept, nor networks of a generation interrupted while
 # breeding. The copy gets the `archived` setting, which makes the runner
-# refuse the experiment; `stats` and `ranking` still read it.
+# refuse the experiment; `stats` still reads it.
 #
 # The original is only ever read, through a read-only ATTACH, and never
 # migrated. The copy is built in a new file next to it, checked, synced,
@@ -282,7 +282,7 @@ class ArchiveExperiment
     out.puts "Archived #{dir}: #{megabytes(original.size)} before, #{megabytes(File.size(path))} after; " \
              "kept #{original.champions.size} of #{original.network_count} stored networks and deleted #{work} " \
              "and #{networks}."
-    out.puts 'A stats or ranking still reading the old file holds its space until it exits.'
+    out.puts 'A stats still reading the old file holds its space until it exits.'
   end
 
   def megabytes(bytes) = format('%.1f MB', bytes / 1_000_000.0)

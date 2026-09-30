@@ -10,7 +10,7 @@ class ExperimentStats
     CLEAR = "\e[2J\e[H".freeze
     # The generation table shows the latest generations only.
     GENERATION_ROWS = 50
-    GENERATION_HEADINGS = %w[Gen Done Games Draws Failed Time Copies Parents Genomes Min Med Max].freeze
+    GENERATION_HEADINGS = %w[Gen Done Games Draws Time Copies Parents Genomes Min Med Max].freeze
     GENERATION_NOTE = <<~NOTE.freeze
       Done: rounds and benchmark played. Time: of all games. Copies: bred children identical to a parent.
       Parents: networks that passed on weights. Genomes: distinct children. Min, Med, Max: network scores.
@@ -86,7 +86,7 @@ class ExperimentStats
     # shape, so the columns stay the same whatever shapes evolve.
     CSV_COLUMNS = [
       'generation', 'finished',
-      *%w[games draws failures game_seconds].map { |key| "tournament.#{key}" },
+      *%w[games draws game_seconds].map { |key| "tournament.#{key}" },
       'population.children', *ExperimentStats::OPERATORS.map { |operator| "population.operators.#{operator}" },
       *%w[identical distinct_parents unique_genomes].map { |key| "population.#{key}" },
       *SUMMARY.map { |key| "population.scores.#{key}" },
@@ -148,7 +148,7 @@ class ExperimentStats
       population = figures[:population]
       scores = population[:scores]
       [figures[:generation], figures[:finished] ? 'yes' : 'no', tournament[:games], tournament[:draws],
-       tournament[:failures], duration(tournament[:game_seconds]), identical_share(population), population[:distinct_parents],
+       duration(tournament[:game_seconds]), identical_share(population), population[:distinct_parents],
        population[:unique_genomes], *scores.values_at(:min, :median, :max).map { |s| s.nil? ? '-' : s }]
     end
 
@@ -204,11 +204,28 @@ class ExperimentStats
        *%i[layers width weights].map { |part| number(shape[part][key]) }]
     end
 
-    # Three significant digits, whole numbers from 1000.
+    # Three significant digits, whole numbers from 999.5 (which %.3g would
+    # print as 1e+03). A number below 0.01 that needs more than 6 characters
+    # (7 negative) keeps two digits, and one that still does not fit becomes a
+    # short exponent such as 1.2e-5, so a column near 0 is no wider than the
+    # others.
     def number(value)
       return '-' if value.nil?
+      return value.round.to_s if value.abs >= 999.5
 
-      value.abs >= 1000 ? value.round.to_s : format('%.3g', value)
+      limit = value.negative? ? 7 : 6
+      text = format('%.3g', value)
+      return text if text.size <= limit && !text.include?('e')
+
+      text = format('%.2g', value)
+      return text if text.size <= limit && !text.include?('e')
+
+      [1, 0].map { |digits| short_exponent(format("%.#{digits}e", value)) }.find { |t| t.size <= limit }
+    end
+
+    # "1.2e-05" as "1.2e-5", "1.0e-09" as "1e-9".
+    def short_exponent(text)
+      text.sub('.0e', 'e').sub(/e([-+])0+(?=\d)/, 'e\1')
     end
 
     def shapes_row(figures)

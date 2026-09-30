@@ -159,21 +159,9 @@ michi-c2 at fixed playouts fills the gap between AmiGo and GNU Go level 0 (three
 
 The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
 
-### Backwards compatibility
-
-Old experiments need not keep working (owner, 26 Sep 2026). Find and remove the code that keeps them working, for example `scorer` defaulting rows from before migration 009 to `gnugo`, and `stats` handling gene columns missing before migration 010.
-
-### Remove the `ranking` script
-
-The owner finds `ranking` of little use (26 Sep 2026). Remove the script and every mention of it (`README.md`, docs, tests).
-
 ### Replace `stats` with a graphical viewer
 
 `stats`' text tables are not useful as they are (owner, 26 Sep 2026). Replace them with a proper app, for example a web app run locally, that reads the experiment database read-only and shows graphs: benchmark results per checkpoint, gene and feature-weight trends, shapes and activations over time, and where the bots rank, plus whatever else turns out to be interesting. Open questions: the technology (a small local Ruby web server with a charting library, or something else), what to show, and whether the CSV output stays.
-
-### `run`: compiling is probably no longer useful
-
-`run` compiles the executables, but experiments now use their own copied-over executables (owner, 27 Sep 2026), so the build step is probably wasted. Check that nothing still depends on it, then remove it.
 
 ### Convert the C code to Rust?
 
@@ -182,10 +170,6 @@ Consider porting Evo's own C code to Rust, keeping the libraries it uses (such a
 ### Neural network library
 
 GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). Extra feature inputs only widen the input layer, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes, both activations, its genes, and its feature set with its feature weights (format version 2). GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
-
-### Stats tables and small numbers
-
-`ruby/stats_report.rb` formats with `%.3g`, so a feature weight near 0 (for example `-1.23e-05`) prints wider than the others and could push the all-features stats table past the 100 columns `test_once_mode_fits_in_100_columns` enforces. Rare; format such values so the column keeps its width.
 
 ## Tooling for agents
 
