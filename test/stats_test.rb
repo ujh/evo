@@ -168,6 +168,36 @@ class StatsTest < Minitest::Test
     assert_empty long, "lines over 100 characters:\n#{long.join("\n")}"
   end
 
+  # Every feature weight, with numbers near 0 and 1000 in every gene cell.
+  def test_the_gene_tables_of_all_features_fit_in_100_columns
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
+    figures = ExperimentStats::Report.figures(ExperimentStats.new(database))
+    database.close
+    genes = ExperimentStats::GENES + [ExperimentStats::FEATURE_STEP] + ExperimentStats::FEATURE_WEIGHTS
+    figures.each do |f|
+      f[:genes] = genes.to_h { |gene| [gene, { min: -1.23e-05, median: 999.7, max: -0.00123 }] }
+    end
+    text = ExperimentStats::Report.text(figures)
+    assert_includes section(text, 'Feature weights'), 'NearLast'
+    ['Genes', 'Feature weights'].each do |title|
+      long = section(text, title).lines.map(&:chomp).select { |l| l.size > 100 }
+      assert_empty long, "#{title} lines over 100 characters:\n#{long.join("\n")}"
+    end
+  end
+
+  # Three significant digits below 1000, in at most 6 characters positive
+  # and 7 negative; whole numbers from 999.5.
+  def test_numbers_keep_their_width
+    {
+      12.3 => '12.3', 0.5 => '0.5', 0.0123 => '0.0123', -0.0123 => '-0.0123', 0 => '0', 0.005 => '0.005',
+      -0.0015 => '-0.0015', 0.00123 => '0.0012', -0.00123 => '-0.0012', -0.00999 => '-0.01',
+      0.000123 => '1.2e-4', 1e-05 => '1e-5', -1.23e-05 => '-1.2e-5', 1.23e-12 => '1e-12', -1.23e-12 => '-1e-12',
+      -9.96e-10 => '-1e-9', 999.4 => '999', 999.7 => '1000', -999.7 => '-1000', 12_345.6 => '12346', nil => '-'
+    }.each do |value, text|
+      assert_equal text, ExperimentStats::Report.number(value), "number(#{value.inspect})"
+    end
+  end
+
   # Only the latest generations, and only the checkpoints among them.
   def test_the_tables_show_only_the_latest_generations
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)

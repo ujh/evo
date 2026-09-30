@@ -175,10 +175,6 @@ GENANN stays: it is small, tested upstream, and does what the experiments need. 
 
 `scripts/pr-checks.sh` prints "behind main" for a stacked PR, whose base is another PR's branch, and asks for a new review after a clean merge of the base, although `docs/pull-requests.md` step 7 exempts a clean merge of commits already reviewed. Compare against the PR's own base, and do not ask for a review after such a merge.
 
-### Stats tables and small numbers
-
-`ruby/stats_report.rb` formats with `%.3g`, so a feature weight near 0 (for example `-1.23e-05`) prints wider than the others and could push the all-features stats table past the 100 columns `test_once_mode_fits_in_100_columns` enforces. Rare; format such values so the column keeps its width.
-
 ## Tooling for agents
 
 **Owner request: check running subagents automatically.** In a planned run the orchestrator checks every running agent by hand for progress (its commits, working tree, worktrees and processes; `docs/orchestration.md`, "Watching running agents"), since an agent once finished its work and never reported. Build tooling that does it without being asked: for example a heartbeat or watchdog script, a Claude Code hook, or a plugin that tracks subagent liveness and prompts the orchestrator when an agent stops making progress. Open questions: what counts as progress for a step that runs a long measurement, and whether a hook can see subagents at all.

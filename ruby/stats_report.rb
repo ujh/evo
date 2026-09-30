@@ -204,11 +204,27 @@ class ExperimentStats
        *%i[layers width weights].map { |part| number(shape[part][key]) }]
     end
 
-    # Three significant digits, whole numbers from 1000.
+    # Three significant digits, whole numbers from 999.5 (which %.3g would
+    # print as 1e+03). A number below 0.01 that needs more than 6 characters
+    # (7 negative) keeps two digits, and below 0.001 becomes a short exponent
+    # such as 1.2e-5, so a column near 0 is no wider than the others.
     def number(value)
       return '-' if value.nil?
+      return value.round.to_s if value.abs >= 999.5
 
-      value.abs >= 1000 ? value.round.to_s : format('%.3g', value)
+      limit = value.negative? ? 7 : 6
+      text = format('%.3g', value)
+      return text if text.size <= limit && !text.include?('e')
+
+      text = format('%.2g', value)
+      return text if text.size <= limit && !text.include?('e')
+
+      [1, 0].map { |digits| short_exponent(format("%.#{digits}e", value)) }.find { |t| t.size <= limit }
+    end
+
+    # "1.2e-05" as "1.2e-5", "1.0e-09" as "1e-9".
+    def short_exponent(text)
+      text.sub('.0e', 'e').sub(/e([-+])0+(?=\d)/, 'e\1')
     end
 
     def shapes_row(figures)
