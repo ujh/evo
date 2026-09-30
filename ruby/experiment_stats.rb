@@ -107,14 +107,14 @@ class ExperimentStats
   end
 
   # The scored games. The runner stores only games that counted, each with
-  # its duration, so a game without a winner is a draw; game_seconds is nil
+  # its duration, so a game without a winner is a draw; play_seconds is nil
   # without games.
   def tournament(generation)
     games = database.games(generation, columns: %i[winner duration])
     {
       games: games.size,
       draws: games.count { |game| game[:winner].nil? },
-      game_seconds: games.empty? ? nil : games.sum { |game| game[:duration] }
+      play_seconds: games.empty? ? nil : games.sum { |game| game[:duration] }
     }
   end
 

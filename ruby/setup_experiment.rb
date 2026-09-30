@@ -99,7 +99,8 @@ class SetupExperiment
     # the stones alone. Before initial_weight_changes, which counts them.
     'features' => ['Feature groups the networks see', 'all', FeatureSet.new],
     'cross_over_rate' => ['Cross over rate', nil, number(0, 1)],
-    'game_length' => ['Time per player per game, in minutes', nil, integer(1)],
+    # The arena takes at most 10^6 s of main time.
+    'game_seconds' => ['Time per player per game, in seconds', nil, integer(1, 1_000_000)],
     'max_moves' => ['Max moves', nil, integer(1)],
     'tournament_rounds' => ['Rounds (tournament)', nil, integer(1)],
     'tournament_size' => ['Tournament size for parent selection', '3', integer(1)],

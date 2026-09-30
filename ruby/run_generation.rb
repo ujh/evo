@@ -335,14 +335,14 @@ class RunGeneration
   GENMOVE_GRACE = 10
 
   # Writes the chunk's manifest and returns the arena command that plays it.
-  # Each side has game_length minutes of main time. The shell execs the
+  # Each side has game_seconds seconds of main time. The shell execs the
   # arena, so the job's pid is the arena's and WorkerPool#terminate reaches
   # it (the arena then stops its bots); a shell that stayed would take the
   # SIGTERM and leave the arena running. Its stdout is the pool's pipe.
   def prepare_chunk(chunk)
     File.write(chunk.manifest, manifest(chunk))
     "exec ../arena --mixed #{settings['board_size']} #{settings.fetch('komi')} #{settings['max_moves']} " \
-      "#{settings['game_length'] * 60} #{RESPONSE_DEADLINE} #{GENMOVE_GRACE} " \
+      "#{settings['game_seconds']} #{RESPONSE_DEADLINE} #{GENMOVE_GRACE} " \
       "#{chunk.manifest} 2> #{chunk.err}"
   end
 

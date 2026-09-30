@@ -1001,8 +1001,8 @@ class PlayRoundTest < Minitest::Test
   def test_the_arena_gets_the_experiments_board_komi_move_limit_and_main_time
     in_experiment do
       pool = FakePool.new
-      play([%w[a.ann b.ann]], pool, settings: { 'board_size' => 7, 'komi' => 7.0, 'max_moves' => 50, 'game_length' => 3 })
-      assert_equal ['exec ../arena --mixed 7 7.0 50 180 10 10 arena-0.txt 2> arena-0.err'], pool.commands
+      play([%w[a.ann b.ann]], pool, settings: { 'board_size' => 7, 'komi' => 7.0, 'max_moves' => 50, 'game_seconds' => 45 })
+      assert_equal ['exec ../arena --mixed 7 7.0 50 45 10 10 arena-0.txt 2> arena-0.err'], pool.commands
     end
   end
 

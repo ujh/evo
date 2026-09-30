@@ -20,7 +20,7 @@ module RunGenerationHelpers
     'max_layer_size' => 200,
     'features' => 'none',
     'cross_over_rate' => 0.5,
-    'game_length' => 10,
+    'game_seconds' => 600,
     'max_moves' => 200,
     'tournament_rounds' => 1,
     'tournament_size' => 3,

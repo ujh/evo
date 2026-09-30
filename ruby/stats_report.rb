@@ -86,7 +86,7 @@ class ExperimentStats
     # shape, so the columns stay the same whatever shapes evolve.
     CSV_COLUMNS = [
       'generation', 'finished',
-      *%w[games draws game_seconds].map { |key| "tournament.#{key}" },
+      *%w[games draws play_seconds].map { |key| "tournament.#{key}" },
       'population.children', *ExperimentStats::OPERATORS.map { |operator| "population.operators.#{operator}" },
       *%w[identical distinct_parents unique_genomes].map { |key| "population.#{key}" },
       *SUMMARY.map { |key| "population.scores.#{key}" },
@@ -148,7 +148,7 @@ class ExperimentStats
       population = figures[:population]
       scores = population[:scores]
       [figures[:generation], figures[:finished] ? 'yes' : 'no', tournament[:games], tournament[:draws],
-       duration(tournament[:game_seconds]), identical_share(population), population[:distinct_parents],
+       duration(tournament[:play_seconds]), identical_share(population), population[:distinct_parents],
        population[:unique_genomes], *scores.values_at(:min, :median, :max).map { |s| s.nil? ? '-' : s }]
     end
 

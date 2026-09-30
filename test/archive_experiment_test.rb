@@ -130,12 +130,13 @@ class ArchiveExperimentTest < Minitest::Test
   def test_every_other_table_keeps_its_rows_and_the_copy_is_marked_archived
     before = row_counts
     settings = read { |db| db[:settings].to_hash(:key, :value) }
+    version = read { |db| db[:schema_info].select_map(:version) }
     archive
     assert_equal before.merge(settings: before[:settings] + 1), row_counts
     after = read { |db| db[:settings].to_hash(:key, :value) }
     assert_equal settings, after.except('archived')
     assert after['archived'], 'no archived setting'
-    read { |db| assert_equal [13], db[:schema_info].select_map(:version) }
+    read { |db| assert_equal version, db[:schema_info].select_map(:version) }
   end
 
   def test_stats_prints_the_same_after_the_archive

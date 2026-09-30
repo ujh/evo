@@ -153,8 +153,6 @@ michi-c2 at fixed playouts fills the gap between AmiGo and GNU Go level 0 (three
 
 **Calibrate the michi levels for 13×13 and 19×19.** The three michi levels were calibrated on 9×9 only, so `SetupExperiment` refuses any other board size for an experiment whose panels hold michi (owner, 29 Sep 2026: "Best to abort even playing on 13x13 or 19x19 until such measurements have been taken"). Before lifting the refusal for a size, calibrate there with `scripts/calibrate-bots.rb` (its board size is fixed at 9 now): the endings run for the flags, then the ladder against AmiGo and GNU Go level 0. Bigger boards may need more levels, and games longer than 1 minute a side (owner). Until then evo plays 9×9 only; smaller boards are for tests (owner).
 
-**Allow games shorter than a minute.** `game_length` is whole minutes, at least 1 (`ruby/setup_experiment.rb`); the runner passes it to the arena as `game_length` × 60 s and the benchmark passes it to `gogui-twogtp -time` in minutes. Networks answer in well under a second a move, so a limit of about 20 s a game would still leave plenty of room (owner, 29 Sep 2026). `even-bigger2` uses 1 minute for want of it. Allow seconds, for example a setting in seconds in place of `game_length` (settings are key–value rows, so no schema change), in setup, the arena call, and the benchmark.
-
 ## Code cleanup
 
 The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
