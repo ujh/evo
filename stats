@@ -1,7 +1,8 @@
 #!/usr/bin/env ruby
 # Shows an experiment's tournament, population, genome, bot, and benchmark
-# figures (see ExperimentStats). Reads the experiment database read-only, so it can run
-# while the runner writes.
+# figures (see ExperimentStats); --watch shows only the bot tables and the
+# ratings unless --extended. Reads the experiment database read-only, so it
+# can run while the runner writes.
 require 'bundler/setup'
 require 'optparse'
 require_relative 'ruby/experiment_database'
@@ -10,14 +11,16 @@ require_relative 'ruby/stats_report'
 
 options = {}
 parser = OptionParser.new do |opts|
-  opts.banner = 'Usage: ./stats [--watch | --csv] experiment-name'
-  opts.on('--watch', 'Redraw the tables every 5 seconds until Ctrl-C') { options[:watch] = true }
+  opts.banner = "Usage: ./stats [--watch [--extended] | --csv] experiment-name\n" \
+                'Prints every table once, or with --watch redraws the bot tables and the ratings until Ctrl-C.'
+  opts.on('--watch', "Redraw the latest 10 generations' bot tables and the ratings every 5 s") { options[:watch] = true }
+  opts.on('--extended', 'With --watch, redraw every table instead, every 30 s') { options[:extended] = true }
   opts.on('--csv', 'Print one CSV row per generation instead of tables') { options[:csv] = true }
 end
 parser.parse!
 
 name = ARGV.first
-if name.nil? || (options[:watch] && options[:csv])
+if name.nil? || (options[:watch] && options[:csv]) || (options[:extended] && !options[:watch])
   puts parser.help
   exit 1
 end
@@ -34,7 +37,7 @@ begin
   stats = ExperimentStats.new(database)
   if options[:watch]
     begin
-      ExperimentStats::Report.watch(stats, $stdout)
+      ExperimentStats::Report.watch(stats, $stdout, extended: options[:extended])
     rescue Interrupt
       puts
     end
@@ -42,8 +45,8 @@ begin
     puts ExperimentStats::Report.csv(ExperimentStats::Report.figures(stats), stats.benchmark_opponents,
                                      bot_groups: stats.bot_groups)
   else
-    puts ExperimentStats::Report.text(ExperimentStats::Report.figures(stats), ratings: stats.benchmark_ratings,
-                                      dim: $stdout.tty?)
+    puts ExperimentStats::Report.text(ExperimentStats::Report.figures(stats),
+                                      ratings: ExperimentStats::Report.ratings(stats), dim: $stdout.tty?)
   end
 rescue ExperimentStats::MissingSetting, ExperimentStats::Unmigrated => e
   # An experiment created before a setting the figures need, or not

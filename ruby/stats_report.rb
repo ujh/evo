@@ -5,7 +5,8 @@ require_relative 'experiment_stats'
 class ExperimentStats
   # Formats what ExperimentStats computes, for the stats script: text tables,
   # CSV, and the --watch loop. `figures` is a list of ExperimentStats#generation
-  # hashes, oldest first.
+  # hashes, oldest first, or for the brief tables of
+  # ExperimentStats#brief_generation hashes.
   module Report
     CLEAR = "\e[2J\e[H".freeze
     # Around each cell of a generation that is not done, with `dim`: italic
@@ -32,6 +33,12 @@ class ExperimentStats
     # `dim`.
     BOLD = ["\e[1m", "\e[22m"].freeze
     NO_GENERATIONS = 'No generations yet.'.freeze
+    # A fit of the ratings that did not converge, in place of their table.
+    NOT_CONVERGED = 'Benchmark ratings: the fit did not converge (MESSAGE)'.freeze
+    # --watch redraws the brief tables every 5 seconds, and every table
+    # (--extended), which take longer, every 30.
+    BRIEF_INTERVAL = 5
+    EXTENDED_INTERVAL = 30
     # The genome tables show fewer generations: they are for the trend, and
     # --csv has every generation.
     GENOME_ROWS = 10
@@ -65,23 +72,37 @@ class ExperimentStats
       Tournament games between a network and a copy of the bot: the networks' wins of the games played,
       and their share. Networks meet the bots near their own score.
     NOTE
+    BRIEF_NOTE = "The bot tables of the latest #{GENOME_ROWS} generations and the ratings; " \
+                 "--extended shows every table.\n".freeze
 
     module_function
 
-    # Every generation's figures. A generation before the last one no longer
-    # changes (the runner benchmarks a checkpoint before it breeds the next
-    # generation), so its figures are kept in `cache` and computed only once.
-    def figures(stats, cache = {})
-      generations = stats.generations
+    # Every generation's figures, or with `brief` only the brief figures of
+    # the latest GENOME_ROWS generations, all that brief_text shows. A
+    # generation before the last one no longer changes (the runner
+    # benchmarks a checkpoint before it breeds the next generation), so its
+    # figures are kept in `cache` and computed only once.
+    def figures(stats, cache = {}, brief: false)
+      generations = brief ? stats.generations.last(GENOME_ROWS) : stats.generations
+      compute = ->(generation) { brief ? stats.brief_generation(generation) : stats.generation(generation) }
       generations.map do |generation|
-        next stats.generation(generation) if generation == generations.last
+        next compute.call(generation) if generation == generations.last
 
-        cache[generation] ||= stats.generation(generation)
+        cache[generation] ||= compute.call(generation)
       end
     end
 
-    # The latest `limit` generations, and the benchmark `ratings`
-    # (ExperimentStats#benchmark_ratings; no table when nil). With `dim` (a
+    # The benchmark ratings (ExperimentStats#benchmark_ratings), or the
+    # BenchmarkRatings::NotConverged its fit raised, which text shows in
+    # place of the table.
+    def ratings(stats)
+      stats.benchmark_ratings
+    rescue BenchmarkRatings::NotConverged => e
+      e
+    end
+
+    # The latest `limit` generations, and the benchmark `ratings` (as
+    # `ratings` returns them; no table when nil). With `dim` (a
     # terminal), the latest champion's row in the ratings is bold, and the
     # rows of a generation that is not done are grey and italic in the
     # tables whose figures change while it plays: the generations and the
@@ -94,11 +115,26 @@ class ExperimentStats
       title = "Generations#{" (latest #{shown.size} of #{figures.size})" if shown.size < figures.size}"
       rows = shown.map { |f| style(generation_row(f), f, dim) }
       out = +"#{title}\n#{table(GENERATION_HEADINGS, rows)}\n#{GENERATION_NOTE}"
-      out << genome_tables(shown.last(GENOME_ROWS), dim)
-      return out unless ratings
+      out << genome_tables(shown.last(GENOME_ROWS), dim) << ratings_text(ratings, dim)
+    end
 
-      out << "\nBenchmark ratings (all checkpoints, #{ratings[:anchor]} = 0)\n#{ratings_table(ratings, dim)}\n" \
-             "#{RATINGS_NOTE.sub('ANCHOR', ratings[:anchor])}"
+    # What --watch shows by default: of text's tables only the breeding and
+    # bots and the networks against bots, of brief `figures` (see
+    # `figures`), and the ratings.
+    def brief_text(figures, ratings: nil, dim: false)
+      return "#{NO_GENERATIONS}\n" if figures.empty?
+
+      "#{BRIEF_NOTE}#{bot_tables(figures.last(GENOME_ROWS), dim)}#{ratings_text(ratings, dim)}"
+    end
+
+    # The ratings table and its note, a line for a fit that did not
+    # converge, or nothing without ratings.
+    def ratings_text(ratings, dim)
+      return '' unless ratings
+      return "\n#{NOT_CONVERGED.sub('MESSAGE', ratings.message)}\n" if ratings.is_a?(BenchmarkRatings::NotConverged)
+
+      "\nBenchmark ratings (all checkpoints, #{ratings[:anchor]} = 0)\n#{ratings_table(ratings, dim)}\n" \
+        "#{RATINGS_NOTE.sub('ANCHOR', ratings[:anchor])}"
     end
 
     # The row with each cell dimmed, if `dim` and the generation is not
@@ -157,11 +193,18 @@ class ExperimentStats
       end
     end
 
-    # Redraws the text tables every `interval` seconds, until interrupted.
-    def watch(stats, io, interval: 5, pause: ->(seconds) { sleep(seconds) })
+    # Redraws the brief tables, or with `extended` every table, every
+    # `interval` seconds, until interrupted.
+    def watch(stats, io, extended: false, interval: extended ? EXTENDED_INTERVAL : BRIEF_INTERVAL,
+              pause: ->(seconds) { sleep(seconds) })
       cache = {}
       loop do
-        io.print(CLEAR, text(figures(stats, cache), ratings: stats.benchmark_ratings, dim: io.tty?), "\nUpdated #{Time.now.strftime('%H:%M:%S')}; Ctrl-C to stop.\n")
+        tables = if extended
+                   text(figures(stats, cache), ratings: ratings(stats), dim: io.tty?)
+                 else
+                   brief_text(figures(stats, cache, brief: true), ratings: ratings(stats), dim: io.tty?)
+                 end
+        io.print(CLEAR, tables, "\nUpdated #{Time.now.strftime('%H:%M:%S')}; Ctrl-C to stop.\n")
         io.flush
         pause.call(interval)
       end
@@ -203,7 +246,6 @@ class ExperimentStats
     def genome_tables(shown, dim)
       latest = shown.reverse.find { |f| f[:genes].values.any? { |gene| gene[:median] } }
       weights = shown.last ? shown.last[:genes].keys & ExperimentStats::FEATURE_WEIGHTS : []
-      bots = shown.last&.fetch(:bots)&.keys&.grep(String) || []
       out = genes_table('Genes', GENES_HEADINGS, shown, latest) { |f, key| genes_row(f, key) }
       out << "\n#{GENES_NOTE}"
       unless weights.empty?
@@ -213,9 +255,15 @@ class ExperimentStats
         end
         out << features << "\n#{FEATURES_NOTE}"
       end
-      out << "\nShapes and activations\n#{table(SHAPES_HEADINGS, shown.map { |f| shapes_row(f) }, left: [1, 2, 3])}\n#{SHAPES_NOTE}" \
-        "\nBreeding and bots\n#{table(BREEDING_HEADINGS + bots, shown.map { |f| style(breeding_row(f, bots), f, dim) })}\n#{BREEDING_NOTE}"
-      out << against_bots_table(shown, dim)
+      out << "\nShapes and activations\n#{table(SHAPES_HEADINGS, shown.map { |f| shapes_row(f) }, left: [1, 2, 3])}\n#{SHAPES_NOTE}"
+      out << bot_tables(shown, dim)
+    end
+
+    # The breeding and bots, and networks against bots tables.
+    def bot_tables(shown, dim)
+      bots = shown.last&.fetch(:bots)&.keys&.grep(String) || []
+      "\nBreeding and bots\n#{table(BREEDING_HEADINGS + bots, shown.map { |f| style(breeding_row(f, bots), f, dim) })}\n" \
+        "#{BREEDING_NOTE}#{against_bots_table(shown, dim)}"
     end
 
     # Per generation and bot group, the networks' wins against it.

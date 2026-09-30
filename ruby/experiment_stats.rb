@@ -55,13 +55,22 @@ class ExperimentStats
   # name it, against its opponents, and the panel's bots against each
   # other. A Hash with the anchor, the latest champion with a scored game,
   # and the rows; nil without a scored game. The fit is kept until another
-  # game is stored, so --watch refits only when there is news.
+  # game is stored, so --watch refits only when there is news. A fit that
+  # did not converge (BenchmarkRatings::NotConverged) is kept too, and
+  # raised each time.
   def benchmark_ratings
     counts = database.benchmark_game_counts
-    return @ratings if @ratings_counts == counts
+    unless @ratings_counts == counts
+      @ratings_counts = counts
+      @ratings = begin
+        fit_ratings
+      rescue BenchmarkRatings::NotConverged => e
+        e
+      end
+    end
+    raise @ratings if @ratings.is_a?(BenchmarkRatings::NotConverged)
 
-    @ratings_counts = counts
-    @ratings = fit_ratings
+    @ratings
   end
 
   def generations
@@ -94,21 +103,45 @@ class ExperimentStats
   # finished only once its benchmark is complete. The genes are GENES,
   # FEATURE_STEP, and the feature weights of the experiment's feature set.
   def generation(generation)
-    # Both settings are read first, so an experiment without them fails
-    # whatever the generation holds.
     genes = GENES + [FEATURE_STEP] + feature_weights
-    board_size
-    state = database.state(generation)
-    benchmark = benchmark(generation)
     births = database.births(generation)
+    brief = figures_for_bots(generation, births)
     {
       generation:,
-      finished: state['round'] >= Integer(setting('tournament_rounds')) && (benchmark.nil? || benchmark[:complete]),
+      finished: brief[:finished],
       tournament: tournament(generation),
       population: population(generation),
       genes: genes.to_h { |gene| [gene, summary(births.filter_map { |birth| birth[gene.to_sym] })] },
       shape: shape(births),
       activation: activation(births),
+      **brief.slice(:structure, :parents, :bots, :against_bots, :benchmark)
+    }
+  end
+
+  # The part of #generation that the breeding and bots tables need, and
+  # nothing else, since stats shows only these by default: whether the
+  # generation is finished, the structural changes, the children per
+  # parent, the bots' ranks, and the networks' results against them.
+  def brief_generation(generation)
+    figures_for_bots(generation, database.births(generation)).except(:benchmark)
+  end
+
+  private
+
+  attr_reader :database
+
+  # The brief figures and the benchmark, which whether the generation is
+  # finished depends on.
+  def figures_for_bots(generation, births)
+    # Both settings are read first, so an experiment without them fails
+    # whatever the generation holds.
+    feature_weights
+    board_size
+    state = database.state(generation)
+    benchmark = benchmark(generation)
+    {
+      generation:,
+      finished: state['round'] >= Integer(setting('tournament_rounds')) && (benchmark.nil? || benchmark[:complete]),
       structure: structure(births),
       parents: parents(generation, births),
       bots: bots(generation),
@@ -116,10 +149,6 @@ class ExperimentStats
       benchmark:
     }
   end
-
-  private
-
-  attr_reader :database
 
   # Settings are stored as strings.
   def settings

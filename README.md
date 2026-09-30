@@ -138,8 +138,11 @@ starts it; `initial_champion` and `past_champions` rows have no command.
 experiment does:
 
 - `mise run stats EXPERIMENT_NAME` prints the tables once.
-- `mise run stats EXPERIMENT_NAME --watch` redraws them every 5 seconds until
-  Ctrl-C.
+- `mise run stats EXPERIMENT_NAME --watch` redraws, every 5 seconds until
+  Ctrl-C, only Breeding and bots and Networks against bots for the latest 10
+  generations, and the Benchmark ratings: all the figures of a long experiment
+  take seconds to compute. Add `--extended` to redraw every table instead,
+  every 30 seconds.
 - `mise run stats EXPERIMENT_NAME --csv` prints one row per generation with
   every figure, for a spreadsheet. The columns depend only on the tournament's
   opponents and the benchmark panel, so experiments with the same ones line up.
@@ -156,6 +159,7 @@ progress: a Bradley–Terry rating in Elo of every benchmark player, AmiGo at 0,
 fitted over every checkpoint's benchmark games and the bots' games against each
 other, so champions of different checkpoints, and bots the latest champion
 always beats or always loses to, are compared through the players they met.
+If the fit does not converge, a line says so in place of the table.
 Each row has the ± of about 95 % (with the other ratings held fixed, so
 narrower than the uncertainty against AmiGo), the player's scored games, and
 its points per game. The latest champion's row is bold on a terminal. For
