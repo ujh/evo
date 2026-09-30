@@ -65,8 +65,8 @@ class CheckpointBenchmark
 
   def self.champion_name(source) = "Gen#{source}Champion"
 
-  def self.call(generation, settings, pool, store)
-    new(generation, settings, pool, store).call
+  def self.call(generation, settings, pool, store, heading: nil)
+    new(generation, settings, pool, store).call(heading:)
   end
 
   # `generation` is an Integer; the other arguments are RunGeneration's.
@@ -79,9 +79,12 @@ class CheckpointBenchmark
 
   # Plays the games not yet in the database, so a resumed benchmark only
   # plays what is missing: the checkpoint's own games, and the bot games no
-  # checkpoint has stored yet, in one pool. Returns whether it played any
-  # game.
-  def call
+  # checkpoint has stored yet, in one pool. `heading`, when given, is
+  # printed first, and only if there is a game to play. Returns whether it
+  # played any game.
+  def call(heading: nil)
+    return false if complete?
+
     FileUtils.mkdir_p(DIRECTORY)
     played = store.benchmark_games(generation).to_set { |row| row.values_at(:opponent, :opening, :network_color) }
     all = games
@@ -90,6 +93,7 @@ class CheckpointBenchmark
     pending += bot_games.reject { |game| stored_bot_games.include?(game.key) }
     return false if pending.empty?
 
+    puts heading if heading
     # The checkpoint's games and the bot games still missing when it starts;
     # bot games an earlier checkpoint stored do not count.
     done = all.size - pending.count { |game| game.is_a?(Game) }
@@ -113,6 +117,18 @@ class CheckpointBenchmark
   private
 
   attr_reader :generation, :settings, :pool, :store
+
+  # Whether every game is stored, by count, as ExperimentStats tells a
+  # complete benchmark: without ranking or exporting a network, since
+  # RunExperiment asks every earlier checkpoint on every start.
+  def complete?
+    panel = store.benchmark_opponents
+    opponents = self.class.opponents_for(generation, panel, keep_every: settings['keep_every'],
+                                                            champions: settings['benchmark_champions'])
+    bots = panel.count { |row| row[:kind] == 'bot' }
+    store.benchmark_games(generation, columns: %i[opponent]).size >= opponents.size * settings['benchmark_games'] &&
+      store.benchmark_bot_games(columns: %i[black]).size >= bots * (bots - 1) / 2 * settings['benchmark_bot_games']
+  end
 
   def games
     openings = settings['benchmark_games'] / 2

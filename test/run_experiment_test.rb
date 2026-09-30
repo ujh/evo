@@ -5,7 +5,7 @@ require_relative '../ruby/all'
 $stop_now = false
 
 class RunExperimentTest < Minitest::Test
-  SETTINGS = { 'concurrency' => 2, 'one_generation' => true }.freeze
+  SETTINGS = { 'concurrency' => 2, 'one_generation' => true, 'keep_every' => 0 }.freeze
 
   # Replaces RunGeneration.call with `stub` for the duration of the block.
   def with_generation(stub)
@@ -25,6 +25,86 @@ class RunExperimentTest < Minitest::Test
     end
     with_generation(stub) { capture_io { RunExperiment.call(SETTINGS, database) } }
     called
+  end
+
+  # Replaces CheckpointBenchmark.call with `stub` for the duration of the
+  # block.
+  def with_benchmark(stub)
+    original = CheckpointBenchmark.method(:call)
+    CheckpointBenchmark.define_singleton_method(:call, stub)
+    yield
+  ensure
+    CheckpointBenchmark.singleton_class.send(:remove_method, :call)
+    CheckpointBenchmark.define_singleton_method(:call, original)
+  end
+
+  # The checkpoints benchmarked before the run resumes, each with the
+  # directory it ran in, that directory's files, and its heading; and the
+  # generations run after, each with whether it ran in the experiment
+  # directory.
+  def catch_up(last_generation, keep_every:)
+    database = ExperimentDatabase.new(':memory:')
+    (0..last_generation).each do |g|
+      database.save_state(g, { 'round' => 0, 'players' => {}, 'ranking' => [], 'games' => [] })
+    end
+    benchmarked = []
+    generations = []
+    Dir.mktmpdir do |dir|
+      Dir.chdir(dir) do
+        FileUtils.mkdir(RunGeneration::WORK)
+        File.write(File.join(RunGeneration::WORK, 'stale'), '')
+        # Runs as a method of CheckpointBenchmark, so it records its
+        # arguments and the test checks them afterwards.
+        passed = []
+        benchmark = lambda do |generation, settings, pool, store, heading:|
+          passed << [settings, pool, store]
+          benchmarked << [generation, File.basename(Dir.pwd), Dir.children('.'), heading]
+          false
+        end
+        generation = lambda do |g, _settings, _pool, _store|
+          generations << [g, File.realpath(Dir.pwd) == File.realpath(dir)]
+          nil
+        end
+        with_benchmark(benchmark) do
+          with_generation(generation) do
+            capture_io { RunExperiment.call(SETTINGS.merge('keep_every' => keep_every), database) }
+          end
+        end
+        passed.each do |settings, pool, store|
+          assert_equal SETTINGS.merge('keep_every' => keep_every), settings
+          assert_kind_of WorkerPool, pool
+          assert_same database, store
+        end
+      end
+    end
+    [benchmarked, generations]
+  end
+
+  # An earlier checkpoint plays the benchmark games it lacks, as after
+  # benchmark_games was raised, in an emptied work/; the generation the run
+  # resumes with finishes its own benchmark.
+  def test_earlier_checkpoints_play_their_missing_benchmark_games_before_the_run_resumes
+    benchmarked, generations = catch_up(250, keep_every: 100)
+    assert_equal [[0, 'work', [], '*** BENCHMARK OF GENERATION 0 ***'],
+                  [100, 'work', [], '*** BENCHMARK OF GENERATION 100 ***'],
+                  [200, 'work', [], '*** BENCHMARK OF GENERATION 200 ***']], benchmarked
+    # Back in the experiment directory, as RunGeneration expects.
+    assert_equal [['250', true]], generations
+  end
+
+  def test_the_generation_the_run_resumes_with_is_not_caught_up
+    benchmarked, = catch_up(200, keep_every: 100)
+    assert_equal [0, 100], benchmarked.map(&:first)
+  end
+
+  def test_no_catch_up_without_checkpoints
+    benchmarked, = catch_up(5, keep_every: 0)
+    assert_empty benchmarked
+  end
+
+  def test_a_new_experiment_catches_up_nothing
+    benchmarked, = catch_up(0, keep_every: 1)
+    assert_empty benchmarked
   end
 
   def test_resumes_with_the_last_generation_in_the_database

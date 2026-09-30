@@ -35,7 +35,7 @@ class SetupExperimentTest < Minitest::Test
     assert_equal 9, settings['board_size']
     assert_equal 3, settings['tournament_size']
     assert_equal 10, settings['keep_every']
-    assert_equal 20, settings['benchmark_games']
+    assert_equal 100, settings['benchmark_games']
     assert_equal 4, settings['benchmark_opening_moves']
     assert_equal 6.5, settings['komi']
     assert_kind_of Float, settings['komi']
@@ -375,9 +375,9 @@ class SetupExperimentTest < Minitest::Test
   end
 
   # The panel's bots play each other once per experiment; 0 turns that off.
-  def test_the_bot_games_default_to_40_and_take_any_even_number_from_0
-    assert_equal 40, SetupExperiment.settings_from_arguments(REQUIRED)['benchmark_bot_games']
-    [0, 2, 100].each do |games|
+  def test_the_bot_games_default_to_100_and_take_any_even_number_from_0
+    assert_equal 100, SetupExperiment.settings_from_arguments(REQUIRED)['benchmark_bot_games']
+    [0, 2, 40].each do |games|
       settings = SetupExperiment.settings_from_arguments(REQUIRED + ['--benchmark-bot-games', games.to_s])
       assert_equal games, settings['benchmark_bot_games']
     end
@@ -428,7 +428,7 @@ class SetupExperimentTest < Minitest::Test
     help = SetupExperiment.option_parser({}).help
     SetupExperiment::SETTINGS.each_key { |key| assert_includes help, "--#{key.tr('_', '-')}" }
     assert_includes help, 'default 3'
-    assert_includes help, 'an even whole number of at least 2, default 20'
+    assert_includes help, 'an even whole number of at least 2, default 100'
     assert_includes help, 'a whole number of at least 0, default 4'
     assert_includes help, '--komi VALUE'
     assert_includes help, 'a multiple of 0.5 from -50 to 50, default 6.5'

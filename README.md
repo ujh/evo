@@ -98,19 +98,20 @@ checkpoints before it (a rolling set: older ones drop out, generation 0's
 stays). Each past champion is a separate opponent, `GenNChampion` for the
 checkpoint N. Generation 0 plays only the bots. The six bots also play each
 other, once per experiment: the first checkpoint plays those games along with
-its own (a resume re-enters that checkpoint and finishes them), and a later one
-plays them only in an experiment that had none, such as one migrated from before
-them.
+its own (a resume re-enters that checkpoint and finishes them). On every start,
+before it resumes, the runner has each earlier checkpoint play the benchmark
+games it lacks, so raising a benchmark setting fills in the checkpoints already
+played too.
 
 Four settings control it:
 
-- `benchmark_games` (default 20): games per opponent, an even number, half
+- `benchmark_games` (default 100): games per opponent, an even number, half
   with each color.
 - `benchmark_champions` (default 10): how many past checkpoints' champions
   each checkpoint plays, besides generation 0's.
-- `benchmark_bot_games` (default 40): games per pair of bots, an even number,
+- `benchmark_bot_games` (default 100): games per pair of bots, an even number,
   half with each bot as Black; 0 for none. The 15 pairs of the six bots play
-  600 games in all.
+  1,500 games in all.
 - `benchmark_opening_moves` (default 4): stones in each seeded opening. Every
   checkpoint plays the same openings, each once with each color, so
   checkpoints can be compared. With 0, the games against Brown, AmiGo, and
