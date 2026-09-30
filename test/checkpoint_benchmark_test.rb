@@ -331,6 +331,24 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
+  # With the bot games stored too: three bots make three pairs, not four.
+  def test_a_finished_benchmark_with_its_bot_games_exports_no_network
+    in_experiment do
+      only_opponents('Brown', 'AmiGo', 'MichiWeak', 'Gen0Champion')
+      store_generations(0, 1)
+      %w[Brown AmiGo MichiWeak Gen0Champion].product(%w[black white]) do |opponent, color|
+        database.record_benchmark_game(generation: 1, opponent:, opening: 0, network_color: color, network: 'b.ann')
+      end
+      %w[Brown AmiGo MichiWeak].combination(2) do |a, b|
+        database.record_benchmark_bot_game(generation: 0, black: a, white: b, opening: 0, winner: 'black')
+        database.record_benchmark_bot_game(generation: 0, black: b, white: a, opening: 0, winner: 'black')
+      end
+      database.define_singleton_method(:ranking) { |*| raise 'ranked a network' }
+      assert_empty run_benchmark(1, settings: { 'benchmark_bot_games' => 2 }).commands
+      refute @played_any
+    end
+  end
+
   # A heading, as RunExperiment gives an earlier checkpoint it catches up,
   # comes before the benchmark's lines, and only when it plays a game.
   def test_the_heading_comes_first_when_there_are_games_to_play
