@@ -10,7 +10,7 @@ class ExperimentStats
     CLEAR = "\e[2J\e[H".freeze
     # The generation table shows the latest generations only.
     GENERATION_ROWS = 50
-    GENERATION_HEADINGS = %w[Gen Done Games Draws Failed Time Copies Parents Genomes Min Med Max].freeze
+    GENERATION_HEADINGS = %w[Gen Done Games Draws Time Copies Parents Genomes Min Med Max].freeze
     GENERATION_NOTE = <<~NOTE.freeze
       Done: rounds and benchmark played. Time: of all games. Copies: bred children identical to a parent.
       Parents: networks that passed on weights. Genomes: distinct children. Min, Med, Max: network scores.
@@ -86,7 +86,7 @@ class ExperimentStats
     # shape, so the columns stay the same whatever shapes evolve.
     CSV_COLUMNS = [
       'generation', 'finished',
-      *%w[games draws failures game_seconds].map { |key| "tournament.#{key}" },
+      *%w[games draws game_seconds].map { |key| "tournament.#{key}" },
       'population.children', *ExperimentStats::OPERATORS.map { |operator| "population.operators.#{operator}" },
       *%w[identical distinct_parents unique_genomes].map { |key| "population.#{key}" },
       *SUMMARY.map { |key| "population.scores.#{key}" },
@@ -148,7 +148,7 @@ class ExperimentStats
       population = figures[:population]
       scores = population[:scores]
       [figures[:generation], figures[:finished] ? 'yes' : 'no', tournament[:games], tournament[:draws],
-       tournament[:failures], duration(tournament[:game_seconds]), identical_share(population), population[:distinct_parents],
+       duration(tournament[:game_seconds]), identical_share(population), population[:distinct_parents],
        population[:unique_genomes], *scores.values_at(:min, :median, :max).map { |s| s.nil? ? '-' : s }]
     end
 

@@ -106,16 +106,15 @@ class ExperimentStats
     names.map { |name| "fw_#{name}" }
   end
 
-  # The scored games. A draw has neither winner nor failure; game_seconds is
-  # nil when no game has a timing.
+  # The scored games. The runner stores only games that counted, each with
+  # its duration, so a game without a winner is a draw; game_seconds is nil
+  # without games.
   def tournament(generation)
-    games = database.games(generation, columns: %i[winner failure duration])
-    durations = games.filter_map { |game| game[:duration] }
+    games = database.games(generation, columns: %i[winner duration])
     {
       games: games.size,
-      draws: games.count { |game| game[:winner].nil? && game[:failure].nil? },
-      failures: games.count { |game| game[:failure] },
-      game_seconds: durations.empty? ? nil : durations.sum
+      draws: games.count { |game| game[:winner].nil? },
+      game_seconds: games.empty? ? nil : games.sum { |game| game[:duration] }
     }
   end
 

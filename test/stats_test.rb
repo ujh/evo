@@ -47,11 +47,13 @@ class StatsTest < Minitest::Test
   def test_prints_the_generation_table_once_and_exits
     out, err, status = stats('x')
     assert status.success?, err
-    # Gen, done, games, draws, failed, game time, copies, parents, genomes,
-    # score min, median, max.
-    assert_equal %w[0 no 1 0 0 - - 0 3 1 2 3], row(out, 0).first(12)
-    assert_equal %w[1 yes 4 1 1 3.8s 33% 2 3 1 4 4], row(out, 1).first(12)
-    assert_equal %w[2 no 0 0 0 - - 0 0 0 2 7], row(out, 2).first(12)
+    # Gen, done, games, draws, game time, copies, parents, genomes, score
+    # min, median, max.
+    assert_equal %w[Gen Done Games Draws Time Copies Parents Genomes Min Med Max],
+                 cells(out.lines.find { |l| l.include?('Done') })
+    assert_equal %w[0 no 1 0 0.5s - 0 3 1 2 3], row(out, 0)
+    assert_equal %w[1 yes 4 1 3.8s 33% 2 3 1 4 4], row(out, 1)
+    assert_equal %w[2 no 0 0 - - 0 0 0 2 7], row(out, 2)
     assert_equal %w[3 no], row(out, 3).first(2)
     refute_includes out, "\e[2J", 'once mode does not clear the screen'
   end
@@ -242,7 +244,7 @@ class StatsTest < Minitest::Test
       %w[black white].flat_map { |color| %w[win loss draw failure].map { |result| "benchmark.#{opponent}.#{color}.#{result}" } }
     end
     assert_equal %w[
-      generation finished tournament.games tournament.draws tournament.failures tournament.game_seconds
+      generation finished tournament.games tournament.draws tournament.game_seconds
       population.children population.operators.initial population.operators.crossover population.operators.mutation
       population.operators.copy
       population.identical population.distinct_parents population.unique_genomes

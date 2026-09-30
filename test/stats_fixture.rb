@@ -83,11 +83,10 @@ module StatsFixture
                 winner: nil, failure: nil, length: 50, scorer: 'tromp_taylor', end_reason: 'passes', **rest)
     end
     game.call(1, 0, 'a.ann', 'Brown1', winner: 'a.ann', duration: 1.5)
-    game.call(1, 0, 'b.ann', 'c.ann') # draw
-    game.call(1, 1, 'c.ann', 'Brown1', failure: 'Brown1 crashed', duration: 2.25)
-    game.call(1, 1, 'b.ann', 'a.ann', winner: 'b.ann')
-    # Recorded before games had timings.
-    game.call(0, 0, 'a.ann', 'b.ann', winner: 'b.ann')
+    game.call(1, 0, 'b.ann', 'c.ann', duration: 0.0) # draw
+    game.call(1, 1, 'c.ann', 'Brown1', winner: 'Brown1', duration: 2.25)
+    game.call(1, 1, 'b.ann', 'a.ann', winner: 'b.ann', duration: 0.0)
+    game.call(0, 0, 'a.ann', 'b.ann', winner: 'b.ann', duration: 0.5)
 
     bench = lambda do |opponent, opening, network_color, winner, failure = nil, opponent_network = nil|
       db.record_benchmark_game(generation: 2, opponent:, opening:, network_color:, network: 'c.ann',

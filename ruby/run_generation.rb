@@ -536,7 +536,7 @@ class RunGeneration
       black_external: external?(game['black']), white_external: external?(game['white']),
       winner: scored['winner'], failure: nil, length: result.length, end_reason: result.end_reason,
       referee_result: result.referee, error_message: result.error_message, duration:,
-      # To a tenth, as twogtp gave the times of GoGui games.
+      # To a tenth, as twogtp gives the benchmark's GoGui games' times.
       time_black: result.time_black&.round(1), time_white: result.time_white&.round(1), scorer: 'tromp_taylor',
       stderr: nil, sgf: keep_sgf? ? result.sgf(size: settings['board_size'], komi: settings.fetch('komi')) : nil
     )

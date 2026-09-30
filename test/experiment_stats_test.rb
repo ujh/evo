@@ -66,13 +66,14 @@ class ExperimentStatsTest < Minitest::Test
     assert_empty recorder.columns & %i[sgf stderr error_message referee_result]
   end
 
-  def test_tournament_counts_games_draws_failures_and_time
-    assert_equal({ games: 4, draws: 1, failures: 1, game_seconds: 3.75 }, @stats.generation(1)[:tournament])
+  # The runner stores only games that counted, each with its duration.
+  def test_tournament_counts_games_draws_and_time
+    assert_equal({ games: 4, draws: 1, game_seconds: 3.75 }, @stats.generation(1)[:tournament])
+    assert_equal({ games: 1, draws: 0, game_seconds: 0.5 }, @stats.generation(0)[:tournament])
   end
 
-  def test_game_time_is_nil_without_timings
-    assert_equal({ games: 1, draws: 0, failures: 0, game_seconds: nil }, @stats.generation(0)[:tournament])
-    assert_equal({ games: 0, draws: 0, failures: 0, game_seconds: nil }, @stats.generation(3)[:tournament])
+  def test_game_time_is_nil_without_games
+    assert_equal({ games: 0, draws: 0, game_seconds: nil }, @stats.generation(3)[:tournament])
   end
 
   def test_population_of_a_bred_generation
