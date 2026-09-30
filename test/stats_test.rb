@@ -236,6 +236,21 @@ class StatsTest < Minitest::Test
     assert_equal %w[2], generations.call(benchmark)
   end
 
+  # The share of points, not the panel order, decides; a draw is half a win,
+  # failures do not count, and opponents without a scored game come last.
+  def test_benchmark_opponents_are_ordered_by_the_networks_score
+    counts = ->(win: 0, loss: 0, draw: 0, failure: 0) { { win:, loss:, draw:, failure: } }
+    benchmark = {
+      network: 'a.ann', games: 4, complete: true,
+      'Brown' => { black: counts.call(win: 1, loss: 1), white: counts.call(loss: 2) },   # 1/4
+      'Unplayed' => { black: counts.call(failure: 2), white: counts.call },
+      'AmiGo' => { black: counts.call(win: 1, draw: 1), white: counts.call(loss: 2) },  # 1.5/4
+      'Gen0Champion' => { black: counts.call(win: 2), white: counts.call(win: 1, loss: 1) }, # 3/4
+      'Gen10Champion' => { black: counts.call(win: 1, loss: 1), white: counts.call(draw: 2) } # 2/4
+    }
+    assert_equal %w[Gen0Champion Gen10Champion AmiGo Brown Unplayed], ExperimentStats::Report.by_strength(benchmark)
+  end
+
   DIM = "\e[3;90m".freeze
 
   # With `dim`, every cell of a generation that is not done is grey and

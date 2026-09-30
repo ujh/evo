@@ -83,6 +83,16 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
+  # benchmark_champions limits the past champions to the latest ones.
+  def test_the_setting_limits_the_past_champions
+    in_experiment(generation: '30') do
+      only_opponents('Gen0Champion', 'PastChampions')
+      store_generations(0, 10, 20, 30)
+      run_benchmark(30, settings: { 'benchmark_champions' => 1 })
+      assert_equal %w[Gen0Champion Gen20Champion], played(30).map(&:first).uniq
+    end
+  end
+
   # ExperimentStats counts a checkpoint's benchmark as complete by the same
   # rule the runner plays it by. The past champions roll: the last
   # `champions` checkpoints before this one, oldest first, never generation 0.
