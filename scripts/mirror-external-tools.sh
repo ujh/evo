@@ -4,8 +4,8 @@ set -eu
 # Upload the archives listed in scripts/external-tools.txt to the GitHub
 # release that scripts/install-external-tools.sh downloads from. Each archive
 # comes from the local installer cache when its checksum matches, and from
-# upstream otherwise. Run it after changing the manifest; a new set of
-# archives needs a new release tag in the installer.
+# upstream otherwise. Run it after changing the manifest; a changed archive
+# needs a new release tag in the installer, an added one does not.
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 manifest="$project_root/scripts/external-tools.txt"
