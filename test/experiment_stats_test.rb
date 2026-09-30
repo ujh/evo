@@ -81,11 +81,79 @@ class ExperimentStatsTest < Minitest::Test
       attr_reader :columns
 
       def games(generation, columns:) = (@columns ||= []).concat(columns) && super
-      def benchmark_games(generation, columns:) = (@columns ||= []).concat(columns) && super
+      def benchmark_games(generation = nil, columns:) = (@columns ||= []).concat(columns) && super
+      def benchmark_bot_games(columns:) = (@columns ||= []).concat(columns) && super
     end.new(@database)
-    ExperimentStats.new(recorder).generation(2)
+    stats = ExperimentStats.new(recorder)
+    stats.generation(2)
+    stats.benchmark_ratings
+    assert_includes recorder.columns, :black
     refute_empty recorder.columns
     assert_empty recorder.columns & %i[sgf stderr error_message referee_result]
+  end
+
+  # Every benchmark game without a failure, the checkpoint's champion
+  # named as later checkpoints name it, and every bot game without one:
+  # generation 2's champion won 2.5 of 4 against AmiGo, the one scored game
+  # against Brown, and neither against Gen0Champion; AmiGo beat Brown twice,
+  # and GnuGoLevel0 and Brown drew.
+  def test_benchmark_ratings_rate_every_player_from_all_benchmark_games
+    games = [['Gen2Champion', 'AmiGo', 1], ['Gen2Champion', 'AmiGo', 0], ['Gen2Champion', 'AmiGo', 1],
+             ['Gen2Champion', 'AmiGo', 1/2r], ['Gen2Champion', 'Brown', 1], ['Gen2Champion', 'Gen0Champion', 0],
+             ['Gen2Champion', 'Gen0Champion', 0], ['AmiGo', 'Brown', 1], ['Brown', 'AmiGo', 0], ['GnuGoLevel0', 'Brown', 1/2r]]
+    ratings = @stats.benchmark_ratings
+    assert_equal 'AmiGo', ratings[:anchor]
+    assert_equal 'Gen2Champion', ratings[:champion]
+    assert_equal BenchmarkRatings.new(games, anchor: 'AmiGo').rows, ratings[:rows]
+    assert_equal({ 'Gen2Champion' => 7, 'AmiGo' => 6, 'Brown' => 4, 'Gen0Champion' => 2, 'GnuGoLevel0' => 1 },
+                 ratings[:rows].to_h { |row| [row.player, row.games] })
+  end
+
+  # The latest champion is the latest checkpoint's with a scored game.
+  def test_the_latest_champion_is_the_latest_benchmarked
+    reopen_writing do |writer|
+      writer.record_benchmark_game(generation: 4, opponent: 'Brown', opening: 0, network_color: 'black',
+                                   network: 'a.ann', winner: nil, failure: 'Brown crashed')
+    end
+    assert_equal 'Gen2Champion', @stats.benchmark_ratings[:champion]
+    reopen_writing do |writer|
+      writer.record_benchmark_game(generation: 4, opponent: 'Brown', opening: 1, network_color: 'black',
+                                   network: 'a.ann', winner: 'network')
+    end
+    assert_equal 'Gen4Champion', @stats.benchmark_ratings[:champion]
+  end
+
+  # Failed games are left out, so failures alone give no ratings.
+  def test_no_ratings_without_a_scored_benchmark_game
+    Sequel.sqlite(File.join(@dir, 'experiment.sqlite3')) do |db|
+      db[:benchmark_games].delete
+      db[:benchmark_bot_games].update(failure: 'Brown crashed', winner: nil)
+    end
+    assert_nil @stats.benchmark_ratings
+  end
+
+  # --watch asks every few seconds; the fit runs again only once a game
+  # was stored.
+  def test_ratings_are_fitted_again_only_after_a_new_game
+    first = @stats.benchmark_ratings
+    assert_same first, @stats.benchmark_ratings
+    path = File.join(@dir, 'experiment.sqlite3')
+    writer = ExperimentDatabase.new(path)
+    writer.record_benchmark_bot_game(generation: 2, black: 'GnuGoLevel0', white: 'AmiGo', opening: 0, winner: 'black')
+    writer.close
+    refute_equal first, @stats.benchmark_ratings
+  end
+
+  # A database the runner has not migrated since the bot games (opened
+  # read-only, stats cannot migrate it) is refused, whatever is asked of it.
+  def test_a_database_without_the_bot_games_table_is_refused
+    @database.close
+    path = File.join(@dir, 'experiment.sqlite3')
+    Sequel.sqlite(path) { |db| db.drop_table(:benchmark_bot_games) }
+    @database = ExperimentDatabase.new(path, readonly: true)
+    error = assert_raises(ExperimentStats::Unmigrated) { ExperimentStats.new(@database) }
+    assert_equal 'the database predates the benchmark\'s bot games (migration 016): run the experiment once to migrate ' \
+                 'it; an archived experiment cannot be migrated', error.message
   end
 
   # The runner stores only games that counted, each with its duration.

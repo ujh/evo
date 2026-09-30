@@ -58,34 +58,47 @@ class StatsTest < Minitest::Test
     refute_includes out, "\e[2J", 'once mode does not clear the screen'
   end
 
-  # The latest checkpoint only, as a ranking, strongest first: the
-  # opponents the champion scored least against (a draw half a win,
-  # failures left out), the champion itself where its score passes half,
-  # then the opponents without a scored game, in panel order. Its benchmark
-  # is incomplete.
-  def test_prints_the_benchmark_of_the_latest_checkpoint_as_a_ranking
-    out, = stats('x')
+  # One table for every benchmark player, from every checkpoint's games and
+  # the bots' games against each other (StatsFixture), strongest first,
+  # rated against AmiGo. Games and Score leave failures out.
+  def test_prints_the_benchmark_ratings_of_every_player
+    out, err, status = stats('x')
+    assert status.success?, err
     benchmark = out[out.index('Benchmark')..]
-    assert_equal 'Benchmark: generation 2 (c.ann)', benchmark.lines.first.chomp
-    header = cells(benchmark.lines.find { |l| l.include?('Player') })
-    assert_equal %w[Rank Player Games Black White Draws Failed Score], header
+    assert_equal 'Benchmark ratings (all checkpoints, AmiGo = 0)', benchmark.lines.first.chomp
+    assert_equal %w[Rank Player Rating ± Games Score], cells(benchmark.lines.find { |l| l.include?('Player') })
     rows = benchmark.lines.select { |l| l.match?(/\A\|\s*\d/) }.map { |l| cells(l) }
-    assert_equal [%w[1 Gen0Champion 2/4 0-1 0-1 0 0 0%], ['2', '> Gen2Champion', '', '', '', '', '', ''],
-                  %w[3 AmiGo 4/4 2-0 0-1 1 0 63%], %w[4 Brown 2/4 0-0 1-0 0 1 100%],
-                  %w[5 GnuGoLevel0 0/4 0-0 0-0 0 0 -]], rows
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
+    expected = ExperimentStats.new(database).benchmark_ratings[:rows]
+    database.close
+    assert_equal expected.map(&:player), rows.map { |r| r[1] }
+    assert_equal %w[1 2 3 4 5], rows.map(&:first)
+    by_player = rows.to_h { |r| [r[1], r] }
+    assert_equal %w[0 -], by_player['AmiGo'][2, 2], 'the anchor'
+    expected.each { |row| assert_equal [row.rating.to_s, row.margin&.to_s || '-'], by_player[row.player][2, 2] }
+    assert_equal({ 'Gen2Champion' => %w[7 50%], 'AmiGo' => %w[6 58%], 'Brown' => %w[4 13%], 'Gen0Champion' => %w[2 100%],
+                   'GnuGoLevel0' => %w[1 50%] }, by_player.transform_values { |r| r[4, 2] })
+    note = benchmark.lines.drop_while { |l| !l.start_with?('+') }.drop_while { |l| l.start_with?('+', '|') }.join
+    assert_includes note, 'about 95 %'
+    assert_includes note, 'narrower than the uncertainty against AmiGo'
+    assert_includes note, 'held finite only by'
   end
 
-  # On a terminal the champion's row is bold, and only that row.
-  def test_the_champions_row_is_bold_on_a_terminal
+  # On a terminal the latest champion's row is bold, and only that row; the
+  # table is no generation's, so nothing in it is grey.
+  def test_the_latest_champions_row_is_bold_on_a_terminal
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
-    figures = ExperimentStats::Report.figures(ExperimentStats.new(database))
+    stats = ExperimentStats.new(database)
+    figures = ExperimentStats::Report.figures(stats)
+    ratings = stats.benchmark_ratings
     database.close
-    rows = ExperimentStats::Report.text(figures, dim: true).split('Benchmark').last.lines.grep(/\A\|/).drop(1)
+    rows = ExperimentStats::Report.text(figures, ratings:, dim: true).split('Benchmark').last.lines.grep(/\A\|/).drop(1)
     bold = rows.select { |l| l.include?("\e[1m") }
     assert_equal 1, bold.size
     assert_includes bold.first, 'Gen2Champion'
-    assert_equal 8, bold.first.scan("\e[1m").size, 'every cell'
-    refute_includes ExperimentStats::Report.text(figures), "\e[1m"
+    assert_equal 6, bold.first.scan("\e[1m").size, 'every cell'
+    refute(rows.any? { |l| l.include?(DIM) })
+    refute_includes ExperimentStats::Report.text(figures, ratings:), "\e[1m"
   end
 
   TITLES = /\A(Generations|Genes|Feature weights|Shapes|Breeding|Networks against bots|Benchmark)/
@@ -154,6 +167,19 @@ class StatsTest < Minitest::Test
       assert_equal 1, status.exitstatus
       assert_empty out
       assert_equal "features is missing\n", err
+    end
+  end
+
+  # A database the runner has not migrated since the benchmark's bot games
+  # is refused in every mode; stats cannot migrate it.
+  def test_a_database_without_the_bot_games_exits_1_in_every_mode
+    Sequel.sqlite(File.join(@experiment, 'experiment.sqlite3')) { |db| db.drop_table(:benchmark_bot_games) }
+    [%w[x], %w[--csv x], %w[--watch x]].each do |args|
+      out, err, status = stats(*args)
+      assert_equal 1, status.exitstatus, args.inspect
+      assert_empty out, args.inspect
+      assert_equal "the database predates the benchmark's bot games (migration 016): run the experiment once to migrate it; " \
+                   "an archived experiment cannot be migrated\n", err, args.inspect
     end
   end
 
@@ -231,57 +257,40 @@ class StatsTest < Minitest::Test
     end
   end
 
-  # Only the latest generations, but the latest checkpoint's benchmark even
-  # when its generation is older: with a checkpoint every 100 generations,
-  # the latest 50 rows often hold none.
-  def test_the_tables_show_only_the_latest_generations_and_checkpoints
+  # Only the latest generations; the ratings are shown whichever generations
+  # are.
+  def test_the_tables_show_only_the_latest_generations
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
-    figures = ExperimentStats::Report.figures(ExperimentStats.new(database))
+    stats = ExperimentStats.new(database)
+    figures = ExperimentStats::Report.figures(stats)
+    ratings = stats.benchmark_ratings
     database.close
     generations = ->(text) { text.lines.grep(/\A\|\s*\d/).map { |l| cells(l).first }.uniq }
-    text = ExperimentStats::Report.text(figures, limit: 3)
+    text = ExperimentStats::Report.text(figures, ratings:, limit: 3)
     assert_includes text, 'latest 3 of 4'
     generation_table, benchmark = text.split('Benchmark')
     assert_equal %w[1 2 3], generations.call(generation_table)
-    assert benchmark.start_with?(': generation 2 ')
-    generation_table, benchmark = ExperimentStats::Report.text(figures, limit: 1).split('Benchmark')
+    assert benchmark.start_with?(' ratings (all checkpoints')
+    generation_table, benchmark = ExperimentStats::Report.text(figures, ratings:, limit: 1).split('Benchmark')
     assert_equal %w[3], generations.call(generation_table)
-    assert benchmark.start_with?(': generation 2 ')
-  end
-
-  # The share of points, not the panel order, decides, strongest first,
-  # ties in reverse panel order (the panel lists the bots weakest first); a
-  # draw is half a win, failures do not count, the champion goes before the
-  # first opponent it scored more than half against, and opponents without
-  # a scored game come last.
-  def test_the_ranking_places_the_champion_by_its_scores
-    counts = ->(win: 0, loss: 0, draw: 0, failure: 0) { { win:, loss:, draw:, failure: } }
-    benchmark = {
-      network: 'a.ann', games: 4, complete: true,
-      'Gen0Champion' => { black: counts.call(win: 2), white: counts.call(win: 1, loss: 1) }, # 3/4
-      'Brown' => { black: counts.call(win: 1, loss: 1), white: counts.call(loss: 2) }, # 1/4
-      'Unplayed' => { black: counts.call(failure: 2), white: counts.call },
-      'Tied' => { black: counts.call(loss: 2), white: counts.call(win: 1, loss: 1) }, # 1/4
-      'AmiGo' => { black: counts.call(win: 1, draw: 1), white: counts.call(loss: 2) }, # 1.5/4
-      'Gen10Champion' => { black: counts.call(win: 1, loss: 1), white: counts.call(draw: 2) } # 2/4
-    }
-    assert_equal ['Tied', 'Brown', 'AmiGo', 'Gen10Champion', :champion, 'Gen0Champion', 'Unplayed'],
-                 ExperimentStats::Report.ranking(benchmark)
-    unplayed = { network: nil, games: 4, complete: false, 'Brown' => { black: counts.call, white: counts.call } }
-    assert_equal [:champion, 'Brown'], ExperimentStats::Report.ranking(unplayed)
+    assert benchmark.start_with?(' ratings (all checkpoints')
+    refute_includes ExperimentStats::Report.text(figures), 'Benchmark', 'no table without ratings'
   end
 
   DIM = "\e[3;90m".freeze
 
   # With `dim`, every cell of a generation that is not done is grey and
-  # italic in the tables whose figures change while it plays; the genome tables come
+  # italic in the tables whose figures change while it plays, but for the
+  # ratings, which are no one generation's; the genome tables come
   # from births, which a generation has before it plays. In the fixture
   # generations 0 and 2 wait for their benchmarks and 3 is playing.
   def test_dim_marks_the_generations_not_done_in_the_live_tables
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
-    figures = ExperimentStats::Report.figures(ExperimentStats.new(database))
+    stats = ExperimentStats.new(database)
+    figures = ExperimentStats::Report.figures(stats)
+    ratings = stats.benchmark_ratings
     database.close
-    text = ExperimentStats::Report.text(figures, dim: true)
+    text = ExperimentStats::Report.text(figures, ratings:, dim: true)
     dimmed = ->(title) { rows_of(section(text, title)).reject(&:empty?).group_by { |r| r.all? { |c| c.start_with?(DIM) && c.end_with?("\e[23;39m") } } }
     ['Generations', 'Breeding', 'Networks against bots'].each do |title|
       rows = dimmed.call(title)
@@ -289,7 +298,7 @@ class StatsTest < Minitest::Test
       assert_equal %w[1], rows[false].map(&:first), title
     end
     benchmark = text[text.index('Benchmark')..].lines.select { |l| l.start_with?('|') }.drop(1)
-    assert(benchmark.all? { |l| l.include?(DIM) }, 'the latest checkpoint waits for its benchmark')
+    refute(benchmark.any? { |l| l.include?(DIM) }, 'the ratings are no generation\'s')
     %w[Genes Shapes].each { |title| refute_includes section(text, title), DIM, title }
     refute_includes ExperimentStats::Report.text(figures), DIM
   end
