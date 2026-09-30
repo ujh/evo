@@ -257,10 +257,8 @@ class StatsTest < Minitest::Test
     end
   end
 
-  # Only the latest generations, but the latest checkpoint's benchmark even
-  # when its generation is older: with a checkpoint every 100 generations,
-  # the latest 50 rows often hold none.
-  # The ratings are shown whichever generations are.
+  # Only the latest generations; the ratings are shown whichever generations
+  # are.
   def test_the_tables_show_only_the_latest_generations
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
     stats = ExperimentStats.new(database)
