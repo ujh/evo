@@ -78,7 +78,7 @@ run = "sh scripts/check-runtime-dependencies.sh"
 
 [tasks.run]
 description = "Run or resume an experiment: mise run run NAME [CONCURRENCY [one-generation]]"
-depends = ["build", "doctor"]
+depends = ["doctor"]
 run = "./runner"
 raw = true
 

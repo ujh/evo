@@ -197,8 +197,9 @@ else
 fi
 out ''
 
-# Builds and checks the programs once, so the timed invocations' own build
-# and doctor steps (dependencies of `mise run run`) find nothing to do.
+# Builds and checks the programs once, so the first invocation's build (the
+# runner builds on an experiment's first run) and every invocation's doctor
+# step (a dependency of `mise run run`) find nothing to do.
 mise run build >/dev/null
 mise run doctor >/dev/null
 
