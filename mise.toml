@@ -39,8 +39,34 @@ description = "Run tests and check the programs needed for experiments"
 run = [{ task = "test" }, { task = "doctor" }, { task = "smoke" }]
 
 [tasks.smoke]
-description = "Play one refereed GoGui match with each external opponent and Evo, drive the same bots through the arena's GTP controller and play them in the arena, and check that the arena plays and scores games as GoGui and GNU Go do"
-run = ["sh scripts/smoke-external-tools.sh", "sh scripts/smoke-bot-controller.sh", "sh scripts/arena-agreement.sh"]
+description = "Run every smoke check (CI runs each in a job of its own)"
+run = [
+  { task = "smoke-matches" },
+  { task = "smoke-controller" },
+  { task = "smoke-arena" },
+  { task = "smoke-patches" },
+  { task = "smoke-agreement" },
+]
+
+[tasks.smoke-matches]
+description = "Play one refereed GoGui match with each external opponent and Evo"
+run = "sh scripts/smoke-external-tools.sh"
+
+[tasks.smoke-controller]
+description = "Drive the external opponents and Evo through the arena's GTP controller"
+run = "sh scripts/smoke-bot-controller.sh"
+
+[tasks.smoke-arena]
+description = "Play the external opponents in the arena, and check that its games repeat and match twogtp's"
+run = "sh scripts/smoke-arena-bots.sh"
+
+[tasks.smoke-patches]
+description = "Check that GNU Go and michi-c2 keep the behaviour of evo's patches"
+run = "sh scripts/smoke-bot-patches.sh"
+
+[tasks.smoke-agreement]
+description = "Check that the arena plays and scores games as GoGui and GNU Go do"
+run = "sh scripts/arena-agreement.sh"
 
 [tasks.clean]
 description = "Remove generated C build and test files"

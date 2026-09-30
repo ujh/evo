@@ -191,10 +191,6 @@ GENANN stays: it is small, tested upstream, and does what the experiments need. 
 
 `ruby/stats_report.rb` formats with `%.3g`, so a feature weight near 0 (for example `-1.23e-05`) prints wider than the others and could push the all-features stats table past the 100 columns `test_once_mode_fits_in_100_columns` enforces. Rare; format such values so the column keeps its width.
 
-### Give the CI jobs a time limit
-
-No job in `.github/workflows/ci.yml` (`c-tests`, `ruby-tests`, `smoke-matches`) sets `timeout-minutes`, so a hang runs until GitHub's default of 6 hours instead of failing. The bot controller's tests and smoke checks start real processes, and a regression there (a pipe left open, a bot never killed) hangs rather than fails; `engine/bottest.sh` and `engine/arenatest.sh` bound each case with a watchdog, but a hang outside them does not. Set a limit per job a few times its usual length (owner, 29 Sep 2026).
-
 ## Tooling for agents
 
 **Owner request: check running subagents automatically.** In a planned run the orchestrator checks every running agent by hand for progress (its commits, working tree, worktrees and processes; `docs/orchestration.md`, "Watching running agents"), since an agent once finished its work and never reported. Build tooling that does it without being asked: for example a heartbeat or watchdog script, a Claude Code hook, or a plugin that tracks subagent liveness and prompts the orchestrator when an agent stops making progress. Open questions: what counts as progress for a step that runs a long measurement, and whether a hook can see subagents at all.

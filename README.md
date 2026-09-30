@@ -21,10 +21,11 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    [GoGui](https://github.com/Remi-Coulom/gogui) 1.6.0. The archives come from
    this repository's `external-tools-r1` GitHub release, a copy of the
    upstream files, so setup does not depend on the upstream hosts. They are
-   checked against SHA-256 hashes before extraction; GNU Go is patched for an
-   upstream sorting bug and michi-c2 for crashes and for play as an opponent
-   (`scripts/patches/`). The programs stay under
-   `.local/evo-tools/` and mise places them on `PATH` for project tasks.
+   checked against SHA-256 hashes before extraction; GNU Go is patched for two
+   upstream bugs (a sort of an empty array and a liberty overflow) and
+   michi-c2 for crashes and for play as an opponent (`scripts/patches/`).
+   The programs stay under `.local/evo-tools/` and mise places them on
+   `PATH` for project tasks.
 3. Run `mise run verify` to run the C and Ruby tests and refereed 9×9 matches in which
    Brown, AmiGoGtp, GNU Go levels 0 and 10, michi-c2, and Evo each play. It fails if a
    program crashes or the GNU Go referee returns no score. It drives Brown,
@@ -37,8 +38,8 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    the moves differ or the arena's score differs from a Tromp–Taylor count of
    GoGui's game.
 
-CI runs the same tasks as separate jobs (C tests, Ruby tests, and the
-refereed matches), so a failure shows which kind of check broke. For
+CI runs the same tasks as separate jobs (C tests, Ruby tests, and one job
+per smoke check), so a failure shows which kind of check broke. For
 development without the
 external programs, use `mise run setup` and `mise run test` (or `test-c` and
 `test-ruby` on their own). Other useful tasks are `mise run build`,

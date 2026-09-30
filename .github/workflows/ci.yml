@@ -8,7 +8,10 @@ on:
     branches: [ "main" ]
   pull_request:
 
-# One job per kind of check, so a failure shows which kind broke.
+# One job per kind of check, so a failure shows which kind broke, and one
+# per smoke check, so they run side by side. Each job has a time limit a few
+# times its usual length, so a hang (a bot never killed, a pipe left open)
+# fails instead of running for GitHub's default of 6 hours.
 #
 # mise-action caches the tools mise installs. Gems and the built external Go
 # programs are cached here; each key changes whenever what it caches would.
@@ -18,6 +21,7 @@ env:
 jobs:
   c-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
     - uses: actions/checkout@v7
       with:
@@ -28,6 +32,7 @@ jobs:
 
   ruby-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
     - uses: actions/checkout@v7
     - uses: jdx/mise-action@v4
@@ -44,8 +49,13 @@ jobs:
     - name: Ruby tests
       run: mise run test-ruby
 
-  smoke-matches:
+  smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [matches, controller, arena, patches, agreement]
     steps:
     - uses: actions/checkout@v7
       with:
@@ -69,5 +79,5 @@ jobs:
       run: mise run setup-experiments
     - name: Check external programs
       run: mise run doctor
-    - name: Refereed matches
-      run: mise run smoke
+    - name: Smoke check
+      run: mise run smoke-${{ matrix.check }}
