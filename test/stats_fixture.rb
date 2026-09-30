@@ -13,7 +13,7 @@ require_relative '../ruby/setup_experiment'
 # no near_last weight. ExperimentStats and the stats script are tested on
 # it.
 module StatsFixture
-  PLAYERS = { 'a.ann' => {}, 'b.ann' => {}, 'c.ann' => {}, 'Brown1' => { 'external' => true } }.freeze
+  PLAYERS = { 'a.ann' => {}, 'b.ann' => {}, 'c.ann' => {}, 'Brown1' => { 'external' => true, 'opponent' => 'Brown' } }.freeze
   # Generation 0's genes and activations: the initial values (c.ann's
   # output activation differs, so that generation 1's c.ann, which copied
   # it, is identical).

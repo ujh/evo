@@ -376,6 +376,31 @@ class ExperimentStatsTest < Minitest::Test
                    'AmiGo' => { best_rank: 1, networks_above: 0 } }, @stats.generation(4)[:bots])
   end
 
+  # In generation 1 a.ann beat Brown1 and Brown1 beat c.ann; generation 0
+  # has no game with a bot. AmiGo has no copy in the fixture.
+  def test_networks_results_against_each_bot_group_in_the_fixture
+    assert_equal({ 'Brown' => { games: 2, wins: 1, draws: 0 }, 'AmiGo' => nil }, @stats.generation(1)[:against_bots])
+    assert_equal({ 'Brown' => nil, 'AmiGo' => nil }, @stats.generation(0)[:against_bots])
+  end
+
+  # A copy belongs to the group its stored opponent names, whatever its
+  # name, and games between bots or between networks are left out.
+  def test_networks_results_against_bots_group_copies_by_their_opponent
+    players = PLAYERS.merge('Brown2' => { 'external' => true, 'opponent' => 'Brown' },
+                            'Amigo10' => { 'external' => true, 'opponent' => 'AmiGo' })
+    reopen_writing do |writer|
+      writer.save_state(4, { 'round' => 1, 'players' => players, 'ranking' => [] })
+      [['a.ann', 'Brown2', 'Brown2'], ['Amigo10', 'b.ann', nil], ['c.ann', 'Amigo10', 'c.ann'],
+       ['Brown1', 'Amigo10', 'Brown1'], ['a.ann', 'b.ann', 'a.ann']].each_with_index do |(black, white, winner), round|
+        writer.record(generation: 4, round:, black:, white:, black_external: players.dig(black, 'external') || false,
+                      white_external: players.dig(white, 'external') || false, winner:, failure: nil, length: 50,
+                      scorer: 'tromp_taylor', end_reason: 'passes', duration: 1.0)
+      end
+    end
+    assert_equal({ 'Brown' => { games: 1, wins: 0, draws: 0 }, 'AmiGo' => { games: 2, wins: 1, draws: 1 } },
+                 @stats.generation(4)[:against_bots])
+  end
+
   def test_bot_groups_are_the_stored_opponents
     assert_equal %w[Brown AmiGo], @stats.bot_groups
   end

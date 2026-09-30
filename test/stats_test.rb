@@ -71,7 +71,7 @@ class StatsTest < Minitest::Test
                   %w[2 c.ann GnuGoLevel0 0/4 0-0 0-0 0 0], %w[2 c.ann Gen0Champion 2/4 0-1 0-1 0 0]], rows
   end
 
-  TITLES = /\A(Generations|Genes|Feature weights|Shapes|Breeding|Benchmark)/
+  TITLES = /\A(Generations|Genes|Feature weights|Shapes|Breeding|Networks against bots|Benchmark)/
 
   # The table titled `title`: its title line up to the next table's.
   def section(out, title)
@@ -162,6 +162,16 @@ class StatsTest < Minitest::Test
     assert_equal ['2', '-', '-', '-', '-', '-', '-', '1 (0)', '1 (0)', '-'], rows[2]
   end
 
+  # Per bot group the networks' wins of their games against it. Only generation 1 has games
+  # with Brown1 (a.ann won, c.ann lost); AmiGo has no copy.
+  def test_prints_the_networks_results_against_each_bot
+    out, = stats('x')
+    against = section(out, 'Networks against bots')
+    assert_equal %w[Gen Brown AmiGo], cells(against.lines.find { |l| l.include?('Brown') })
+    rows = rows_of(against)
+    assert_equal [%w[0 - -], ['1', '1/2 50%', '-'], %w[2 - -], %w[3 - -]], rows
+  end
+
   def test_once_mode_fits_in_100_columns
     out, = stats('x')
     long = out.lines.map(&:chomp).select { |l| l.size > 100 }
@@ -187,6 +197,12 @@ class StatsTest < Minitest::Test
 
   # Three significant digits below 1000, in at most 6 characters positive
   # and 7 negative; whole numbers from 999.5.
+  # The networks' wins, not their losses, of the games played.
+  def test_wins_cell
+    assert_equal '2/3 67%', ExperimentStats::Report.wins_cell({ games: 3, wins: 2, draws: 0 })
+    assert_equal '-', ExperimentStats::Report.wins_cell(nil)
+  end
+
   def test_numbers_keep_their_width
     {
       12.3 => '12.3', 0.5 => '0.5', 0.0123 => '0.0123', -0.0123 => '-0.0123', 0 => '0', 0.005 => '0.005',
@@ -212,6 +228,35 @@ class StatsTest < Minitest::Test
     text = ExperimentStats::Report.text(figures, limit: 1)
     assert_equal %w[3], generations.call(text)
     refute_includes text, 'Benchmark'
+  end
+
+  DIM = "\e[3;90m".freeze
+
+  # With `dim`, every cell of a generation that is not done is grey and
+  # italic in the tables whose figures change while it plays; the genome tables come
+  # from births, which a generation has before it plays. In the fixture
+  # generations 0 and 2 wait for their benchmarks and 3 is playing.
+  def test_dim_marks_the_generations_not_done_in_the_live_tables
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
+    figures = ExperimentStats::Report.figures(ExperimentStats.new(database))
+    database.close
+    text = ExperimentStats::Report.text(figures, dim: true)
+    dimmed = ->(title) { rows_of(section(text, title)).reject(&:empty?).group_by { |r| r.all? { |c| c.start_with?(DIM) && c.end_with?("\e[23;39m") } } }
+    ['Generations', 'Breeding', 'Networks against bots'].each do |title|
+      rows = dimmed.call(title)
+      assert_equal %w[0 2 3], rows[true].map { |r| r.first.delete_prefix(DIM).to_i.to_s }, title
+      assert_equal %w[1], rows[false].map(&:first), title
+    end
+    benchmark = text[text.index('Benchmark')..].lines.select { |l| l.start_with?('|') }.drop(1)
+    assert(benchmark.all? { |l| l.include?(DIM) }, 'both checkpoints wait for their benchmarks')
+    %w[Genes Shapes].each { |title| refute_includes section(text, title), DIM, title }
+    refute_includes ExperimentStats::Report.text(figures), DIM
+  end
+
+  # Piped output (not a terminal) has no escape codes.
+  def test_piped_output_is_plain
+    out, = stats('x')
+    refute_includes out, "\e["
   end
 
   def test_csv_has_one_row_per_generation_with_dotted_keys
@@ -249,6 +294,8 @@ class StatsTest < Minitest::Test
     assert_equal %w[3 0 3], row.values_at('parents.max_children', 'parents.childless', 'parents.used')
     assert_equal %w[4 3 4 3], row.values_at('bots.best_rank', 'bots.networks_above', 'bots.Brown.best_rank',
                                             'bots.Brown.networks_above')
+    assert_equal %w[2 1 0], row.values_at('against_bots.Brown.games', 'against_bots.Brown.wins',
+                                          'against_bots.Brown.draws')
   end
 
   def test_csv_leaves_genome_cells_empty_where_a_generation_lacks_them
@@ -263,6 +310,7 @@ class StatsTest < Minitest::Test
     assert_nil rows[0]['structure.none']
     assert_nil rows[0]['parents.childless']
     assert_nil rows[1]['bots.AmiGo.best_rank']
+    assert_nil rows[0]['against_bots.Brown.games']
     assert_equal '1', rows[0]['bots.Brown.best_rank']
   end
 
@@ -281,7 +329,10 @@ class StatsTest < Minitest::Test
       population.scores.min population.scores.median population.scores.max
     ] + genome_columns + %w[
       bots.best_rank bots.networks_above bots.Brown.best_rank bots.Brown.networks_above
-      bots.AmiGo.best_rank bots.AmiGo.networks_above benchmark.network benchmark.complete
+      bots.AmiGo.best_rank bots.AmiGo.networks_above
+      against_bots.Brown.games against_bots.Brown.wins against_bots.Brown.draws
+      against_bots.AmiGo.games against_bots.AmiGo.wins against_bots.AmiGo.draws
+      benchmark.network benchmark.complete
     ] + benchmark, CSV.parse(out).first
   end
 
@@ -381,6 +432,7 @@ class StatsTest < Minitest::Test
     assert_equal [5, 5], pauses
     assert_equal 2, io.string.scan("\e[2J\e[H").size
     assert_equal 2, io.string.scan('Benchmark').size
+    refute_includes io.string, DIM, 'a StringIO is no terminal'
   end
 
   def test_figures_are_reused_for_generations_before_the_last

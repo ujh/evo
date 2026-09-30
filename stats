@@ -42,7 +42,7 @@ begin
     puts ExperimentStats::Report.csv(ExperimentStats::Report.figures(stats), stats.benchmark_opponents,
                                      bot_groups: stats.bot_groups)
   else
-    puts ExperimentStats::Report.text(ExperimentStats::Report.figures(stats))
+    puts ExperimentStats::Report.text(ExperimentStats::Report.figures(stats), dim: $stdout.tty?)
   end
 rescue ExperimentStats::MissingSetting => e
   # An experiment created before a setting the figures need.
