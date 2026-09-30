@@ -214,7 +214,7 @@ Feature weights (range: generation 2)
 (Generations 0 to 2 of `mise run new-experiment demo --board-size 9
 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5
 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 2
---benchmark-games 2 --seed 3`, then `mise run run demo 4 one-generation`
+--benchmark-games 2 --benchmark-bot-games 0 --seed 3`, then `mise run run demo 4 one-generation`
 three times; 26 Sep 2026.)
 
 Each row gives the medians of that generation's networks: Step is

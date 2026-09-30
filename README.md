@@ -96,14 +96,19 @@ Brown, AmiGo, the three michi levels, GNU Go level 0, the top network of
 generation 0, and the top networks of the last `benchmark_champions`
 checkpoints before it (a rolling set: older ones drop out, generation 0's
 stays). Each past champion is a separate opponent, `GenNChampion` for the
-checkpoint N. Generation 0 plays only the bots.
+checkpoint N. Generation 0 plays only the bots. The six bots also play each
+other, once per experiment: the first checkpoint plays those games along with
+its own, and a later one only those still missing (after an interrupted run).
 
-Three settings control it:
+Four settings control it:
 
 - `benchmark_games` (default 20): games per opponent, an even number, half
   with each color.
 - `benchmark_champions` (default 10): how many past checkpoints' champions
   each checkpoint plays, besides generation 0's.
+- `benchmark_bot_games` (default 40): games per pair of bots, an even number,
+  half with each bot as Black; 0 for none. The 15 pairs of the six bots play
+  600 games in all.
 - `benchmark_opening_moves` (default 4): stones in each seeded opening. Every
   checkpoint plays the same openings, each once with each color, so
   checkpoints can be compared. With 0, the games against Brown, AmiGo, and
@@ -111,7 +116,8 @@ Three settings control it:
   get a seed per game).
 
 The results are in the `benchmark_games` table of
-`experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game, and
+`experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game (the bots'
+games against each other in `benchmark_bot_games`), and
 `stats` shows the latest checkpoint's as a ranking, strongest first: the
 checkpoint's champion sits above the opponents it scored more than half
 against.
@@ -147,7 +153,7 @@ rounds and, at a checkpoint, its benchmark are played. The last table shows
 progress: the latest checkpoint's benchmark as a ranking, with the champion's
 wins and losses as Black and as White against each opponent and its share of
 the points. For example, after two generations
-of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (every feature group, the default; trimmed to the first and last table, and to the Brown and Gen0Champion rows; 26 Sep 2026, the times vary; the benchmark table in its current layout, 30 Sep 2026):
+of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --benchmark-bot-games 2 --seed 3` (every feature group, the default; trimmed to the first and last table, and to the Brown and Gen0Champion rows; 26 Sep 2026, the times vary; the benchmark table in its current layout, 30 Sep 2026):
 
 ```text
 Generations

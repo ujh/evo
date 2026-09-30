@@ -9,7 +9,9 @@ require_relative 'worker_pool'
 # networks of one generation, so at checkpoint generations the generation's
 # top network also plays a fixed panel (see migration 008). Every opening is
 # played once with each color, and the openings are the same at every
-# checkpoint, so checkpoints can be compared.
+# checkpoint, so checkpoints can be compared. The panel's bots also play
+# each other (migration 016), once per experiment: each checkpoint plays
+# those still missing along with its own games.
 class CheckpointBenchmark
   include ProgressLine
 
@@ -25,6 +27,13 @@ class CheckpointBenchmark
   # `color` is the benchmarked network's.
   Game = Data.define(:opponent, :opening, :color) do
     def prefix = File.join(DIRECTORY, "#{opponent.name}-#{opening}-#{color}")
+  end
+
+  # A game between two panel bots (Opponents). Its prefix ends in the
+  # opening's number, a champion game's in a color, so the two never clash.
+  BotGame = Data.define(:black, :white, :opening) do
+    def prefix = File.join(DIRECTORY, "#{black.name}-#{white.name}-#{opening}")
+    def key = [black.name, white.name, opening]
   end
 
   # What the checkpoint `generation` plays, from the benchmark panel
@@ -69,14 +78,22 @@ class CheckpointBenchmark
   end
 
   # Plays the games not yet in the database, so a resumed benchmark only
-  # plays what is missing. Returns whether it played any game.
+  # plays what is missing: the checkpoint's own games, and the bot games no
+  # checkpoint has stored yet, in one pool. Returns whether it played any
+  # game.
   def call
     FileUtils.mkdir_p(DIRECTORY)
     played = store.benchmark_games(generation).to_set { |row| row.values_at(:opponent, :opening, :network_color) }
     all = games
     pending = all.reject { |game| played.include?([game.opponent.name, game.opening, game.color]) }
+    stored_bot_games = store.benchmark_bot_games(columns: %i[black white opening]).to_set(&:values)
+    pending += bot_games.reject { |game| stored_bot_games.include?(game.key) }
     return false if pending.empty?
 
+    # The checkpoint's games and the bot games still missing when it starts;
+    # bot games an earlier checkpoint stored do not count.
+    done = all.size - pending.count { |game| game.is_a?(Game) }
+    total = done + pending.size
     # Until the first game is in, the line shows the benchmark starting.
     show("Benchmark: starting #{pending.size} games ...")
     pending.each { |game| pool.submit(command(game), game) }
@@ -86,8 +103,8 @@ class CheckpointBenchmark
       # replayed on resume, also when it is back before the trap has run.
       exit if $stop_now
       WorkerPool.exit_interrupted("benchmark game #{game.prefix}", 'it stays pending') if WorkerPool.interrupted?(status)
-      store_game(game, duration)
-      show("Benchmark ... Game: #{all.size - pending.size + i + 1}/#{all.size}")
+      game.is_a?(BotGame) ? store_bot_game(game, duration) : store_game(game, duration)
+      show("Benchmark ... Game: #{done + i + 1}/#{total}")
     end
     end_line('Benchmark ... done')
     true
@@ -108,9 +125,23 @@ class CheckpointBenchmark
     rows = self.class.opponents_for(generation, store.benchmark_opponents,
                                     keep_every: settings['keep_every'], champions: settings['benchmark_champions'])
     rows.map do |row|
-      next Opponent.new(name: row[:name], command: row[:command], network: nil) if row[:kind] == 'bot'
+      next bot(row) if row[:kind] == 'bot'
 
       network_opponent(row[:name], row[:source])
+    end
+  end
+
+  def bot(row) = Opponent.new(name: row[:name], command: row[:command], network: nil)
+
+  # Every pair of the panel's bots, a before b in panel order, and for each
+  # opening a game with each of them as Black.
+  def bot_games
+    bots = store.benchmark_opponents.select { |row| row[:kind] == 'bot' }.map { |row| bot(row) }
+    openings = settings['benchmark_bot_games'] / 2
+    bots.combination(2).flat_map do |a, b|
+      (0...openings).flat_map do |opening|
+        [BotGame.new(black: a, white: b, opening:), BotGame.new(black: b, white: a, opening:)]
+      end
     end
   end
 
@@ -141,11 +172,24 @@ class CheckpointBenchmark
   end
 
   def command(game)
+    return bot_game_command(game) if game.is_a?(BotGame)
+
     # GNU Go, as the referee and as a bot, and michi play at random unless
     # seeded; the referee and the bot share the game's seed.
     seed = Seeds.gnugo(settings.fetch('seed'), 'benchmark', generation, game.opponent.name, game.opening, game.color)
     opponent = Seeds.with_bot_seed(game.opponent.command, seed)
     black, white = game.color == 'black' ? [network_command, opponent] : [opponent, network_command]
+    twogtp(black, white, seed, game)
+  end
+
+  # The seed has no generation in it, so a bot game is the same whichever
+  # checkpoint plays it; both bots and the referee share it.
+  def bot_game_command(game)
+    seed = Seeds.gnugo(settings.fetch('seed'), 'benchmark-bots', game.black.name, game.white.name, game.opening)
+    twogtp(Seeds.with_bot_seed(game.black.command, seed), Seeds.with_bot_seed(game.white.command, seed), seed, game)
+  end
+
+  def twogtp(black, white, seed, game)
     moves = opening_moves(game.opening)
     # twogtp counts the opening's stones toward -maxmoves.
     maxmoves = settings['max_moves'] + moves.size
@@ -180,6 +224,18 @@ class CheckpointBenchmark
     { winner: network_won ? 'network' : 'opponent', failure: nil }
   end
 
+  # Both players are bots, so a crash says nothing about either: like any
+  # game without a usable result, it is a failure with no winner.
+  def score_bot_game(game, result)
+    return { winner: nil, failure: result.failure } if result.failure
+    return { winner: nil, failure: nil } unless result.winner
+
+    loser = result.winner == :black ? game.white : game.black
+    return { winner: nil, failure: "#{loser.name} crashed" } if result.crashed?
+
+    { winner: result.winner.to_s, failure: nil }
+  end
+
   # Writes the game's row, then deletes the files twogtp left. After a crash
   # between the two, the row is stored, so a resume skips the game, and the
   # files left behind go when work/ is emptied.
@@ -191,6 +247,22 @@ class CheckpointBenchmark
     store.record_benchmark_game(
       generation:, opponent: game.opponent.name, opening: game.opening, network_color: game.color,
       network: top_network(generation), opponent_network: game.opponent.network, **scored,
+      length: result.length, referee_result: result.referee, error_message: result.error_message,
+      stderr: File.exist?(err_file) ? File.read(err_file) : nil,
+      duration:, time_black: result.time_black, time_white: result.time_white
+    )
+    warn "\n#{prefix}: #{scored[:failure]}" if scored[:failure]
+    FileUtils.rm_f(["#{prefix}.dat", "#{prefix}-0.sgf", err_file])
+  end
+
+  # As store_game, for a bot game.
+  def store_bot_game(game, duration)
+    prefix = game.prefix
+    result = GameResult.read(prefix)
+    scored = score_bot_game(game, result)
+    err_file = "#{prefix}.err"
+    store.record_benchmark_bot_game(
+      generation:, black: game.black.name, white: game.white.name, opening: game.opening, **scored,
       length: result.length, referee_result: result.referee, error_message: result.error_message,
       stderr: File.exist?(err_file) ? File.read(err_file) : nil,
       duration:, time_black: result.time_black, time_white: result.time_white

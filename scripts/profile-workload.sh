@@ -65,9 +65,10 @@ done
 
 # The workloads. Settings are those of the experiments they are modeled on
 # (bigrun and even-bigger), with keep_every 1 so generation 0 runs the
-# benchmark; the seeds are those experiments' seeds. Concurrency 3: the
-# M3 has only 4 performance cores, and the OS and other work need one
-# (owner, 29 Sep 2026; docs/performance.md).
+# benchmark, and without the benchmark's one-off bot-vs-bot games, which
+# are no per-generation cost; the seeds are those experiments' seeds.
+# Concurrency 3: the M3 has only 4 performance cores, and the OS and other
+# work need one (owner, 29 Sep 2026; docs/performance.md).
 concurrency=3
 case $workload in
   small)
@@ -76,8 +77,9 @@ case $workload in
     settings="--board-size 9 --population-size 50 --hidden-layers 1 --layer-size 100
       --max-hidden-layers 3 --max-layer-size 150 --features shapes,tactics,last_move,liberties
       --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 10
-      --tournament-size 3 --keep-every 1 --benchmark-games 20 --benchmark-opening-moves 4
-      --komi 6.5 --meta-rate 0.2 --initial-copy-chance 0.01 --initial-weight-changes 42.3128
+      --tournament-size 3 --keep-every 1 --benchmark-games 20 --benchmark-bot-games 0
+      --benchmark-opening-moves 4 --komi 6.5 --meta-rate 0.2 --initial-copy-chance 0.01
+      --initial-weight-changes 42.3128
       --initial-weight-step 0.5 --initial-activation-rate 0.05 --initial-structure-rate 0.1
       --initial-feature-noise 0.3 --initial-feature-step 0.01"
     ;;
@@ -89,8 +91,9 @@ case $workload in
     settings="--board-size 9 --population-size 1000 --hidden-layers 10 --layer-size 200
       --max-hidden-layers 100 --max-layer-size 1000 --features shapes,tactics,last_move,liberties
       --cross-over-rate 0.4 --game-seconds 600 --max-moves 200 --tournament-rounds 10
-      --tournament-size 3 --keep-every 1 --benchmark-games 20 --benchmark-opening-moves 4
-      --komi 6.5 --meta-rate 0.2 --initial-copy-chance 0.01 --initial-weight-changes 229.3128
+      --tournament-size 3 --keep-every 1 --benchmark-games 20 --benchmark-bot-games 0
+      --benchmark-opening-moves 4 --komi 6.5 --meta-rate 0.2 --initial-copy-chance 0.01
+      --initial-weight-changes 229.3128
       --initial-weight-step 0.5 --initial-activation-rate 0.02 --initial-structure-rate 0.02
       --initial-feature-noise 0.3 --initial-feature-step 0.01"
     ;;

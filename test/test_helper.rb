@@ -29,6 +29,9 @@ module RunGenerationHelpers
     'benchmark_games' => 20,
     'benchmark_opening_moves' => 4,
     'benchmark_champions' => 10,
+    # Tests of the bot-vs-bot games set it, so the others count only the
+    # champion's games.
+    'benchmark_bot_games' => 0,
     'komi' => 6.5,
     'meta_rate' => 0.2,
     'initial_copy_chance' => 0.01,

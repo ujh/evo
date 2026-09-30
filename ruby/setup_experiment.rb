@@ -112,6 +112,9 @@ class SetupExperiment
     # The rolling set of earlier checkpoints' champions a checkpoint plays
     # besides generation 0's (the past_champions panel row).
     'benchmark_champions' => ['Past checkpoint champions each checkpoint plays, besides generation 0\'s', '10', integer(0)],
+    # Played once per experiment, not at every checkpoint (migration 016),
+    # half with each bot of the pair as Black.
+    'benchmark_bot_games' => ['Benchmark games per pair of panel bots (0 for none)', '40', even(0)],
     # The arena's for every tournament game, sent to each bot, and given to
     # both players and the referee of every benchmark game. A multiple of
     # 0.5, so an area-scored margin is never zero unless the game is a
