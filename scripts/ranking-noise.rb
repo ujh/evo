@@ -11,12 +11,16 @@
 # (Spearman over the networks), and from it the reliability of a rating
 # from the whole tournament and from twice and four times as many rounds
 # (Spearman–Brown); and how well the win count, which parent selection
-# uses, agrees with a rating fit on all the games (Spearman, and the top
-# 50 networks both put in their top 50).
+# uses, agrees with a rating fit on all the games (Spearman, and how many of
+# the stored ranking's top 50, its ties shuffled as selection sees them,
+# the fit also puts in its top 50).
 #
-# Odd against even rounds, not the first half against the second: the Swiss
-# pairing gives a network that won early harder opponents later, so the
-# halves' win counts correlate negatively whatever the skill.
+# The reliability is the rating fit's. The win count's own cannot be
+# measured this way: under the Swiss pairing a network that won in one half
+# meets harder opponents in the other, so the halves' win counts correlate
+# slightly negatively whatever the skill. Odd against even rounds, not the
+# first half against the second, so each half holds early and late rounds
+# alike.
 require 'sequel'
 require_relative '../ruby/benchmark_ratings'
 
@@ -72,26 +76,45 @@ module RankingNoise
     BenchmarkRatings.new(scored, anchor: players.first).rows.to_h { |row| [row.player, row.rating] }
   end
 
-  # The figures for one generation's games; `networks` are the players
-  # measured (bots take part in the fits but are not measured).
-  def figures(games, networks)
+  # How much of the spread in the networks' win counts their number of
+  # games as White explains (r²).
+  def colour_r2(games, networks)
+    players = games.flat_map { |game| [game[:black], game[:white]] }.uniq
+    won = wins(games, players)
+    white = games_as_white(games, players)
+    pearson(networks.map { |n| white[n] }, networks.map { |n| won[n] })**2
+  end
+
+  # Spearman over the networks between a rating fit on the odd rounds
+  # (1, 3, ...; stored from 0, so even numbers) and one on the even rounds.
+  def split_half(games, players, networks)
+    odd = ratings(games.select { |game| game[:round].even? }, players)
+    even = ratings(games.reject { |game| game[:round].even? }, players)
+    spearman(networks.map { |n| odd[n] }, networks.map { |n| even[n] })
+  end
+
+  # How many of the first `top` of `ranking` (network names in the order
+  # the runner stored, its ties shuffled as parent selection sees them) are
+  # also among the `top` best rated.
+  def top_common(ranking, rating, top)
+    (ranking.first(top) & ranking.max_by(top) { |n| rating[n] }).size
+  end
+
+  # The figures for one generation's games; `ranking` is its networks in
+  # stored order (bots take part in the fits but are not measured).
+  def figures(games, ranking, top: TOP)
     players = games.flat_map { |game| [game[:black], game[:white]] }.uniq.sort
     rounds = games.map { |game| game[:round] }.max + 1
     won = wins(games, players)
-    white = games_as_white(games, players)
-    odd = ratings(games.select { |game| game[:round].even? }, players)
-    even = ratings(games.reject { |game| game[:round].even? }, players)
-    half = spearman(networks.map { |n| odd[n] }, networks.map { |n| even[n] })
+    half = split_half(games, players, ranking)
     all = ratings(games, players)
-    by_wins = networks.max_by(TOP) { |n| [won[n], all[n]] }
-    by_rating = networks.max_by(TOP) { |n| all[n] }
     {
-      games: games.size, networks: networks.size, rounds:,
+      games: games.size, networks: ranking.size, rounds:,
       white_share: games.count { |game| game[:winner] == game[:white] }.fdiv(games.size),
-      colour_r2: pearson(networks.map { |n| white[n] }, networks.map { |n| won[n] })**2,
+      colour_r2: colour_r2(games, ranking),
       half:, reliability: [1, 2, 4].to_h { |times| [rounds * times, spearman_brown(half, 2 * times)] },
-      wins_rating: spearman(networks.map { |n| won[n] }, networks.map { |n| all[n] }),
-      top_common: (by_wins & by_rating).size
+      wins_rating: spearman(ranking.map { |n| won[n] }, ranking.map { |n| all[n] }),
+      top_common: top_common(ranking, all, top)
     }
   end
 end
@@ -106,8 +129,8 @@ if $PROGRAM_NAME == __FILE__
     games = db[:games].where(generation:).exclude(winner: nil).select(:round, :black, :white, :winner).all
     abort "generation #{generation} has no scored games" if games.empty?
 
-    networks = db[:players].where(generation:, external: false).select_map(:name)
-    [generation, RankingNoise.figures(games, networks)]
+    ranking = db[:rankings].where(generation:, external: false).order(:rank).select_map(:name)
+    [generation, RankingNoise.figures(games, ranking)]
   end
   reliability = rows.first.last[:reliability].keys
   puts "| Generation | Games | Networks | White wins | Colour r² | Odd/even Spearman | #{reliability.map { |r| "Reliability, #{r} rounds" }.join(' | ')} " \
