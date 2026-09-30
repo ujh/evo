@@ -206,8 +206,9 @@ class ExperimentStats
 
     # Three significant digits, whole numbers from 999.5 (which %.3g would
     # print as 1e+03). A number below 0.01 that needs more than 6 characters
-    # (7 negative) keeps two digits, and below 0.001 becomes a short exponent
-    # such as 1.2e-5, so a column near 0 is no wider than the others.
+    # (7 negative) keeps two digits, and one that still does not fit becomes a
+    # short exponent such as 1.2e-5, so a column near 0 is no wider than the
+    # others.
     def number(value)
       return '-' if value.nil?
       return value.round.to_s if value.abs >= 999.5
