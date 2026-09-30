@@ -498,6 +498,7 @@ class SetupExperimentTest < Minitest::Test
       error = assert_raises(RuntimeError) { capture_io { run_setup } }
       assert_includes error.message, 'older'
       refute File.exist?('experiments/x/evo')
+      refute File.exist?('make.log')
     end
   end
 
@@ -640,9 +641,14 @@ class SetupExperimentTest < Minitest::Test
     end
   end
 
-  # A fake checkout: the four executables, committed to git, and an
-  # installed external tools release.
+  # A fake checkout: the four executables, committed to git, an installed
+  # external tools release, and a Makefile whose build appends to make.log
+  # whether experiments/x's lock was held while it ran.
   def fake_checkout
+    File.write('Makefile', <<~MAKE)
+      all:
+      \t@#{RbConfig.ruby} -e 'held = !File.open("experiments/x/experiment.lock").flock(File::LOCK_EX | File::LOCK_NB); File.write("make.log", held ? "built, locked\\n" : "built, unlocked\\n", mode: "a")'
+    MAKE
     { 'engine/evo' => 'evo v1', 'engine/arena' => 'arena v1', 'initial-population/initial-population' => 'ip v1', 'evolve/evolve' => 'evolve v1' }.each do |path, text|
       FileUtils.mkdir_p(File.dirname(path))
       File.write(path, text)
@@ -682,6 +688,35 @@ class SetupExperimentTest < Minitest::Test
     end
   end
 
+  # The build is needed only for the copies: a resumed experiment runs its
+  # own executables, so it compiles nothing.
+  def test_the_first_run_builds_after_taking_the_lock_and_a_resume_does_not
+    in_tmpdir do
+      fake_checkout
+      out, = capture_io { run_setup }
+      assert_includes out, 'Building C programs ... ✔'
+      assert_equal "built, locked\n", File.read('make.log')
+      out, = capture_io { run_setup }
+      refute_includes out, 'Building C programs'
+      assert_equal "built, locked\n", File.read('make.log')
+    end
+  end
+
+  def test_a_failed_build_is_refused_with_makes_output_and_copies_nothing
+    in_tmpdir do
+      fake_checkout
+      File.write('Makefile', "all:\n\t@echo compiling engine; echo 'arena.c:1: error: broken' >&2; exit 1\n")
+      error = assert_raises(SetupExperiment::Refused) { capture_io { run_setup } }
+      assert_includes error.message, 'compiling engine'
+      assert_includes error.message, 'arena.c:1: error: broken'
+      refute File.exist?('experiments/x/evo')
+      assert_empty ExperimentDatabase.new('experiments/x/experiment.sqlite3').provenance
+      lock = ExperimentLock.acquire('experiments/x')
+      assert lock, 'a refused runner releases the lock'
+      lock.close
+    end
+  end
+
   def test_an_experiment_missing_an_executable_is_not_given_new_ones
     in_tmpdir do
       fake_checkout
@@ -703,6 +738,7 @@ class SetupExperimentTest < Minitest::Test
         assert_raises(SetupExperiment::PromptAborted) { SetupExperiment.call('experiments/x') { flunk } }
       end
       refute File.exist?('experiments/x/evo')
+      refute File.exist?('make.log')
       assert_empty ExperimentDatabase.new('experiments/x/experiment.sqlite3').provenance
     end
   end

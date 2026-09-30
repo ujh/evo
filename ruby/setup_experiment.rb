@@ -1,5 +1,6 @@
 require 'fileutils'
 require 'optparse'
+require_relative 'build_dependencies'
 require_relative 'experiment_database'
 require_relative 'experiment_lock'
 require_relative 'feature_groups'
@@ -13,8 +14,9 @@ class SetupExperiment
   # runner can report this without catching errors from the run itself.
   class PromptAborted < StandardError; end
 
-  # The experiment cannot run: another process holds its lock, or it was
-  # archived. Raised before the database is opened for writing.
+  # The experiment cannot run: another process holds its lock or it was
+  # archived (raised before the database is opened for writing), or the
+  # build its first run copies failed.
   class Refused < StandardError; end
 
   # A setting's type: a whole number, an even whole number, a number, or a
@@ -360,9 +362,10 @@ class SetupExperiment
     default.respond_to?(:call) ? default.call : default
   end
 
-  # Copies the executables into a new experiment, so a later rebuild cannot
-  # change it, and records where they came from. The provenance is saved
-  # after the copies, so a crash in between copies them again next time.
+  # Builds the executables and copies them into a new experiment, so a later
+  # rebuild cannot change it, and records where they came from. The
+  # provenance is saved after the copies, so a crash in between builds and
+  # copies them again next time; a resume builds nothing.
   # Once it is saved the experiment keeps its executables, and a missing
   # one stops the run rather than being replaced by a different build.
   # Runs in the checkout, like the rest of the runner.
@@ -375,6 +378,11 @@ class SetupExperiment
       return
     end
 
+    begin
+      BuildDependencies.call
+    rescue BuildDependencies::Failed => e
+      raise Refused, "Building the C programs failed, so #{experiment_dir} cannot start:\n#{e.message}"
+    end
     provenance = current_provenance
     EXECUTABLES.zip(targets) { |source, target| FileUtils.cp(source, target, preserve: true) }
     database.save_provenance(provenance)
