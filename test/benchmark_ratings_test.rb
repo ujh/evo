@@ -98,6 +98,45 @@ class BenchmarkRatingsTest < Minitest::Test
     ratings.rows.each { |r| assert_operator r.rating.abs, :<, 2000 }
   end
 
+  # Which player a game lists first must not matter: the fit stores each
+  # pair once, so a game listed the other way round has its score flipped.
+  def test_listing_a_game_the_other_way_round_changes_nothing
+    games = [['A', 'B', 7, 10], ['B', 'C', 3, 12], ['A', 'C', 9, 10], ['C', 'D', 5, 6]].flat_map do |a, b, wins, n|
+      Array.new(n) { |k| [a, b, k < wins ? 1 : 0] }
+    end
+    flipped = games.each_with_index.map { |(a, b, score), k| k.odd? ? [b, a, 1 - score] : [a, b, score] }
+
+    assert_equal BenchmarkRatings.new(games, anchor: 'D').rows, BenchmarkRatings.new(flipped.reverse, anchor: 'D').rows
+  end
+
+  # Even records put every θ at 0, where H_ii = 2·¼ (the prior) plus a
+  # quarter per game, so the margins follow from each player's games.
+  def test_each_margin_comes_from_its_own_players_games
+    games = two_player_games(10, 5) + Array.new(30) { |k| ['A', 'C', k < 15 ? 1 : 0] }
+    ratings = BenchmarkRatings.new(games, anchor: 'B')
+
+    assert_equal (ELO * 1.96 / Math.sqrt(0.5 + (40 / 4.0))).round, row(ratings, 'A').margin
+    assert_equal (ELO * 1.96 / Math.sqrt(0.5 + (30 / 4.0))).round, row(ratings, 'C').margin
+  end
+
+  # One win of A over B: the prior's win and loss for each player against
+  # the virtual player at 0, plus the game.
+  def test_the_log_posterior_counts_the_prior_and_the_games
+    ratings = BenchmarkRatings.new([['A', 'B', 1]], anchor: 'B')
+    log_sigmoid = ->(x) { Math.log(sigmoid(x)) }
+    expected = log_sigmoid.(1) + log_sigmoid.(-1) + log_sigmoid.(-0.5) + log_sigmoid.(0.5) + log_sigmoid.(1.5)
+
+    assert_in_delta expected, ratings.send(:log_posterior, [1.0, -0.5]), 1e-12
+  end
+
+  def test_a_newton_step_that_would_lose_posterior_is_shortened
+    ratings = BenchmarkRatings.new([['A', 'B', 1]], anchor: 'B')
+    moved = ratings.send(:ascend, [0.0, 0.0], [100.0, -100.0])
+
+    assert_operator moved[0], :<, 100
+    assert_operator ratings.send(:log_posterior, moved), :>=, ratings.send(:log_posterior, [0.0, 0.0])
+  end
+
   def test_a_score_other_than_a_win_a_loss_or_a_draw_is_refused
     assert_raises(ArgumentError) { BenchmarkRatings.new([['A', 'B', 2]], anchor: 'A') }
   end
