@@ -174,7 +174,7 @@ class StatsTest < Minitest::Test
   # is refused in every mode; stats cannot migrate it.
   def test_a_database_without_the_bot_games_exits_1_in_every_mode
     Sequel.sqlite(File.join(@experiment, 'experiment.sqlite3')) { |db| db.drop_table(:benchmark_bot_games) }
-    [%w[x], %w[--csv x], %w[--watch x]].each do |args|
+    [%w[x], %w[--csv x], %w[--watch x], %w[--watch --extended x]].each do |args|
       out, err, status = stats(*args)
       assert_equal 1, status.exitstatus, args.inspect
       assert_empty out, args.inspect
@@ -288,6 +288,7 @@ class StatsTest < Minitest::Test
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
     stats = ExperimentStats.new(database)
     figures = ExperimentStats::Report.figures(stats)
+    brief_figures = ExperimentStats::Report.figures(stats, brief: true)
     ratings = stats.benchmark_ratings
     database.close
     text = ExperimentStats::Report.text(figures, ratings:, dim: true)
@@ -301,6 +302,12 @@ class StatsTest < Minitest::Test
     refute(benchmark.any? { |l| l.include?(DIM) }, 'the ratings are no generation\'s')
     %w[Genes Shapes].each { |title| refute_includes section(text, title), DIM, title }
     refute_includes ExperimentStats::Report.text(figures), DIM
+    # The brief --watch greys the same rows of its two tables.
+    brief = ExperimentStats::Report.brief_text(brief_figures, ratings:, dim: true)
+    ['Breeding', 'Networks against bots'].each do |title|
+      rows = rows_of(section(brief, title)).reject(&:empty?).group_by { |r| r.all? { |c| c.start_with?(DIM) && c.end_with?("\e[23;39m") } }
+      assert_equal %w[0 2 3], rows[true].map { |r| r.first.delete_prefix(DIM).to_i.to_s }, "brief #{title}"
+    end
   end
 
   # Piped output (not a terminal) has no escape codes.
@@ -432,6 +439,34 @@ class StatsTest < Minitest::Test
     assert_includes out + err, 'Usage'
   end
 
+  # --csv is no table to redraw, and without --watch every table is shown
+  # already.
+  def test_extended_without_watch_or_watch_with_csv_exits_1_with_usage
+    [%w[--csv --watch x], %w[--extended x], %w[--csv --extended x]].each do |args|
+      out, err, status = stats(*args)
+      assert_equal 1, status.exitstatus, args.inspect
+      assert_includes out + err, 'Usage', args.inspect
+      assert_includes out + err, '--extended', args.inspect
+    end
+  end
+
+  # --watch shows only the breeding and bots, the networks against bots,
+  # and the ratings tables, for the latest generations, as the once mode
+  # shows them, with a note that --extended shows the rest.
+  def test_watch_shows_only_the_bot_tables_and_the_ratings
+    out, err, status = stats('x')
+    assert status.success?, err
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
+    io = StringIO.new
+    watch(ExperimentStats.new(database), io)
+    database.close
+    brief = io.string.split(ExperimentStats::Report::CLEAR).last
+    assert_equal ['Breeding', 'Networks against bots', 'Benchmark'], brief.lines.grep(TITLES).map { |l| l[TITLES] }
+    assert_includes brief.lines.first, '--extended'
+    ['Breeding', 'Networks against bots'].each { |title| assert_equal section(out, title), section(brief, title), title }
+    assert_equal section(out, 'Benchmark'), section(brief, 'Benchmark').sub(/\nUpdated .*\n\z/, ''), 'Benchmark'
+  end
+
   def test_an_experiment_without_generations_says_so
     FileUtils.rm_rf(@experiment)
     FileUtils.mkdir_p(@experiment)
@@ -441,6 +476,11 @@ class StatsTest < Minitest::Test
     out, err, status = stats('x')
     assert status.success?, err
     assert_includes out, 'No generations yet'
+    io = StringIO.new
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
+    watch(ExperimentStats.new(database), io)
+    database.close
+    assert_includes io.string, "#{ExperimentStats::Report::CLEAR}No generations yet.\n", 'in --watch too'
   end
 
   def test_stats_writes_and_deletes_nothing
@@ -452,37 +492,94 @@ class StatsTest < Minitest::Test
   end
 
   def test_watch_stops_cleanly_on_ctrl_c
-    status = watch_until_first_table
+    status, = watch_until_first_table
     assert status.success?, "exit status #{status.inspect}"
   end
 
-  # Starts `stats --watch x`, waits for its first table, sends SIGINT, and
-  # returns the exit status.
-  def watch_until_first_table
-    Open3.popen2e(ENV_VARS, 'ruby', File.join(ROOT, 'stats'), '--watch', 'x', chdir: @dir) do |_in, out, thread|
+  # --watch is brief, --watch --extended shows every table.
+  def test_watch_shows_every_table_with_extended
+    _, brief = watch_until_first_table
+    refute_includes brief, 'Generations'
+    status, extended = watch_until_first_table('--extended')
+    assert status.success?, "exit status #{status.inspect}"
+    %w[Generations Genes Shapes Breeding].each { |title| assert_includes extended, title }
+  end
+
+  # Starts `stats --watch x` with `options`, waits for its ratings table,
+  # sends SIGINT, and returns the exit status and the output.
+  def watch_until_first_table(*options)
+    Open3.popen2e(ENV_VARS, 'ruby', File.join(ROOT, 'stats'), '--watch', *options, 'x', chdir: @dir) do |_in, out, thread|
       output = +''
       Timeout.timeout(20) do
-        output << out.readpartial(4096) until output.include?('Benchmark')
+        output << out.readpartial(4096) until output.include?('Ctrl-C')
         Process.kill('INT', thread.pid)
-        thread.value
+        [thread.value, output]
       end
     end
   end
 
+  # Brief every 5 s, extended every 30 s.
   def test_watch_redraws_after_each_pause
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
-    io = StringIO.new
+    { false => 5, true => 30 }.each do |extended, interval|
+      io = StringIO.new
+      pauses = watch(ExperimentStats.new(database), io, extended:)
+      assert_equal [interval, interval], pauses
+      assert_equal 2, io.string.scan("\e[2J\e[H").size
+      assert_equal 2, io.string.scan('Benchmark ratings').size
+      assert_equal extended ? 2 : 0, io.string.scan('Generations').size
+      assert_equal extended ? 2 : 0, io.string.scan('Genes').size
+      assert_equal 2, io.string.scan('Breeding and bots').size
+      refute_includes io.string, DIM, 'a StringIO is no terminal'
+    end
+    database.close
+  end
+
+  # Runs the watch loop on `stats` for two draws; returns the pauses.
+  def watch(stats, io, **options)
     pauses = []
     pause = lambda do |seconds|
       pauses << seconds
       raise Done if pauses.size == 2
     end
-    assert_raises(Done) { ExperimentStats::Report.watch(ExperimentStats.new(database), io, pause:) }
+    assert_raises(Done) { ExperimentStats::Report.watch(stats, io, pause:, **options) }
+    pauses
+  end
+
+  NOT_CONVERGED = 'Benchmark ratings: the fit did not converge (no fit after 50 Newton steps)'.freeze
+
+  # A fit that does not converge is a line in place of the ratings table,
+  # and the other tables are still shown.
+  def test_a_fit_that_does_not_converge_is_a_line_in_place_of_the_ratings
+    database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
+    stats = ExperimentStats.new(database)
+    stats.define_singleton_method(:benchmark_ratings) { raise BenchmarkRatings::NotConverged, 'no fit after 50 Newton steps' }
+    ratings = ExperimentStats::Report.ratings(stats)
+    [ExperimentStats::Report.text(ExperimentStats::Report.figures(stats), ratings:),
+     ExperimentStats::Report.brief_text(ExperimentStats::Report.figures(stats, brief: true), ratings:)].each do |text|
+      assert_equal NOT_CONVERGED, text.lines.last.chomp
+      assert_includes text, 'Networks against bots'
+      refute_includes text, 'Rank'
+    end
+    [false, true].each do |extended|
+      io = StringIO.new
+      watch(stats, io, extended:)
+      assert_equal 2, io.string.scan(NOT_CONVERGED).size, 'watch goes on'
+    end
     database.close
-    assert_equal [5, 5], pauses
-    assert_equal 2, io.string.scan("\e[2J\e[H").size
-    assert_equal 2, io.string.scan('Benchmark').size
-    refute_includes io.string, DIM, 'a StringIO is no terminal'
+  end
+
+  # Brief figures only of the latest generations, and only the brief ones.
+  def test_brief_figures_are_of_the_latest_generations_only
+    calls = []
+    fake = Object.new
+    fake.define_singleton_method(:generations) { (0..14).to_a }
+    fake.define_singleton_method(:generation) { |_| raise 'full figures computed' }
+    fake.define_singleton_method(:brief_generation) { |g| calls << g; { generation: g } }
+    cache = {}
+    assert_equal (5..14).to_a, ExperimentStats::Report.figures(fake, cache, brief: true).map { |f| f[:generation] }
+    ExperimentStats::Report.figures(fake, cache, brief: true)
+    assert_equal (5..14).to_a + [14], calls
   end
 
   def test_figures_are_reused_for_generations_before_the_last

@@ -144,6 +144,51 @@ class ExperimentStatsTest < Minitest::Test
     refute_equal first, @stats.benchmark_ratings
   end
 
+  # A fit that does not converge is raised each time it is asked for, and
+  # is tried again only once a game was stored, like a fit that converged.
+  def test_a_fit_that_does_not_converge_is_raised_until_a_new_game
+    stats = ExperimentStats.new(@database)
+    fits = 0
+    stats.define_singleton_method(:fit_ratings) do
+      fits += 1
+      raise BenchmarkRatings::NotConverged, 'no fit after 50 Newton steps'
+    end
+    2.times do
+      error = assert_raises(BenchmarkRatings::NotConverged) { stats.benchmark_ratings }
+      assert_equal 'no fit after 50 Newton steps', error.message
+    end
+    assert_equal 1, fits
+    writer = ExperimentDatabase.new(File.join(@dir, 'experiment.sqlite3'))
+    writer.record_benchmark_bot_game(generation: 2, black: 'GnuGoLevel0', white: 'AmiGo', opening: 0, winner: 'black')
+    writer.close
+    assert_raises(BenchmarkRatings::NotConverged) { stats.benchmark_ratings }
+    assert_equal 2, fits
+  end
+
+  # The brief figures are those of the full ones that the breeding and
+  # bots tables need.
+  def test_brief_figures_are_part_of_the_generations_figures
+    @stats.generations.each do |generation|
+      assert_equal @stats.generation(generation).slice(:generation, :finished, :structure, :parents, :bots, :against_bots),
+                   @stats.brief_generation(generation), "generation #{generation}"
+    end
+  end
+
+  # They compute nothing else.
+  def test_brief_figures_compute_no_tournament_population_or_genome_figures
+    %i[tournament population summary shape activation].each do |part|
+      @stats.define_singleton_method(part) { |*| raise "#{part} computed" }
+    end
+    @stats.generations.each { |generation| @stats.brief_generation(generation) }
+  end
+
+  # They are refused for a missing setting just as the full figures are.
+  def test_brief_figures_of_an_experiment_without_features_fail
+    reopen_writing { |writer| writer.save_settings(StatsFixture::SETTINGS.except('features')) }
+    error = assert_raises(ExperimentStats::MissingSetting) { @stats.brief_generation(1) }
+    assert_equal 'features is missing', error.message
+  end
+
   # A database the runner has not migrated since the bot games (opened
   # read-only, stats cannot migrate it) is refused, whatever is asked of it.
   def test_a_database_without_the_bot_games_table_is_refused
