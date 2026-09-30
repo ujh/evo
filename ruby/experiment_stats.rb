@@ -46,9 +46,19 @@ class ExperimentStats
     database.opponents.map { |opponent| opponent[:name] }
   end
 
-  # The names of the benchmark panel, in panel order.
+  # The names of the opponents the checkpoints so far play, in panel order:
+  # the panel's names, with PastChampions as the champions of every
+  # checkpoint an earlier one plays (CheckpointBenchmark.opponents_for),
+  # oldest first.
   def benchmark_opponents
-    database.benchmark_opponents.map { |opponent| opponent[:name] }
+    played = generations.select { |generation| checkpoint?(generation) }.flat_map do |generation|
+      CheckpointBenchmark.past_champions(generation, keep_every, benchmark_champions)
+    end
+    database.benchmark_opponents.flat_map do |opponent|
+      next [opponent[:name]] unless opponent[:kind] == 'past_champions'
+
+      played.uniq.sort.map { |source| CheckpointBenchmark.champion_name(source) }
+    end
   end
 
   # A Hash with the generation's figures; see the private methods for each
@@ -295,7 +305,8 @@ class ExperimentStats
     return nil unless checkpoint?(generation)
 
     rows = database.benchmark_games(generation, columns: %i[opponent network_color network winner failure])
-    opponents = CheckpointBenchmark.opponents_for(generation, database.benchmark_opponents, keep_every)
+    opponents = CheckpointBenchmark.opponents_for(generation, database.benchmark_opponents,
+                                                  keep_every:, champions: benchmark_champions)
     by_opponent = rows.group_by { |row| row[:opponent] }
     result = { network: rows.first&.fetch(:network), games: benchmark_games,
                complete: rows.size == opponents.size * benchmark_games }
@@ -309,6 +320,10 @@ class ExperimentStats
 
   def benchmark_games
     Integer(setting('benchmark_games'))
+  end
+
+  def benchmark_champions
+    Integer(setting('benchmark_champions'))
   end
 
   def keep_every

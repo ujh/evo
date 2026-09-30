@@ -109,6 +109,9 @@ class SetupExperiment
     # Half of a benchmark's games are played with each color.
     'benchmark_games' => ['Benchmark games per opponent', '20', even(2)],
     'benchmark_opening_moves' => ['Stones in each benchmark opening (0 for none)', '4', integer(0)],
+    # The rolling set of earlier checkpoints' champions a checkpoint plays
+    # besides generation 0's (the past_champions panel row).
+    'benchmark_champions' => ['Past checkpoint champions each checkpoint plays, besides generation 0\'s', '10', integer(0)],
     # The arena's for every tournament game, sent to each bot, and given to
     # both players and the referee of every benchmark game. A multiple of
     # 0.5, so an area-scored margin is never zero unless the game is a
@@ -183,7 +186,9 @@ class SetupExperiment
   # plays without --capture-all-dead: a GNU Go referee scores the benchmark
   # with dead stones removed, so the flag would only change its play. The
   # two network kinds have no command: the runner picks the network from
-  # the experiment's own generations.
+  # the experiment's own generations. PastChampions stands for the last
+  # `benchmark_champions` checkpoints' top networks, each played as
+  # GenNChampion (CheckpointBenchmark.opponents_for).
   DEFAULT_BENCHMARK = [
     { name: 'Brown', kind: 'bot', command: 'brown' },
     { name: 'AmiGo', kind: 'bot', command: 'amigogtp' },
@@ -192,7 +197,7 @@ class SetupExperiment
     { name: 'MichiStrong', kind: 'bot', command: MICHI_STRONG },
     { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
     { name: 'Gen0Champion', kind: 'initial_champion', command: nil },
-    { name: 'PreviousCheckpoint', kind: 'previous_checkpoint', command: nil }
+    { name: 'PastChampions', kind: 'past_champions', command: nil }
   ].freeze
   # The only board size the michi levels were calibrated on.
   MICHI_BOARD_SIZE = 9

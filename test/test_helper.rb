@@ -28,6 +28,7 @@ module RunGenerationHelpers
     'keep_every' => 10,
     'benchmark_games' => 20,
     'benchmark_opening_moves' => 4,
+    'benchmark_champions' => 10,
     'komi' => 6.5,
     'meta_rate' => 0.2,
     'initial_copy_chance' => 0.01,

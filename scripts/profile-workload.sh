@@ -15,7 +15,7 @@ set -eu
 # and benchmark panel with those the workloads were defined with (the
 # pinned panel below): tournament Brown `brown` x5 and AmiGo `amigogtp`
 # x10; benchmark Brown, AmiGo, GnuGoLevel0 `gnugo --level 0 --mode gtp`,
-# Gen0Champion, PreviousCheckpoint. It then checks that the database holds
+# Gen0Champion, PastChampions. It then checks that the database holds
 # the requested panel (the pinned one, or the defaults with
 # --default-panel), exits if not, and names the stored panel in the
 # summary.
@@ -118,7 +118,7 @@ pinned_panel_sql="begin;
     (0, 'Brown', 'bot', 'brown'), (1, 'AmiGo', 'bot', 'amigogtp'),
     (2, 'GnuGoLevel0', 'bot', 'gnugo --level 0 --mode gtp'),
     (3, 'Gen0Champion', 'initial_champion', null),
-    (4, 'PreviousCheckpoint', 'previous_checkpoint', null);
+    (4, 'PastChampions', 'past_champions', null);
   commit;"
 # The same panel as the rows the database must then hold, in sqlite3's
 # output format (name|command|copies, then name|kind|command).
@@ -128,11 +128,11 @@ pinned_benchmark='Brown|bot|brown
 AmiGo|bot|amigogtp
 GnuGoLevel0|bot|gnugo --level 0 --mode gtp
 Gen0Champion|initial_champion|
-PreviousCheckpoint|previous_checkpoint|'
+PastChampions|past_champions|'
 if [ "$default_panel" -eq 1 ]; then
   panel='default (SetupExperiment defaults)'
 else
-  panel='pinned (tournament Brown x5, AmiGo x10; benchmark Brown, AmiGo, GnuGoLevel0, Gen0Champion, PreviousCheckpoint)'
+  panel='pinned (tournament Brown x5, AmiGo x10; benchmark Brown, AmiGo, GnuGoLevel0, Gen0Champion, PastChampions)'
 fi
 
 [ -n "$results" ] || results="${TMPDIR:-/tmp}/evo-profile-$name-$(date +%Y%m%d-%H%M%S).txt"

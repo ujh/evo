@@ -191,7 +191,8 @@ class ExperimentDatabaseTest < Minitest::Test
     { '1' => '60', '10' => '600' }.each do |minutes, seconds|
       with_settings_at_13('board_size' => '9', 'game_length' => minutes) do |path|
         store = ExperimentDatabase.new(path)
-        assert_equal({ 'board_size' => '9', 'game_seconds' => seconds }, store.settings)
+        # Migration 015 adds benchmark_champions.
+        assert_equal({ 'board_size' => '9', 'game_seconds' => seconds, 'benchmark_champions' => '10' }, store.settings)
         store.close
       end
     end
@@ -220,6 +221,75 @@ class ExperimentDatabaseTest < Minitest::Test
       error = assert_raises(RuntimeError) { Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 13) }
       assert_includes error.message, '90'
       assert_equal({ 'game_seconds' => '90' }, db[:settings].to_hash(:key, :value))
+      db.disconnect
+    end
+  end
+
+  # Migration 015: the previous checkpoint becomes the rolling past
+  # champions, and its games are named by the champion they played.
+  def with_benchmark_at_14
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 14)
+      db[:settings].multi_insert([{ key: 'keep_every', value: '100' }])
+      db[:benchmark_opponents].multi_insert(
+        [{ position: 0, name: 'Brown', kind: 'bot', command: 'brown' },
+         { position: 1, name: 'Gen0Champion', kind: 'initial_champion', command: nil },
+         { position: 2, name: 'PreviousCheckpoint', kind: 'previous_checkpoint', command: nil }]
+      )
+      game = { opening: 0, network_color: 'black', network: '1.ann', winner: 'network' }
+      db[:benchmark_games].multi_insert(
+        [{ generation: 200, opponent: 'Gen0Champion', opponent_network: '0:4.ann', **game },
+         { generation: 200, opponent: 'PreviousCheckpoint', opponent_network: '100:3.ann', **game },
+         { generation: 300, opponent: 'PreviousCheckpoint', opponent_network: '200:1.ann', **game },
+         { generation: 300, opponent: 'Brown', opponent_network: nil, **game }]
+      )
+      db.disconnect
+      yield path
+    end
+  end
+
+  def benchmark_opponents_and_games(db)
+    [db[:benchmark_opponents].order(:position).select_map(%i[name kind]),
+     db[:benchmark_games].order(:generation, :opponent).select_map(%i[generation opponent opponent_network])]
+  end
+
+  def test_migration_turns_the_previous_checkpoint_into_past_champions
+    with_benchmark_at_14 do |path|
+      store = ExperimentDatabase.new(path)
+      assert_equal({ 'keep_every' => '100', 'benchmark_champions' => '10' }, store.settings)
+      assert_equal [%w[Brown bot], %w[Gen0Champion initial_champion], %w[PastChampions past_champions]],
+                   store.benchmark_opponents.map { |o| o.values_at(:name, :kind) }
+      assert_equal [[200, 'Gen0Champion', '0:4.ann'], [200, 'Gen100Champion', '100:3.ann'],
+                    [300, 'Brown', nil], [300, 'Gen200Champion', '200:1.ann']],
+                   store.benchmark_games(200).map { |g| [200, g[:opponent], g[:opponent_network]] } +
+                   store.benchmark_games(300).map { |g| [300, g[:opponent], g[:opponent_network]] }
+      store.close
+    end
+  end
+
+  def test_migrating_down_turns_past_champions_back_into_the_previous_checkpoint
+    with_benchmark_at_14 do |path|
+      db = Sequel.sqlite(path)
+      before = benchmark_opponents_and_games(db)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 14)
+      assert_equal before, benchmark_opponents_and_games(db)
+      assert_equal({ 'keep_every' => '100' }, db[:settings].to_hash(:key, :value))
+      db.disconnect
+    end
+  end
+
+  def test_migrating_down_refuses_a_champion_older_than_the_previous_checkpoint
+    with_benchmark_at_14 do |path|
+      store = ExperimentDatabase.new(path)
+      store.record_benchmark_game(generation: 300, opponent: 'Gen100Champion', opening: 0, network_color: 'black',
+                                  network: '1.ann', opponent_network: '100:3.ann', winner: 'network')
+      store.close
+      db = Sequel.sqlite(path)
+      error = assert_raises(RuntimeError) { Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 14) }
+      assert_includes error.message, 'Gen100Champion'
       db.disconnect
     end
   end
