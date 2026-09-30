@@ -158,6 +158,30 @@ So the order is Brown < AmiGo < MichiWeak < MichiMid < MichiStrong < GnuGo, each
 - GNU Go 3.8 needs two patches. Without `scripts/patches/gnugo-3.8-gg-sort-empty.patch`, clang builds abort in `final_score` and during level 10 move generation; GCC builds happen to work either way. `scripts/patches/gnugo-3.8-superstring-libs.patch` stops `superstring_add_string` from writing liberties past its caller's array: without it, a macOS build aborted in `genmove` (`__stack_chk_fail` in `superstring_moves`) in a tournament game of `even-bigger2`, generation 64, whose position `scripts/smoke-bot-patches.sh` replays at level 10. The tournament's GNU Go runs at level 0 and got there only after `time_settings`, under which GNU Go adjusts its level to the time it has left. When changing how external tools are built, bump `release_id` in `scripts/install-external-tools.sh` so existing installs rebuild, then run `mise run verify`.
 - The installer downloads only from the GitHub release named in `mirror_url` in `scripts/install-external-tools.sh`, never from upstream. `scripts/external-tools.txt` lists each archive's SHA-256 and upstream URL. To change an archive, edit the manifest, give `mirror_url` a new release tag (a published release's files should not change under the same tag), bump `release_id`, and run `mise run mirror-external-tools`. Adding an archive may keep the release tag, since no published file changes (michi-c2 went into `external-tools-r1`, 29 Sep 2026); only changing an archive needs a new tag. michi-c2's upstream URL is a GitHub `archive/COMMIT.tar.gz`, which GitHub builds on request and whose bytes have changed before, so a re-mirror without the local cache (`.local/evo-tools/cache`) can fail the SHA-256 check; the file on the release is the reference copy. That task fetches from upstream and uploads to the release; since the upload is seen outside the repository, it needs the owner's approval first (`docs/orchestration.md`, When to ask the owner).
 
+## How noisy the tournament's ranking is
+
+`scripts/ranking-noise.rb` measures, from an experiment's recorded games alone (read-only), how much of a generation's ranking is skill and how much luck. On `even-bigger2` (1,000 networks, 33 bot copies, 10 Swiss rounds, 5,160 games a generation; 30 Sep 2026):
+
+    mise exec -- scripts/ranking-noise.rb experiments/even-bigger2/experiment.sqlite3 1 5 20 50 100 150 200 235
+
+| Generation | Games | Networks | White wins | Colour r² | Odd/even Spearman | Reliability, 10 rounds | Reliability, 20 rounds | Reliability, 40 rounds | Wins vs rating | Top 50 in common |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 5160 | 1000 | 61 % | 0.01 | 0.40 | 0.57 | 0.73 | 0.84 | 0.95 | 46 |
+| 5 | 5160 | 1000 | 58 % | 0.02 | 0.35 | 0.52 | 0.69 | 0.81 | 0.94 | 48 |
+| 20 | 5160 | 1000 | 63 % | 0.06 | 0.35 | 0.52 | 0.68 | 0.81 | 0.94 | 46 |
+| 50 | 5160 | 1000 | 62 % | 0.07 | 0.38 | 0.55 | 0.71 | 0.83 | 0.94 | 45 |
+| 100 | 5160 | 1000 | 62 % | 0.06 | 0.37 | 0.54 | 0.70 | 0.83 | 0.94 | 45 |
+| 150 | 5160 | 1000 | 62 % | 0.05 | 0.35 | 0.51 | 0.68 | 0.81 | 0.94 | 43 |
+| 200 | 5160 | 1000 | 59 % | 0.01 | 0.34 | 0.51 | 0.67 | 0.80 | 0.94 | 42 |
+| 235 | 5160 | 1000 | 56 % | 0.01 | 0.32 | 0.49 | 0.65 | 0.79 | 0.94 | 44 |
+
+- **Odd/even Spearman:** the benchmark's rating fit (`BenchmarkRatings`) on rounds 1, 3, …, 9 and on rounds 2, 4, …, 10 ranks the networks alike only weakly. By Spearman–Brown, the ranking from all 10 rounds is about half skill (reliability 0.49–0.57); 20 rounds would make it about two thirds, 40 about four fifths. The projection assumes added rounds are like the ones played; under the Swiss pairing, later rounds pair closer scores.
+- The halves are odd and even rounds, not the first five and the last five: the Swiss pairing gives a network that won early harder opponents later, so the win counts of the two halves correlate slightly negatively (−0.05 to 0.02 here) whatever the skill.
+- **Wins vs rating:** the win count, which parent selection uses, orders the networks almost as the rating fit of the same games does (Spearman 0.94–0.95; 42–48 of the top 50 in common), so fitting ratings instead of counting wins would change selection little.
+- **Colour:** White wins 56–63 % of tournament games, but each network's colours even out enough over 10 games that its number of games as White explains 1–7 % of the spread in win counts.
+- The spread of win counts (standard deviation 1.49 at generation 235) is close to that of 10 coin flips (1.58): the Swiss pairing keeps every network near 50 %, so the spread itself says little about skill.
+- What this means for selection is a prediction, not a measurement. Under the breeder's equation the gain per generation grows with the square root of the reliability, so 20 rounds would select about 15 % better per generation (√0.67 against √0.5) at twice the tournament's cost, less per unit of compute than 10 rounds. Only a run can tell (`PROJECT_NOTES.md`).
+
 ## Benchmark
 
 - `CheckpointBenchmark` (`ruby/checkpoint_benchmark.rb`) measures progress apart from the tournament. Tournament games use the arena; checkpoint games use `gogui-twogtp`, one game per run, with the GNU Go referee (`GameResult::REFEREE`), and are read from its `.dat` file by `GameResult`. `RunGeneration#call` runs it after the tournament of every `keep_every`-th generation (the checkpoints, whose networks are kept); with `keep_every` 0 it never runs.
