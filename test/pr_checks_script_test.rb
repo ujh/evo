@@ -70,6 +70,7 @@ class PrChecksScriptTest < Minitest::Test
     out, err, status = run_checks(view([success], merge_state: 'DIRTY'))
     assert_equal 1, status
     assert_includes err, 'PR 7 has merge conflicts with main. Merge origin/main locally'
+    assert_includes err, 'review again unless docs/pull-requests.md step 7 exempts the merge'
     refute_includes out, 'All checks passed'
   end
 
