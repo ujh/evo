@@ -1,0 +1,26 @@
+superstring_add_string stops collecting liberties only when the count equals
+maxlibs right after adding one, and do_find_superstring calls it again without
+checking first. Once the count has reached maxlibs, the next string's liberties
+go past it, the equality never holds again, and they are written past the end
+of the caller's array (ss_libs in superstring_moves). Clang builds with the
+stack protector then abort in genmove.
+
+--- a/engine/utils.c
++++ b/engine/utils.c
+@@ -1870,14 +1870,14 @@
+       (*num_my_stones) -= new_stones;
+ 
+     for (k = 0; k < num_my_libs; k++) {
++      if (maxlibs > 0 && *num_libs >= maxlibs)
++	break;
+       if (ml[my_libs[k]])
+ 	continue;
+       ml[my_libs[k]] = 1;
+       if (do_add && (liberty_cap == 0 || num_my_libs <= liberty_cap)) {
+ 	libs[*num_libs] = my_libs[k];
+ 	(*num_libs)++;
+-	if (*num_libs == maxlibs)
+-	  break;
+       }
+     }
+   }

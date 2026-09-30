@@ -61,7 +61,7 @@ description = "Play the external opponents in the arena, and check that its game
 run = "sh scripts/smoke-arena-bots.sh"
 
 [tasks.smoke-patches]
-description = "Check that michi-c2 keeps the behaviour of evo's patch"
+description = "Check that GNU Go and michi-c2 keep the behaviour of evo's patches"
 run = "sh scripts/smoke-bot-patches.sh"
 
 [tasks.smoke-agreement]

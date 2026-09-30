@@ -1,10 +1,11 @@
 #!/bin/sh
 set -eu
 
-# Checks that michi-c2 keeps the behaviour evo's patch gives it
-# (scripts/patches/): another seed gives other moves, time commands do not
-# change its moves, and the positions that crashed it or that it refused
-# replay. Runs locally and in CI's smoke
+# Checks that GNU Go and michi-c2 keep the behaviour evo's patches give
+# them (scripts/patches/): the position that overflowed GNU Go's
+# superstring liberties replays; and for michi-c2, another seed gives other
+# moves, time commands do not change its moves, and the positions that
+# crashed it or that it refused replay. Runs locally and in CI's smoke
 # (patches) job.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -29,6 +30,31 @@ michi='michi gtp --sims 100 --seed 11'
 answers() {
   grep '^[=?]' "$1" || true
 }
+
+# GNU Go with evo's patch (scripts/patches/gnugo-3.8-superstring-libs.patch):
+# the position of a tournament game (even-bigger2, generation 64) in which
+# its superstring liberties ran past their array. GNU Go at level 10
+# aborted in genmove there (at level 0 it got there through the time
+# settings, which raise its level); now it answers with a move.
+moves='D9 E5 D6 C4 B5 F4 B4 C3 B3 F7 C5 E8 D8 C2 D2 D3 E2 F2 E3 D5 E4 D4 C6 F3 G4 G5 H5 H6 G6 F6 G7'
+{
+  printf 'boardsize 9\nclear_board\nkomi 6.5\n'
+  color=b
+  for move in $moves; do
+    printf 'play %s %s\n' "$color" "$move"
+    if [ "$color" = b ]; then color=w; else color=b; fi
+  done
+  printf 'genmove w\nquit\n'
+} >"$scratch/gnugo-superstring.in"
+status=0
+(cd "$scratch" && gnugo --mode gtp --level 10 <gnugo-superstring.in >gnugo-superstring 2>gnugo-superstring.err) ||
+  status=$?
+answer=$(answers "$scratch/gnugo-superstring" | tail -2 | head -1)
+if [ "$status" -ne 0 ] || answers "$scratch/gnugo-superstring" | grep -q '^?'; then
+  fail "gnugo superstring replay: exit status $status: $(tail -3 "$scratch/gnugo-superstring") $(tail -3 "$scratch/gnugo-superstring.err")"
+else
+  printf 'gnugo superstring replay: genmove answered %s\n' "$answer"
+fi
 
 # michi-c2 with evo's patch (scripts/patches/michi-c2-d2a4cb8.patch).
 # Another seed gives other moves: example.ann against michi-c2 at two
@@ -240,4 +266,4 @@ if [ "$failed" -ne 0 ]; then
   printf 'Patched bot smoke check failed\n' >&2
   exit 1
 fi
-printf 'michi-c2 kept the behaviour of its patch\n'
+printf 'GNU Go and michi-c2 kept the behaviour of their patches\n'
