@@ -603,7 +603,7 @@ printf "$n""game${T}g${T}n${T}n\000\n" >"$tmp/bad-manifest"
 refuses 'manifest: NUL byte' --mixed 5 6.5 10 600 10 10 "$tmp/bad-manifest"
 
 # Games with bots, against fakebot, a scripted fake GTP program (see
-# fakebot.c), so no real bot is needed (scripts/smoke-bot-controller.sh
+# fakebot.c), so no real bot is needed (scripts/smoke-arena-bots.sh
 # plays the real ones). By default fakebot passes to every genmove.
 
 # watch NAME PID: stops PID if it still runs after 60 s (no game here

@@ -37,8 +37,8 @@ compilers, `make`, `curl`, `tar`, `unzip`, `patch`, and either `shasum` or
    the moves differ or the arena's score differs from a Tromp–Taylor count of
    GoGui's game.
 
-CI runs the same tasks as separate jobs (C tests, Ruby tests, and the
-refereed matches), so a failure shows which kind of check broke. For
+CI runs the same tasks as separate jobs (C tests, Ruby tests, and one job
+per smoke check), so a failure shows which kind of check broke. For
 development without the
 external programs, use `mise run setup` and `mise run test` (or `test-c` and
 `test-ruby` on their own). Other useful tasks are `mise run build`,
