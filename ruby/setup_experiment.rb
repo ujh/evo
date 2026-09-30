@@ -211,7 +211,7 @@ class SetupExperiment
     archived = archived_on(path)
     if archived
       raise Refused, "#{experiment_dir} was archived on #{archived}: it keeps only the champions of its kept generations " \
-                     'and cannot run again; stats and ranking still read it'
+                     'and cannot run again; stats still reads it'
     end
 
     database = ExperimentDatabase.new(path)

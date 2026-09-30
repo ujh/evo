@@ -6,8 +6,8 @@ Sequel.extension :migration
 # One SQLite database per experiment (experiments/NAME/experiment.sqlite3) that
 # holds every scored game, so an experiment keeps its evidence in one file
 # instead of a .dat, .sgf and .err file per game. The runner writes and keeps
-# the schema current with the migrations in db/migrations; stats and ranking
-# open it read-only while the runner is still writing.
+# the schema current with the migrations in db/migrations; stats opens it
+# read-only while the runner is still writing.
 class ExperimentDatabase
   MIGRATIONS = File.expand_path('../db/migrations', __dir__)
   COLUMNS = %i[

@@ -74,8 +74,8 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
-  # stats and ranking open the store read-only, which runs no migrations, so
-  # they must still read a database the runner has not migrated yet.
+  # stats opens the store read-only, which runs no migrations, so it must
+  # still read a database the runner has not migrated yet.
   def test_a_read_only_store_reads_games_from_before_the_timing_columns
     Dir.mktmpdir do |dir|
       path = File.join(dir, 'experiment.sqlite3')
