@@ -124,10 +124,15 @@ if $PROGRAM_NAME == __FILE__
   abort 'usage: scripts/ranking-noise.rb DATABASE GENERATION...' if path.nil? || generations.empty?
 
   db = Sequel.sqlite(path, readonly: true, timeout: 5_000)
+  rounds = Integer(db[:settings].where(key: 'tournament_rounds').get(:value))
   rows = generations.map do |generation|
     generation = Integer(generation)
     games = db[:games].where(generation:).exclude(winner: nil).select(:round, :black, :white, :winner).all
     abort "generation #{generation} has no scored games" if games.empty?
+    # A tournament still running has fewer rounds, halves of unequal
+    # length, and a ranking taken mid-round.
+    played = games.map { |game| game[:round] }.max + 1
+    abort "generation #{generation} has played #{played} of its #{rounds} rounds" if played < rounds
 
     ranking = db[:rankings].where(generation:, external: false).order(:rank).select_map(:name)
     [generation, RankingNoise.figures(games, ranking)]

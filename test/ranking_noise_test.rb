@@ -45,6 +45,14 @@ class RankingNoiseTest < Minitest::Test
     assert_in_delta 1.0, R.colour_r2(games, %w[a b c])
   end
 
+  # White counts [1, 1, 2, 2] against wins [1, 1, 1, 3]: r = 1/√3.
+  def test_colour_r2_squares_the_correlation
+    games = [%w[b a a], %w[a b b], %w[d c c], %w[d c d], %w[c d d], %w[b d d]].map do |black, white, winner|
+      { round: 0, black:, white:, winner: }
+    end
+    assert_in_delta 1 / 3r, R.colour_r2(games, %w[a b c d])
+  end
+
   # The odd rounds (stored as 0 and 2) order a > b > c and the even ones
   # c > b > a, so they disagree completely; the first and the second half
   # would agree.
