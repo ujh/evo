@@ -240,6 +240,22 @@ class ExperimentDatabase
     @db[:benchmark_games].where(generation:).order(:opponent, :opening, :network_color).select(*columns).all
   end
 
+  BENCHMARK_BOT_COLUMNS = %i[
+    generation black white opening winner failure length referee_result error_message stderr duration time_black time_white
+  ].freeze
+
+  # A bot-vs-bot benchmark game (migration 016); a replayed one replaces
+  # its row.
+  def record_benchmark_bot_game(**game)
+    @db[:benchmark_bot_games].insert_conflict(:replace).insert(game.slice(*BENCHMARK_BOT_COLUMNS))
+  end
+
+  # Every bot-vs-bot benchmark game, whichever checkpoint played it, with
+  # every column or only the given `columns`.
+  def benchmark_bot_games(columns: BENCHMARK_BOT_COLUMNS)
+    @db[:benchmark_bot_games].order(:black, :white, :opening).select(*columns).all
+  end
+
   # A network's genes, as the genes line of initial-population and evolve
   # names them; see migration 010.
   BIRTH_GENE_COLUMNS = %i[

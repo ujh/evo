@@ -63,7 +63,8 @@ class SetupExperimentTest < Minitest::Test
     %w[--game-seconds 0], %w[--game-seconds 1000001], %w[--game-seconds 0.5], %w[--game-seconds 20s], %w[--max-moves 2.5], %w[--tournament-rounds ten], %w[--tournament-rounds 0],
     %w[--tournament-size 0], %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808],
     %w[--benchmark-games 21], %w[--benchmark-games 0], %w[--benchmark-games -2], %w[--benchmark-games many],
-    %w[--benchmark-games 4.0], %w[--benchmark-opening-moves -1], %w[--benchmark-opening-moves four],
+    %w[--benchmark-games 4.0], %w[--benchmark-bot-games 3], %w[--benchmark-bot-games -2],
+    %w[--benchmark-bot-games some], %w[--benchmark-opening-moves -1], %w[--benchmark-opening-moves four],
     %w[--komi 7.25], %w[--komi 51], %w[--komi -50.5], %w[--komi abc], %w[--komi 6,5],
     %w[--meta-rate -0.1], %w[--meta-rate 10.5], %w[--meta-rate fast],
     %w[--initial-copy-chance 0.00009], %w[--initial-copy-chance 0.11],
@@ -371,6 +372,19 @@ class SetupExperimentTest < Minitest::Test
   def test_an_odd_number_of_benchmark_games_is_refused_as_not_even
     error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[--benchmark-games 3]) }
     assert_equal 'benchmark_games must be an even whole number of at least 2, got 3', error.message
+  end
+
+  # The panel's bots play each other once per experiment; 0 turns that off.
+  def test_the_bot_games_default_to_40_and_take_any_even_number_from_0
+    assert_equal 40, SetupExperiment.settings_from_arguments(REQUIRED)['benchmark_bot_games']
+    [0, 2, 100].each do |games|
+      settings = SetupExperiment.settings_from_arguments(REQUIRED + ['--benchmark-bot-games', games.to_s])
+      assert_equal games, settings['benchmark_bot_games']
+    end
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED + %w[--benchmark-bot-games 1]) }
+    assert_equal 'benchmark_bot_games must be an even whole number of at least 0, got 1', error.message
+    keys = SetupExperiment::SETTINGS.keys
+    assert_equal keys.index('benchmark_champions') + 1, keys.index('benchmark_bot_games')
   end
 
   # Komi is a multiple of 0.5, so a Tromp-Taylor margin is never zero
