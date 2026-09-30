@@ -112,8 +112,9 @@ Three settings control it:
 
 The results are in the `benchmark_games` table of
 `experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game, and
-`stats` shows the latest checkpoint's, per opponent, the opponents the
-network did best against first.
+`stats` shows the latest checkpoint's as a ranking, strongest first: the
+checkpoint's champion sits above the opponents it scored more than half
+against.
 
 The panel is stored in each experiment's database (table
 `benchmark_opponents`) when the experiment is created. To use another panel,
@@ -143,9 +144,10 @@ of bred children identical to a parent, the distinct networks that passed on
 weights (a mutation or a copy comes from one parent only), the distinct genomes, and the
 lowest, median, and highest network score. A generation is done once its
 rounds and, at a checkpoint, its benchmark are played. The last table shows
-progress: each checkpoint's benchmark, with the network's wins and losses as
-Black and as White against each opponent. For example, after two generations
-of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (every feature group, the default; trimmed to the first and last table, and to the Brown and Gen0Champion rows; 26 Sep 2026, the times vary):
+progress: the latest checkpoint's benchmark as a ranking, with the champion's
+wins and losses as Black and as White against each opponent and its share of
+the points. For example, after two generations
+of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --seed 3` (every feature group, the default; trimmed to the first and last table, and to the Brown and Gen0Champion rows; 26 Sep 2026, the times vary; the benchmark table in its current layout, 30 Sep 2026):
 
 ```text
 Generations
@@ -156,14 +158,14 @@ Generations
 |   1 |  yes |     9 |     0 | 2.2s |    25% |       2 |       4 |   0 | 0.5 |   1 |
 +-----+------+-------+-------+------+--------+---------+---------+-----+-----+-----+
 
-Benchmark
-+-----+----------+--------------+-------+-------+-------+-------+--------+
-| Gen | Network  | Opponent     | Games | Black | White | Draws | Failed |
-+-----+----------+--------------+-------+-------+-------+-------+--------+
-|   0 | 0001.ann | Brown        |   2/2 |   1-0 |   1-0 |     0 |      0 |
-|   1 | 3.ann    | Brown        |   2/2 |   1-0 |   1-0 |     0 |      0 |
-|   1 | 3.ann    | Gen0Champion |   2/2 |   1-0 |   1-0 |     0 |      0 |
-+-----+----------+--------------+-------+-------+-------+-------+--------+
+Benchmark: generation 1 (3.ann)
++------+----------------+-------+-------+-------+-------+--------+-------+
+| Rank | Player         | Games | Black | White | Draws | Failed | Score |
++------+----------------+-------+-------+-------+-------+--------+-------+
+|    1 | > Gen1Champion |       |       |       |       |        |       |
+|    2 | Gen0Champion   |   2/2 |   1-0 |   1-0 |     0 |      0 |  100% |
+|    3 | Brown          |   2/2 |   1-0 |   1-0 |     0 |      0 |  100% |
++------+----------------+-------+-------+-------+-------+--------+-------+
 ```
 
 Between the two, for the latest 10 generations, five tables show how the

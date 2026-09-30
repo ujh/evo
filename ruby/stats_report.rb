@@ -19,12 +19,15 @@ class ExperimentStats
       Parents: networks that passed on weights. Genomes: distinct children. Min, Med, Max: network scores.
       In a terminal, a generation not done is grey and italic where its figures still change.
     NOTE
-    BENCHMARK_HEADINGS = %w[Gen Network Opponent Games Black White Draws Failed].freeze
+    BENCHMARK_HEADINGS = %w[Rank Player Games Black White Draws Failed Score].freeze
     BENCHMARK_NOTE = <<~NOTE.freeze
-      Opponents the network scored best against first (a draw counts half), unplayed ones last.
+      Strongest first, by the champion's score against each opponent; > marks the champion, placed above
+      the opponents it scored more than half against. Opponents without games come last.
       Games: stored of planned; fewer means the benchmark is still playing or was stopped.
-      Black, White: W-L of the benchmarked network with that color.
+      Black, White: W-L of the champion with that color. Score: its share, a draw counting half.
     NOTE
+    # Around each cell of the champion's row, with `dim`.
+    BOLD = ["\e[1m", "\e[22m"].freeze
     NO_GENERATIONS = 'No generations yet.'.freeze
     # The genome tables show fewer generations: they are for the trend, and
     # --csv has every generation.
@@ -76,7 +79,8 @@ class ExperimentStats
 
     # The latest `limit` generations, and the benchmark of the latest
     # checkpoint, whether or not it is among them: with keep_every above
-    # `limit` they often hold none. With `dim`, the rows of a generation that is not done
+    # `limit` they often hold none. With `dim` (a terminal), the champion's row
+    # in the benchmark is bold, and the rows of a generation that is not done
     # are grey and italic in the tables whose figures change while it plays: the
     # generations, the bots, and the benchmark. The genome figures come from
     # births, which a generation has before it plays.
@@ -91,7 +95,9 @@ class ExperimentStats
       checkpoint = figures.reverse.find { |f| f[:benchmark] }
       return out unless checkpoint
 
-      out << "\nBenchmark\n#{benchmark_table(checkpoint, dim)}\n#{BENCHMARK_NOTE}"
+      network = checkpoint[:benchmark][:network]
+      title = "Benchmark: generation #{checkpoint[:generation]}#{" (#{network})" if network}"
+      out << "\n#{title}\n#{benchmark_table(checkpoint, dim)}\n#{BENCHMARK_NOTE}"
     end
 
     # The row with each cell dimmed, if `dim` and the generation is not
@@ -297,32 +303,50 @@ class ExperimentStats
       bot.nil? || bot[:best_rank].nil? ? '-' : "#{bot[:best_rank]} (#{bot[:networks_above]})"
     end
 
-    # One row per opponent the checkpoint `f` plays, weakest opponent first
-    # (by_strength).
+    # The checkpoint `f`'s ranking (ranking), one row per player: the
+    # opponents with their results, the champion, the checkpoint's own top
+    # network, named as later checkpoints name it, with none.
     def benchmark_table(f, dim)
       benchmark = f[:benchmark]
-      rows = by_strength(benchmark).map do |name|
+      rows = ranking(benchmark).each_with_index.map do |name, i|
+        next style(champion_row(i + 1, f[:generation], dim), f, dim) if name == :champion
+
         black, white = benchmark[name].values_at(:black, :white)
         played = [black, white].sum { |counts| counts.values.sum }
-        style([f[:generation], benchmark[:network] || '-', name, "#{played}/#{benchmark[:games]}",
-               "#{black[:win]}-#{black[:loss]}", "#{white[:win]}-#{white[:loss]}", black[:draw] + white[:draw],
-               black[:failure] + white[:failure]], f, dim)
+        share = score_share(benchmark[name])
+        style([i + 1, name, "#{played}/#{benchmark[:games]}", "#{black[:win]}-#{black[:loss]}",
+               "#{white[:win]}-#{white[:loss]}", black[:draw] + white[:draw], black[:failure] + white[:failure],
+               share ? "#{(100 * share).round}%" : '-'], f, dim)
       end
-      table(BENCHMARK_HEADINGS, rows, left: [1, 2])
+      table(BENCHMARK_HEADINGS, rows, left: [1])
     end
 
-    # The opponents of a checkpoint's benchmark, the one the network scored
-    # the highest share against first: a win counts 1 and a draw 1/2 of the
-    # games with a result, failures left out. Opponents without such a game
-    # come last; ties keep panel order.
-    def by_strength(benchmark)
+    def champion_row(rank, generation, dim)
+      row = [rank, "> #{CheckpointBenchmark.champion_name(generation)}", *[''] * 6]
+      dim ? row.map { |cell| "#{BOLD.first}#{cell}#{BOLD.last}" } : row
+    end
+
+    # The opponents of a checkpoint's benchmark, strongest first: the one the
+    # champion scored the lowest share against first (score_share), ties in
+    # reverse panel order, since the panel lists the bots weakest first, and :champion before the first it scored more than half
+    # against. Opponents without a scored game come last.
+    def ranking(benchmark)
       names = benchmark.keys.grep(String)
-      names.sort_by.with_index do |name, position|
-        counts = benchmark[name].values
-        scored = counts.sum { |c| c[:win] + c[:loss] + c[:draw] }
-        points = counts.sum { |c| c[:win] + (c[:draw] / 2r) }
-        scored.zero? ? [1, 0, position] : [0, -points / scored, position]
-      end
+      played, unplayed = names.partition { |name| score_share(benchmark[name]) }
+      played = played.sort_by.with_index { |name, position| [score_share(benchmark[name]), -position] }
+      above = played.take_while { |name| score_share(benchmark[name]) <= 1/2r }
+      above + [:champion] + played.drop(above.size) + unplayed
+    end
+
+    # The champion's share of points against one opponent, a win 1 and a
+    # draw 1/2 of the games with a result, failures left out; nil without
+    # such a game.
+    def score_share(results)
+      counts = results.values
+      scored = counts.sum { |c| c[:win] + c[:loss] + c[:draw] }
+      return nil if scored.zero?
+
+      counts.sum { |c| c[:win] + (c[:draw] / 2r) } / scored
     end
   end
 end
