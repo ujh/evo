@@ -36,9 +36,9 @@ module StatsFixture
     { name: 'AmiGo', kind: 'bot', command: 'amigogtp' },
     { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
     { name: 'Gen0Champion', kind: 'initial_champion', command: nil },
-    { name: 'PreviousCheckpoint', kind: 'previous_checkpoint', command: nil }
+    { name: 'PastChampions', kind: 'past_champions', command: nil }
   ].freeze
-  SETTINGS = { 'tournament_rounds' => 2, 'keep_every' => 2, 'benchmark_games' => 4, 'seed' => 1, 'board_size' => 9,
+  SETTINGS = { 'tournament_rounds' => 2, 'keep_every' => 2, 'benchmark_games' => 4, 'benchmark_champions' => 10, 'seed' => 1, 'board_size' => 9,
                'features' => FEATURES }.freeze
 
   # Writes the experiment database at `path`.

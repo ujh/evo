@@ -27,21 +27,34 @@ class CheckpointBenchmark
     def prefix = File.join(DIRECTORY, "#{opponent.name}-#{opening}-#{color}")
   end
 
-  # The rows of the benchmark panel (ExperimentDatabase#benchmark_opponents)
-  # that the checkpoint `generation` plays, in panel order. Generation 0 has
-  # no earlier network to play. Its champion is also the previous checkpoint
-  # of the first checkpoint, so that one is played once. ExperimentStats
-  # uses this to tell a complete benchmark.
-  def self.opponents_for(generation, panel, keep_every)
-    panel.select do |row|
+  # What the checkpoint `generation` plays, from the benchmark panel
+  # (ExperimentDatabase#benchmark_opponents), in panel order: a Hash per
+  # opponent with its :name, :kind, :command, and :source, the generation
+  # a network opponent comes from (nil for a bot). Generation 0 has no
+  # earlier network to play. The `past_champions` row stands for the top
+  # networks of the last `champions` checkpoints before this one, oldest
+  # first, each named by champion_name; generation 0's is left out, since
+  # `initial_champion` always plays it. ExperimentStats uses this to tell a
+  # complete benchmark.
+  def self.opponents_for(generation, panel, keep_every:, champions:)
+    panel.flat_map do |row|
       case row[:kind]
-      when 'bot' then true
-      when 'initial_champion' then generation.positive?
-      when 'previous_checkpoint' then (generation - keep_every).positive?
+      when 'bot' then [row.merge(source: nil)]
+      when 'initial_champion' then generation.positive? ? [row.merge(source: 0)] : []
+      when 'past_champions'
+        past_champions(generation, keep_every, champions).map { |source| row.merge(name: champion_name(source), source:) }
       else raise ArgumentError, "unknown benchmark opponent kind #{row[:kind]}"
       end
     end
   end
+
+  # The checkpoints before `generation` whose top networks it plays as past
+  # champions, oldest first.
+  def self.past_champions(generation, keep_every, champions)
+    (1..champions).map { |back| generation - (back * keep_every) }.select(&:positive?).reverse
+  end
+
+  def self.champion_name(source) = "Gen#{source}Champion"
 
   def self.call(generation, settings, pool, store)
     new(generation, settings, pool, store).call
@@ -92,12 +105,12 @@ class CheckpointBenchmark
   end
 
   def opponents
-    self.class.opponents_for(generation, store.benchmark_opponents, settings['keep_every']).map do |row|
-      case row[:kind]
-      when 'bot' then Opponent.new(name: row[:name], command: row[:command], network: nil)
-      when 'initial_champion' then network_opponent(row[:name], 0)
-      when 'previous_checkpoint' then network_opponent(row[:name], generation - settings['keep_every'])
-      end
+    rows = self.class.opponents_for(generation, store.benchmark_opponents,
+                                    keep_every: settings['keep_every'], champions: settings['benchmark_champions'])
+    rows.map do |row|
+      next Opponent.new(name: row[:name], command: row[:command], network: nil) if row[:kind] == 'bot'
+
+      network_opponent(row[:name], row[:source])
     end
   end
 

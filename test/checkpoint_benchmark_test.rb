@@ -55,40 +55,54 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
-  # The previous checkpoint of the first checkpoint is generation 0, whose
-  # champion is already on the panel.
-  def test_the_first_checkpoint_plays_the_initial_champion_but_no_previous_checkpoint
+  # The checkpoint before the first one is generation 0, whose champion
+  # the panel already has.
+  def test_the_first_checkpoint_plays_the_initial_champion_but_no_past_champion
     in_experiment(generation: '10') do
-      only_opponents('Gen0Champion', 'PreviousCheckpoint')
+      only_opponents('Gen0Champion', 'PastChampions')
       store_generations(0, 10)
       run_benchmark(10)
       assert_equal [['Gen0Champion', 0, 'black', '0:b.ann'], ['Gen0Champion', 0, 'white', '0:b.ann']], played(10)
     end
   end
 
-  def test_later_checkpoints_play_the_previous_checkpoints_top_network
-    in_experiment(generation: '20') do
-      only_opponents('Gen0Champion', 'PreviousCheckpoint')
-      store_generations(0, 10, 20)
-      pool = run_benchmark(20)
-      assert_equal %w[0:b.ann 0:b.ann 10:b.ann 10:b.ann], played(20).map(&:last)
-      assert_includes pool.commands.first, '-black "../evo benchmark/20-b.ann" -white "../evo benchmark/0-b.ann"'
+  # Each past champion is an opponent of its own, with its own games.
+  def test_later_checkpoints_play_each_past_champions_top_network
+    in_experiment(generation: '30') do
+      only_opponents('Gen0Champion', 'PastChampions')
+      store_generations(0, 10, 20, 30)
+      pool = run_benchmark(30)
+      assert_equal [['Gen0Champion', '0:b.ann'], ['Gen0Champion', '0:b.ann'], ['Gen10Champion', '10:b.ann'],
+                    ['Gen10Champion', '10:b.ann'], ['Gen20Champion', '20:b.ann'], ['Gen20Champion', '20:b.ann']],
+                   played(30).map { |row| row.values_at(0, 3) }
+      assert_includes pool.commands.first, '-black "../evo benchmark/30-b.ann" -white "../evo benchmark/0-b.ann"'
       assert_equal 'b.ann of 10', File.binread('benchmark/10-b.ann')
       assert_equal 'b.ann of 20', File.binread('benchmark/20-b.ann')
-      assert_equal %w[b.ann], database.benchmark_games(20).map { |row| row[:network] }.uniq
+      assert_equal 'b.ann of 30', File.binread('benchmark/30-b.ann')
+      assert_equal %w[b.ann], database.benchmark_games(30).map { |row| row[:network] }.uniq
     end
   end
 
   # ExperimentStats counts a checkpoint's benchmark as complete by the same
-  # rule the runner plays it by.
+  # rule the runner plays it by. The past champions roll: the last
+  # `champions` checkpoints before this one, oldest first, never generation 0.
   def test_the_opponents_of_a_checkpoint_depend_on_its_generation
     panel = SetupExperiment::DEFAULT_BENCHMARK
-    names = ->(generation) { CheckpointBenchmark.opponents_for(generation, panel, 10).map { |o| o[:name] } }
+    names = lambda do |generation, champions = 3|
+      CheckpointBenchmark.opponents_for(generation, panel, keep_every: 10, champions:).map { |o| o[:name] }
+    end
     bots = %w[Brown AmiGo MichiWeak MichiMid MichiStrong GnuGoLevel0]
     assert_equal bots, names.call(0)
     assert_equal bots + %w[Gen0Champion], names.call(10)
-    assert_equal bots + %w[Gen0Champion PreviousCheckpoint], names.call(20)
-    assert_raises(ArgumentError) { CheckpointBenchmark.opponents_for(0, [{ name: 'X', kind: 'nope' }], 10) }
+    assert_equal bots + %w[Gen0Champion Gen10Champion], names.call(20)
+    assert_equal bots + %w[Gen0Champion Gen10Champion Gen20Champion Gen30Champion], names.call(40)
+    assert_equal bots + %w[Gen0Champion Gen40Champion Gen50Champion Gen60Champion], names.call(70)
+    assert_equal bots + %w[Gen0Champion], names.call(70, 0)
+    sources = CheckpointBenchmark.opponents_for(70, panel, keep_every: 10, champions: 3).map { |o| o[:source] }
+    assert_equal [nil] * 6 + [0, 40, 50, 60], sources
+    assert_raises(ArgumentError) do
+      CheckpointBenchmark.opponents_for(0, [{ name: 'X', kind: 'nope' }], keep_every: 10, champions: 3)
+    end
   end
 
   def test_each_opening_is_played_once_with_each_color

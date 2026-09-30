@@ -460,14 +460,15 @@ class SetupExperimentTest < Minitest::Test
   # The benchmark panel: the bots weakest first, the michi levels with the
   # tournament's commands, GNU Go level 0 without an ending flag (its GNU Go
   # referee removes dead stones), then the two network opponents the runner
-  # picks from the experiment's own generations.
+  # picks from the experiment's own generations: generation 0's champion and
+  # the rolling set of past checkpoints' champions.
   def test_the_default_benchmark_panel
     assert_equal [%w[Brown bot brown], %w[AmiGo bot amigogtp],
                   ['MichiWeak', 'bot', 'michi gtp --sims 80 --play-until-end'],
                   ['MichiMid', 'bot', 'michi gtp --sims 300 --play-until-end'],
                   ['MichiStrong', 'bot', 'michi gtp --sims 1200 --play-until-end'],
                   ['GnuGoLevel0', 'bot', 'gnugo --level 0 --mode gtp'],
-                  ['Gen0Champion', 'initial_champion', nil], ['PreviousCheckpoint', 'previous_checkpoint', nil]],
+                  ['Gen0Champion', 'initial_champion', nil], ['PastChampions', 'past_champions', nil]],
                  SetupExperiment::DEFAULT_BENCHMARK.map { |o| o.values_at(:name, :kind, :command) }
   end
 

@@ -30,8 +30,27 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal [0, 1, 2, 3], @stats.generations
   end
 
+  # No checkpoint in the fixture has a past champion yet.
   def test_benchmark_opponents_are_the_panel_in_order
-    assert_equal %w[Brown AmiGo GnuGoLevel0 Gen0Champion PreviousCheckpoint], @stats.benchmark_opponents
+    assert_equal %w[Brown AmiGo GnuGoLevel0 Gen0Champion], @stats.benchmark_opponents
+  end
+
+  # With checkpoints 4 and 6 and two past champions each, generation 6
+  # plays generations 2 and 4's champions, each as its own opponent, and the
+  # opponents so far hold every past champion some checkpoint plays, oldest
+  # first, where the panel has PastChampions.
+  def test_past_champions_are_separate_opponents
+    reopen_writing do |writer|
+      writer.save_settings(writer.settings.merge('benchmark_champions' => '2'))
+      [4, 5, 6].each { |g| writer.save_state(g, { 'round' => 2, 'setup_complete' => true, 'players' => PLAYERS }) }
+      writer.record_benchmark_game(generation: 6, opponent: 'Gen2Champion', opening: 0, network_color: 'black',
+                                   network: 'a.ann', opponent_network: '2:c.ann', winner: 'network')
+    end
+    assert_equal %w[Brown AmiGo GnuGoLevel0 Gen0Champion Gen2Champion Gen4Champion], @stats.benchmark_opponents
+    benchmark = @stats.generation(6)[:benchmark]
+    assert_equal ['Brown', 'AmiGo', 'GnuGoLevel0', 'Gen0Champion', 'Gen2Champion', 'Gen4Champion'], benchmark.keys.grep(String)
+    assert_equal({ black: counts(win: 1), white: counts }, benchmark['Gen2Champion'])
+    assert_equal ['Brown', 'AmiGo', 'GnuGoLevel0', 'Gen0Champion', 'Gen2Champion'], @stats.generation(4)[:benchmark].keys.grep(String)
   end
 
   # Generations 0 and 2 played every round, but their benchmarks are not

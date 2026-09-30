@@ -93,13 +93,17 @@ show whether evolution makes progress. At every checkpoint (every
 `keep_every`-th generation, including generation 0; none when `keep_every` is
 0), after the tournament, the generation's top network plays a fixed panel:
 Brown, AmiGo, the three michi levels, GNU Go level 0, the top network of
-generation 0, and the top network of the previous checkpoint. Generation 0
-plays only the bots.
+generation 0, and the top networks of the last `benchmark_champions`
+checkpoints before it (a rolling set: older ones drop out, generation 0's
+stays). Each past champion is a separate opponent, `GenNChampion` for the
+checkpoint N. Generation 0 plays only the bots.
 
-Two settings control it:
+Three settings control it:
 
 - `benchmark_games` (default 20): games per opponent, an even number, half
   with each color.
+- `benchmark_champions` (default 10): how many past checkpoints' champions
+  each checkpoint plays, besides generation 0's.
 - `benchmark_opening_moves` (default 4): stones in each seeded opening. Every
   checkpoint plays the same openings, each once with each color, so
   checkpoints can be compared. With 0, the games against Brown, AmiGo, and
@@ -108,7 +112,8 @@ Two settings control it:
 
 The results are in the `benchmark_games` table of
 `experiments/EXPERIMENT_NAME/experiment.sqlite3`, one row per game, and
-`stats` shows them per checkpoint and opponent.
+`stats` shows them per checkpoint and opponent for the latest three
+checkpoints, the opponents the network did best against first.
 
 The panel is stored in each experiment's database (table
 `benchmark_opponents`) when the experiment is created. To use another panel,
@@ -117,7 +122,7 @@ the table before the first `mise run run`, for example
 `sqlite3 experiments/EXPERIMENT_NAME/experiment.sqlite3 "DELETE FROM benchmark_opponents WHERE name = 'GnuGoLevel0'"`,
 and leave it alone afterwards: a panel changed during a run makes its
 checkpoints incomparable. A bot row has `kind` `bot` and the `command` that
-starts it; `initial_champion` and `previous_checkpoint` rows have no command.
+starts it; `initial_champion` and `past_champions` rows have no command.
 
 ## Statistics
 

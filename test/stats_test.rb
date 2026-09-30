@@ -58,9 +58,11 @@ class StatsTest < Minitest::Test
     refute_includes out, "\e[2J", 'once mode does not clear the screen'
   end
 
-  # One row per checkpoint and opponent. Both checkpoints' benchmarks are
+  # One row per checkpoint and opponent, the opponents the network scored
+  # best against first (a draw half a win, failures left out), then those
+  # without a scored game, in panel order. Both checkpoints' benchmarks are
   # incomplete; generation 0 has played no game and plays only the bots.
-  def test_prints_the_benchmark_of_each_checkpoint_by_opponent
+  def test_prints_the_benchmark_of_each_checkpoint_by_opponent_weakest_first
     out, = stats('x')
     benchmark = out[out.index('Benchmark')..]
     header = cells(benchmark.lines.find { |l| l.include?('Network') })
@@ -68,7 +70,7 @@ class StatsTest < Minitest::Test
     rows = benchmark.lines.select { |l| l.match?(/\A\|\s*\d/) }.map { |l| cells(l) }
     assert_equal [%w[0 - Brown 0/4 0-0 0-0 0 0], %w[0 - AmiGo 0/4 0-0 0-0 0 0], %w[0 - GnuGoLevel0 0/4 0-0 0-0 0 0],
                   %w[2 c.ann Brown 2/4 0-0 1-0 0 1], %w[2 c.ann AmiGo 4/4 2-0 0-1 1 0],
-                  %w[2 c.ann GnuGoLevel0 0/4 0-0 0-0 0 0], %w[2 c.ann Gen0Champion 2/4 0-1 0-1 0 0]], rows
+                  %w[2 c.ann Gen0Champion 2/4 0-1 0-1 0 0], %w[2 c.ann GnuGoLevel0 0/4 0-0 0-0 0 0]], rows
   end
 
   TITLES = /\A(Generations|Genes|Feature weights|Shapes|Breeding|Networks against bots|Benchmark)/
@@ -214,8 +216,10 @@ class StatsTest < Minitest::Test
     end
   end
 
-  # Only the latest generations, and only the checkpoints among them.
-  def test_the_tables_show_only_the_latest_generations
+  # Only the latest generations, but the latest checkpoints' benchmarks
+  # even when their generations are older: with a checkpoint every 100
+  # generations, the latest 50 rows often hold none.
+  def test_the_tables_show_only_the_latest_generations_and_checkpoints
     database = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'), readonly: true)
     figures = ExperimentStats::Report.figures(ExperimentStats.new(database))
     database.close
@@ -224,10 +228,12 @@ class StatsTest < Minitest::Test
     assert_includes text, 'latest 3 of 4'
     generation_table, benchmark = text.split('Benchmark')
     assert_equal %w[1 2 3], generations.call(generation_table)
+    assert_equal %w[0 2], generations.call(benchmark)
+    generation_table, benchmark = ExperimentStats::Report.text(figures, limit: 1).split('Benchmark')
+    assert_equal %w[3], generations.call(generation_table)
+    assert_equal %w[0 2], generations.call(benchmark)
+    benchmark = ExperimentStats::Report.text(figures, limit: 1, checkpoints: 1).split('Benchmark').last
     assert_equal %w[2], generations.call(benchmark)
-    text = ExperimentStats::Report.text(figures, limit: 1)
-    assert_equal %w[3], generations.call(text)
-    refute_includes text, 'Benchmark'
   end
 
   DIM = "\e[3;90m".freeze
@@ -318,7 +324,9 @@ class StatsTest < Minitest::Test
   # has played so far.
   def test_csv_header_is_fixed_by_the_panel
     out, = stats('--csv', 'x')
-    benchmark = %w[Brown AmiGo GnuGoLevel0 Gen0Champion PreviousCheckpoint].flat_map do |opponent|
+    # No checkpoint here has a past champion (generation 2's would be
+    # generation 0), so PastChampions adds no columns yet.
+    benchmark = %w[Brown AmiGo GnuGoLevel0 Gen0Champion].flat_map do |opponent|
       %w[black white].flat_map { |color| %w[win loss draw failure].map { |result| "benchmark.#{opponent}.#{color}.#{result}" } }
     end
     assert_equal %w[
@@ -358,11 +366,9 @@ class StatsTest < Minitest::Test
     assert_nil rows[1]['benchmark.network']
     assert_nil rows[1]['benchmark.complete']
     assert_equal 'false', rows[2]['benchmark.complete']
-    # Generation 0 plays no Gen0Champion, and no checkpoint here plays the
-    # previous one.
+    # Generation 0 plays no Gen0Champion.
     assert_equal '0', rows[0]['benchmark.Brown.white.win']
     assert_nil rows[0]['benchmark.Gen0Champion.black.win']
-    assert_nil rows[2]['benchmark.PreviousCheckpoint.black.win']
     assert_equal '0', rows[0]['population.operators.crossover']
     assert_equal '3', rows[0]['population.operators.initial']
     assert_equal '0', rows[1]['population.operators.initial']
