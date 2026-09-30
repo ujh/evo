@@ -30,13 +30,13 @@ stop_early() {
       # Only main requires branches to be up to date, so only a PR based on
       # main is ever behind.
       printf 'PR %s is behind main. Update it with: gh pr update-branch %s && git pull\n' "$pr" "$pr" >&2
-      printf 'Then rerun the tests and run pr-checks again. Review again only if the merge had conflicts or brought in commits not yet reviewed (docs/pull-requests.md step 7).\n' >&2
+      printf 'Then rerun the tests and run pr-checks again. Review again unless docs/pull-requests.md step 7 exempts the merge.\n' >&2
       exit 1
       ;;
     CONFLICTS*)
       base=$(printf '%s' "$1" | cut -f 2)
       printf 'PR %s has merge conflicts with %s. Merge origin/%s locally, resolve them, and push.\n' "$pr" "$base" "$base" >&2
-      printf 'Then repeat the tests and review, and run pr-checks again.\n' >&2
+      printf 'Then repeat the tests, review again unless docs/pull-requests.md step 7 exempts the merge, and run pr-checks again.\n' >&2
       exit 1
       ;;
   esac
