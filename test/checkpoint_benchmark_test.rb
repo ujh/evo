@@ -111,11 +111,11 @@ class CheckpointBenchmarkTest < Minitest::Test
       # twogtp counts the opening's stones toward the move limit.
       assert_equal [%(gogui-twogtp -black "../evo benchmark/0-b.ann" -white "#{gnugo.call('black')}" ) +
                     %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed.call('black')}" -size 9 -komi 6.5 ) +
-                    '-auto -games 1 -sgffile benchmark/GnuGoLevel0-0-black -time 10 -force -maxmoves 204 ' \
+                    '-auto -games 1 -sgffile benchmark/GnuGoLevel0-0-black -time 600s -force -maxmoves 204 ' \
                     '-openings benchmark/openings/0 2> benchmark/GnuGoLevel0-0-black.err',
                     %(gogui-twogtp -black "#{gnugo.call('white')}" -white "../evo benchmark/0-b.ann" ) +
                     %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed.call('white')}" -size 9 -komi 6.5 ) +
-                    '-auto -games 1 -sgffile benchmark/GnuGoLevel0-0-white -time 10 -force -maxmoves 204 ' \
+                    '-auto -games 1 -sgffile benchmark/GnuGoLevel0-0-white -time 600s -force -maxmoves 204 ' \
                     '-openings benchmark/openings/0 2> benchmark/GnuGoLevel0-0-white.err'], commands
       assert_equal Openings.sgf(9, Openings.moves(1, 0, 9, 4)), File.read('benchmark/openings/0/opening.sgf')
     end
@@ -150,6 +150,18 @@ class CheckpointBenchmarkTest < Minitest::Test
       store_generations(0)
       commands = run_benchmark(0, settings: { 'komi' => -3.0 }).commands
       commands.each { |command| assert_includes command, ' -komi -3.0 ' }
+    end
+  end
+
+  # GoGui reads a bare -time as minutes; the setting is seconds. Without
+  # -time GNU Go plays a different game, so it is always passed.
+  def test_the_players_get_the_experiments_seconds_of_main_time
+    in_experiment do
+      only_opponents('Brown')
+      store_generations(0)
+      commands = run_benchmark(0, settings: { 'game_seconds' => 20 }).commands
+      assert_equal 2, commands.size
+      commands.each { |command| assert_includes command, ' -time 20s ' }
     end
   end
 

@@ -220,7 +220,7 @@ class StatsTest < Minitest::Test
     rows = CSV.parse(out, headers: true)
     assert_equal %w[0 1 2 3], rows.map { |r| r['generation'] }
     assert_equal %w[false true false false], rows.map { |r| r['finished'] }
-    assert_equal '3.75', rows[1]['tournament.game_seconds']
+    assert_equal '3.75', rows[1]['tournament.play_seconds']
     assert_equal '1', rows[1]['population.identical']
     assert_equal '2', rows[1]['population.operators.crossover']
     assert_equal '4', rows[1]['population.scores.median']
@@ -274,7 +274,7 @@ class StatsTest < Minitest::Test
       %w[black white].flat_map { |color| %w[win loss draw failure].map { |result| "benchmark.#{opponent}.#{color}.#{result}" } }
     end
     assert_equal %w[
-      generation finished tournament.games tournament.draws tournament.game_seconds
+      generation finished tournament.games tournament.draws tournament.play_seconds
       population.children population.operators.initial population.operators.crossover population.operators.mutation
       population.operators.copy
       population.identical population.distinct_parents population.unique_genomes

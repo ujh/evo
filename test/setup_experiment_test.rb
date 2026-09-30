@@ -12,7 +12,7 @@ class SetupExperimentTest < Minitest::Test
   include HotJournal
 
   REQUIRED = %w[--board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5
-                --game-length 10 --max-moves 200 --tournament-rounds 1].freeze
+                --game-seconds 600 --max-moves 200 --tournament-rounds 1].freeze
 
   # An answer to every prompt: board size 9, benchmark games 2, 1 for the
   # other required settings, and the default for the rest.
@@ -60,7 +60,7 @@ class SetupExperimentTest < Minitest::Test
     %w[--population-size abc], %w[--population-size 0],
     %w[--hidden-layers -1], %w[--layer-size 0],
     %w[--cross-over-rate 0,5], %w[--cross-over-rate 1.5], %w[--cross-over-rate -0.1],
-    %w[--game-length 0], %w[--max-moves 2.5], %w[--tournament-rounds ten], %w[--tournament-rounds 0],
+    %w[--game-seconds 0], %w[--game-seconds 1000001], %w[--game-seconds 0.5], %w[--game-seconds 20s], %w[--max-moves 2.5], %w[--tournament-rounds ten], %w[--tournament-rounds 0],
     %w[--tournament-size 0], %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808],
     %w[--benchmark-games 21], %w[--benchmark-games 0], %w[--benchmark-games -2], %w[--benchmark-games many],
     %w[--benchmark-games 4.0], %w[--benchmark-opening-moves -1], %w[--benchmark-opening-moves four],
@@ -147,6 +147,29 @@ class SetupExperimentTest < Minitest::Test
         error = assert_raises(ArgumentError, key) { SetupExperiment.settings(database) }
         assert_equal "#{key} is missing", error.message
       end
+    end
+  end
+
+  # The time setting is in seconds and has no default; an experiment still
+  # holding the minutes of game_length (before migration 014) does not load.
+  def test_the_game_seconds_are_required
+    error = assert_raises(ArgumentError) do
+      SetupExperiment.settings_from_arguments(REQUIRED - %w[--game-seconds 600])
+    end
+    assert_equal 'missing options: --game-seconds', error.message
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      settings = SetupExperiment.settings_from_arguments(REQUIRED)
+      database.save_settings(settings.except('game_seconds').merge('game_length' => 10))
+      error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+      assert_equal 'game_seconds is missing', error.message
+    end
+  end
+
+  def test_the_game_seconds_range_from_1_to_the_arenas_limit
+    [1, 20, 1_000_000].each do |seconds|
+      settings = SetupExperiment.settings_from_arguments(REQUIRED + %W[--game-seconds #{seconds}])
+      assert_equal seconds, settings['game_seconds']
     end
   end
 

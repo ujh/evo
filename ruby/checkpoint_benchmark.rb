@@ -140,7 +140,7 @@ class CheckpointBenchmark
     prefix = game.prefix
     %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "#{GameResult::REFEREE} --seed #{seed}" ) +
       %(-size #{settings['board_size']} -komi #{settings.fetch('komi')} -auto -games 1 -sgffile #{prefix} ) +
-      %(-time #{settings['game_length']} ) +
+      %(-time #{settings['game_seconds']}s ) +
       %(-force -maxmoves #{maxmoves}#{openings} 2> #{prefix}.err)
   end
 

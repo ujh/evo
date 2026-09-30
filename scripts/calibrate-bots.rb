@@ -2,7 +2,7 @@
 # Calibrates the tournament's bots in the tournament's own conditions: every
 # game goes through `arena --mixed` at 9x9, komi 6.5, max_moves 200, 60 s
 # main time per side, 10 s response deadline and grace (as the runner plays
-# game_length 1), each bot with its own per-game --seed (Seeds.with_bot_seed),
+# game_seconds 60), each bot with its own per-game --seed (Seeds.with_bot_seed),
 # both colors, one game per arena process, at most --lanes games at a time.
 #
 #   mise exec -- scripts/calibrate-bots.rb endings --out DIR [--budget S]

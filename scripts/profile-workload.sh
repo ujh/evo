@@ -75,7 +75,7 @@ case $workload in
     min_free_gib=2
     settings="--board-size 9 --population-size 50 --hidden-layers 1 --layer-size 100
       --max-hidden-layers 3 --max-layer-size 150 --features shapes,tactics,last_move,liberties
-      --cross-over-rate 0.5 --game-length 10 --max-moves 200 --tournament-rounds 10
+      --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 10
       --tournament-size 3 --keep-every 1 --benchmark-games 20 --benchmark-opening-moves 4
       --komi 6.5 --meta-rate 0.2 --initial-copy-chance 0.01 --initial-weight-changes 42.3128
       --initial-weight-step 0.5 --initial-activation-rate 0.05 --initial-structure-rate 0.1
@@ -88,7 +88,7 @@ case $workload in
     min_free_gib=15
     settings="--board-size 9 --population-size 1000 --hidden-layers 10 --layer-size 200
       --max-hidden-layers 100 --max-layer-size 1000 --features shapes,tactics,last_move,liberties
-      --cross-over-rate 0.4 --game-length 10 --max-moves 200 --tournament-rounds 10
+      --cross-over-rate 0.4 --game-seconds 600 --max-moves 200 --tournament-rounds 10
       --tournament-size 3 --keep-every 1 --benchmark-games 20 --benchmark-opening-moves 4
       --komi 6.5 --meta-rate 0.2 --initial-copy-chance 0.01 --initial-weight-changes 229.3128
       --initial-weight-step 0.5 --initial-activation-rate 0.02 --initial-structure-rate 0.02

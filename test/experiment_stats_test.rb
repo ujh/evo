@@ -68,12 +68,12 @@ class ExperimentStatsTest < Minitest::Test
 
   # The runner stores only games that counted, each with its duration.
   def test_tournament_counts_games_draws_and_time
-    assert_equal({ games: 4, draws: 1, game_seconds: 3.75 }, @stats.generation(1)[:tournament])
-    assert_equal({ games: 1, draws: 0, game_seconds: 0.5 }, @stats.generation(0)[:tournament])
+    assert_equal({ games: 4, draws: 1, play_seconds: 3.75 }, @stats.generation(1)[:tournament])
+    assert_equal({ games: 1, draws: 0, play_seconds: 0.5 }, @stats.generation(0)[:tournament])
   end
 
   def test_game_time_is_nil_without_games
-    assert_equal({ games: 0, draws: 0, game_seconds: nil }, @stats.generation(3)[:tournament])
+    assert_equal({ games: 0, draws: 0, play_seconds: nil }, @stats.generation(3)[:tournament])
   end
 
   def test_population_of_a_bred_generation

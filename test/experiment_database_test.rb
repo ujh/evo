@@ -174,6 +174,56 @@ class ExperimentDatabaseTest < Minitest::Test
     end
   end
 
+  # Migration 014: the time setting in seconds, game_length N minutes
+  # becoming game_seconds N x 60.
+  def with_settings_at_13(settings)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 13)
+      db[:settings].multi_insert(settings.map { |key, value| { key:, value: } })
+      db.disconnect
+      yield path
+    end
+  end
+
+  def test_migration_turns_the_game_length_in_minutes_into_seconds
+    { '1' => '60', '10' => '600' }.each do |minutes, seconds|
+      with_settings_at_13('board_size' => '9', 'game_length' => minutes) do |path|
+        store = ExperimentDatabase.new(path)
+        assert_equal({ 'board_size' => '9', 'game_seconds' => seconds }, store.settings)
+        store.close
+      end
+    end
+  end
+
+  def test_migration_leaves_a_fresh_database_without_settings
+    with_store { |store| assert_empty store.settings }
+  end
+
+  def test_migrating_down_turns_seconds_back_into_minutes
+    with_settings_at_13('game_length' => '10') do |path|
+      ExperimentDatabase.new(path).close
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 13)
+      assert_equal({ 'game_length' => '10' }, db[:settings].to_hash(:key, :value))
+      db.disconnect
+    end
+  end
+
+  def test_migrating_down_refuses_seconds_that_are_not_whole_minutes
+    with_settings_at_13('game_length' => '1') do |path|
+      store = ExperimentDatabase.new(path)
+      store.save_settings('game_seconds' => 90)
+      store.close
+      db = Sequel.sqlite(path)
+      error = assert_raises(RuntimeError) { Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 13) }
+      assert_includes error.message, '90'
+      assert_equal({ 'game_seconds' => '90' }, db[:settings].to_hash(:key, :value))
+      db.disconnect
+    end
+  end
+
   BIRTH = {
     generation: 2, child: '0.ann', first_parent: '../1/3.ann', second_parent: '../1/5.ann', operator: 'mutation',
     differs_from_first: 0, differs_from_second: 907, seed: 2**62 + 5, genome: 'ab' * 32,
