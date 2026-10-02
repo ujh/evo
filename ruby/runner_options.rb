@@ -30,6 +30,13 @@ class RunnerOptions
     raise Refused, "#{e.message}\n#{USAGE}"
   end
 
+  # The experiment's settings with this run's options, as RunExperiment
+  # reads them.
+  def run_settings(settings)
+    settings.merge('concurrency' => concurrency, 'one_generation' => one_generation,
+                   'until_generation' => until_generation)
+  end
+
   private
 
   def parser
@@ -49,6 +56,6 @@ class RunnerOptions
     number = Integer(value, 10, exception: false)
     return number if number && number >= minimum
 
-    raise Refused, "#{option} must be a whole number of at least #{minimum}, got #{value}"
+    raise Refused, "#{option} must be a whole number of at least #{minimum}, got #{value}\n#{USAGE}"
   end
 end

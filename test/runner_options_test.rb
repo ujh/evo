@@ -27,6 +27,14 @@ class RunnerOptionsTest < Minitest::Test
     assert_equal ['demo', 3, true], [options.name, options.concurrency, options.one_generation]
   end
 
+  def test_the_run_settings_carry_every_option
+    settings = { 'board_size' => 9, 'concurrency' => 'stored' }
+    assert_equal({ 'board_size' => 9, 'concurrency' => 5, 'one_generation' => false, 'until_generation' => 300 },
+                 parse('demo', '--concurrency', '5', '--until-generation', '300').run_settings(settings))
+    assert_equal({ 'board_size' => 9, 'concurrency' => 2, 'one_generation' => true, 'until_generation' => nil },
+                 parse('demo', '--one-generation').run_settings(settings))
+  end
+
   def test_until_generation_zero_is_allowed
     assert_equal 0, parse('demo', '--until-generation', '0').until_generation
   end

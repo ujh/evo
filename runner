@@ -18,9 +18,7 @@ experiment_dir = "experiments/#{options.name}"
 
 begin
   SetupExperiment.call(experiment_dir) do |settings, database|
-    run_settings = settings.merge('concurrency' => options.concurrency, 'one_generation' => options.one_generation,
-                                  'until_generation' => options.until_generation)
-    RunExperiment.call(run_settings, database)
+    RunExperiment.call(options.run_settings(settings), database)
   end
 rescue SetupExperiment::PromptAborted => e
   warn "\n#{e.message}. Nothing was saved; start again, or create the experiment with mise run new-experiment."
