@@ -200,7 +200,7 @@ So the order is Brown < AmiGo < MichiWeak < MichiMid < MichiStrong < GnuGo, each
 - Brown (81–100 wins), MichiStrong and GNU Go level 0 (0–3 wins) separate neither run.
 - At equal compute the 20-round champions win more against all three bots at every checkpoint; 57 against 39 wins of 100 against AmiGo is about z = 2.5 on its own. `stats` puts `rounds20`'s champions at 55–92 Elo above AmiGo and `even-bigger2`'s at 52–89 below.
 - Already generation 0's champion, picked from the same population, is better with 20 rounds (Brown 95 against 81), as the reliabilities above predict.
-- Both runs stop improving after generation 100: `even-bigger2`'s champions win 34–39 against AmiGo from then on, `rounds20`'s 56–57. The whole gap opened in the first 100 generations, which one lucky early lineage could also explain, so a second seed (`seed2-rounds10` and `seed2-rounds20`, seed 2246017379882995802) has to repeat it before 20 rounds becomes the default.
+- Both runs stop improving after generation 100: `even-bigger2`'s champions win 34–39 against AmiGo from then on, `rounds20`'s 56–57. The whole gap opened in the first 100 generations, which one lucky early lineage could also explain, so a second seed (`seed2-rounds10`, `seed2-rounds20`, and `seed2-rounds40` with 40 rounds, seed 2246017379882995802) has to repeat it before 20 rounds becomes the default.
 
 ## Benchmark
 
