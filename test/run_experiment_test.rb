@@ -149,6 +149,26 @@ class RunExperimentTest < Minitest::Test
     assert_equal ['2'], generations_run(database_with_generations(2, round: 1), { '2' => :already_done }, until_settings(2))
   end
 
+  # A run that has not reached its until generation yet still catches up
+  # the earlier checkpoints, as after benchmark_games was raised.
+  def test_a_run_until_a_later_generation_catches_up_earlier_checkpoints
+    benchmarked = []
+    benchmark = lambda do |generation, _settings, _pool, _store, heading:|
+      benchmarked << generation
+      false
+    end
+    called = nil
+    Dir.mktmpdir do |dir|
+      Dir.chdir(dir) do
+        with_benchmark(benchmark) do
+          called = generations_run(database_with_generations(2), {}, until_settings(4).merge('keep_every' => 1))
+        end
+      end
+    end
+    assert_equal [0, 1], benchmarked
+    assert_equal %w[2 3 4], called
+  end
+
   # The until generation is behind the database: nothing to run, and no
   # checkpoint is caught up either.
   def test_a_run_until_a_generation_already_passed_runs_nothing
