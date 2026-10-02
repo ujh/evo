@@ -3,7 +3,7 @@ set -eu
 
 # Profiles one of the two fixed workloads of docs/performance.md
 # ("Fixed workloads"): creates the workload's experiment, runs generations
-# 0 and 1 as two `mise run run NAME CONCURRENCY one-generation`
+# 0 and 1 as two `mise run run NAME --concurrency N --one-generation`
 # invocations, records per invocation the command line, the runner's
 # timings line, wall time, peak RSS, the runner's CPU time and GC totals,
 # game counts, disk use, and the arena's load time over the generation's
@@ -313,14 +313,14 @@ run_generation() {
   samples="$results.gen$generation.samples"
   status_file="$results.gen$generation.status"
   : > "$samples"
-  command="mise run run $name $concurrency one-generation"
+  command="mise run run $name --concurrency $concurrency --one-generation"
 
   sh -c "$sampler" sampler "$$" "$samples" &
   sampler_pid=$!
   start=$(date +%s)
   { EVO_PROFILE="$profile" STATUS="$status_file" /usr/bin/time "$time_flag" \
       sh -c '"$@" 2>&1; s=$?; echo "$s" > "$STATUS"; exit "$s"' sh \
-      mise run run "$name" "$concurrency" one-generation | tee "$log"; } 2> "$times" || true
+      mise run run "$name" --concurrency "$concurrency" --one-generation | tee "$log"; } 2> "$times" || true
   end=$(date +%s)
   kill "$sampler_pid" 2>/dev/null || true
   wait "$sampler_pid" 2>/dev/null || true

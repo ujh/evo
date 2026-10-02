@@ -82,8 +82,9 @@ set how generation 0's feature weights start. [Go features](docs/features.md)
 explains each feature, how the network uses it, and what a comparison with
 a stones-only run showed.
 
-You can pass the existing runner arguments after the name, for example
-`mise run run EXPERIMENT_NAME 2 one-generation`. `mise run` supplies the pinned
+You can pass the runner's options after the name, for example
+`mise run run EXPERIMENT_NAME --concurrency 2 --one-generation`, or
+`--until-generation 100` to stop once generation 100 is finished. `mise run` supplies the pinned
 Ruby and Java versions even without shell activation.
 
 ## Benchmark

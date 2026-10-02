@@ -17,13 +17,15 @@ class RunExperimentTest < Minitest::Test
     RunGeneration.define_singleton_method(:call, original)
   end
 
-  def generations_run(database, results)
+  def generations_run(database, results, settings = SETTINGS, capture: true)
     called = []
     stub = lambda do |generation, _settings, _pool, _store|
       called << generation
       results.fetch(generation, nil)
     end
-    with_generation(stub) { capture_io { RunExperiment.call(SETTINGS, database) } }
+    with_generation(stub) do
+      capture ? capture_io { RunExperiment.call(settings, database) } : RunExperiment.call(settings, database)
+    end
     called
   end
 
@@ -121,6 +123,65 @@ class RunExperimentTest < Minitest::Test
 
   def test_a_new_experiment_starts_at_generation_zero
     assert_equal ['0'], generations_run(ExperimentDatabase.new(':memory:'), {})
+  end
+
+  def database_with_generations(last, round: 0)
+    database = ExperimentDatabase.new(':memory:')
+    (0..last).each { |g| database.save_state(g, { 'round' => round, 'players' => {}, 'ranking' => [], 'games' => [] }) }
+    database
+  end
+
+  def until_settings(last)
+    SETTINGS.merge('one_generation' => false, 'until_generation' => last)
+  end
+
+  def test_a_run_until_a_generation_stops_after_that_generation
+    assert_equal %w[0 1 2], generations_run(ExperimentDatabase.new(':memory:'), {}, until_settings(2))
+  end
+
+  # The last generation in the database is finished, so the run moves on
+  # and stops after the until generation.
+  def test_a_resumed_run_until_a_generation_runs_up_to_it
+    assert_equal %w[2 3 4], generations_run(database_with_generations(2, round: 1), { '2' => :already_done }, until_settings(4))
+  end
+
+  def test_a_run_until_the_finished_last_generation_runs_no_new_one
+    assert_equal ['2'], generations_run(database_with_generations(2, round: 1), { '2' => :already_done }, until_settings(2))
+  end
+
+  # A run that has not reached its until generation yet still catches up
+  # the earlier checkpoints, as after benchmark_games was raised.
+  def test_a_run_until_a_later_generation_catches_up_earlier_checkpoints
+    benchmarked = []
+    benchmark = lambda do |generation, _settings, _pool, _store, heading:|
+      benchmarked << generation
+      false
+    end
+    called = nil
+    Dir.mktmpdir do |dir|
+      Dir.chdir(dir) do
+        with_benchmark(benchmark) do
+          called = generations_run(database_with_generations(2), {}, until_settings(4).merge('keep_every' => 1))
+        end
+      end
+    end
+    assert_equal [0, 1], benchmarked
+    assert_equal %w[2 3 4], called
+  end
+
+  # The until generation is behind the database: nothing to run, and no
+  # checkpoint is caught up either.
+  def test_a_run_until_a_generation_already_passed_runs_nothing
+    benchmark = ->(*_args, **_opts) { flunk 'caught up a checkpoint' }
+    called = nil
+    out = nil
+    with_benchmark(benchmark) do
+      out, = capture_io do
+        called = generations_run(database_with_generations(5), {}, until_settings(3).merge('keep_every' => 1), capture: false)
+      end
+    end
+    assert_empty called
+    assert_match(/Generation 5 is past generation 3, the last to run; nothing to do\./, out)
   end
 
   # A stop prints its report and exits 1, not 130 and with no backtrace,

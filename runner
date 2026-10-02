@@ -5,26 +5,20 @@ require_relative "ruby/all"
 # scripts/profile-workload.sh reads the runner's CPU time and GC totals from here.
 ProcessProfile.install(ENV["EVO_PROFILE"]) unless ENV.fetch("EVO_PROFILE", "").empty?
 
-experiment_name = ARGV[0]
-concurrency = Integer(ARGV[1] || 2, exception: false)
-one_generation = ARGV[2] == "one-generation"
-
-if experiment_name.nil?
-  puts "Name of experiment required as argument!"
-  exit 1
-end
-if concurrency.nil? || concurrency < 1
-  puts "Concurrency must be a whole number of at least 1, got #{ARGV[1]}"
+begin
+  options = RunnerOptions.parse(ARGV)
+rescue RunnerOptions::Refused => e
+  puts e.message
   exit 1
 end
 
 $stop_now = false
 
-experiment_dir = "experiments/#{experiment_name}"
+experiment_dir = "experiments/#{options.name}"
 
 begin
   SetupExperiment.call(experiment_dir) do |settings, database|
-    RunExperiment.call(settings.merge('concurrency' => concurrency, 'one_generation' => one_generation), database)
+    RunExperiment.call(options.run_settings(settings), database)
   end
 rescue SetupExperiment::PromptAborted => e
   warn "\n#{e.message}. Nothing was saved; start again, or create the experiment with mise run new-experiment."

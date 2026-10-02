@@ -77,7 +77,7 @@ description = "Check external programs needed to run experiments"
 run = "sh scripts/check-runtime-dependencies.sh"
 
 [tasks.run]
-description = "Run or resume an experiment: mise run run NAME [CONCURRENCY [one-generation]]"
+description = "Run or resume an experiment: mise run run NAME [--concurrency N] [--one-generation | --until-generation G]"
 depends = ["doctor"]
 run = "./runner"
 raw = true

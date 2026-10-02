@@ -16,6 +16,13 @@ class RunExperiment
     puts "*** Settings ***"
     puts JSON.pretty_generate(settings)
 
+    generation = start_generation
+    last = settings['until_generation']
+    if last && generation > last
+      puts "Generation #{generation} is past generation #{last}, the last to run; nothing to do."
+      return
+    end
+
     pool = WorkerPool.new(settings['concurrency'])
     # Ctrl-C reaches the running games too, and they stop. The runner checks
     # the flag between games, and the pool starts no queued game after it.
@@ -26,10 +33,13 @@ class RunExperiment
       $stop_now = true
       pool.halt
     end
-    generation = start_generation
     catch_up_benchmarks(generation, pool)
     loop do
       r = RunGeneration.call(generation.to_s, settings, pool, store)
+      # until_generation is the last generation to finish, its benchmark
+      # included.
+      break if last && generation >= last
+
       generation += 1
       break if settings['one_generation'] && (r != :already_done)
     end
