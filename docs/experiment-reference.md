@@ -180,7 +180,27 @@ So the order is Brown < AmiGo < MichiWeak < MichiMid < MichiStrong < GnuGo, each
 - **Wins vs rating:** the win count orders the networks much as the rating fit of the same games does (Spearman 0.94–0.95), but ties are many (at generation 235, 116 networks share 7 wins, the score at which the top 50 is cut), and selection breaks them at random. Of the stored ranking's top 50, only 29–35 are in the fit's top 50.
 - **Colour:** White wins 56–63 % of tournament games, but each network's colours even out enough over 10 games that its number of games as White explains 1–7 % of the spread in win counts.
 - The spread of win counts (standard deviation 1.49 at generation 235) is close to that of 10 coin flips (1.58): the Swiss pairing keeps every network near 50 %, so the spread itself says little about skill.
-- What this means for selection is a prediction, not a measurement. Under the breeder's equation the gain per generation grows with the square root of the reliability of what selection ranks by. With the win count's reliability taken as 0.94² of the fit's at any length, 20 rounds would select about 14–15 % better per generation than 10 (√0.65 against √0.49 at generation 235, √0.68 against √0.52 at generation 20) at twice the tournament's cost, so less per unit of compute. The rating fit instead of the win count would select about 6 % better (1/0.94, from the same assumption) at no cost in games. Only a run can tell (`PROJECT_NOTES.md`).
+- What this means for selection is a prediction, not a measurement. Under the breeder's equation the gain per generation grows with the square root of the reliability of what selection ranks by. With the win count's reliability taken as 0.94² of the fit's at any length, 20 rounds would select about 14–15 % better per generation than 10 (√0.65 against √0.49 at generation 235, √0.68 against √0.52 at generation 20) at twice the tournament's cost, so less per unit of compute. The rating fit instead of the win count would select about 6 % better (1/0.94, from the same assumption) at no cost in games. The first run of 20 against 10 rounds follows.
+
+### 10 against 20 rounds, first seed
+
+`rounds20` repeats `even-bigger2` with `tournament_rounds` 20 and every other setting the same, the seed included, so both start from the same generation 0. Its tournament games add up to about 19 h per 100 generations, against about 10.4 h for `even-bigger2` (summed `games.duration`, so worker time, not wall time; breeding and the benchmark cost the same per generation in both, so the wall-time ratio is a little under 2). Equal compute therefore pairs `rounds20`'s generation N with `even-bigger2`'s 2N. The checkpoint champions' benchmark wins out of 100 (2 Oct 2026, `rounds20` at generation 303, `even-bigger2` at 518):
+
+| Summed tournament hours | Champion | AmiGo | MichiWeak | MichiMid |
+| --- | --- | ---: | ---: | ---: |
+| 0 | `even-bigger2` generation 0 | 0 | 2 | 1 |
+| 0 | `rounds20` generation 0 | 1 | 5 | 0 |
+| 20 | `even-bigger2` generation 200 | 39 | 30 | 6 |
+| 20 | `rounds20` generation 100 | 57 | 46 | 18 |
+| 41 | `even-bigger2` generation 400 | 34 | 30 | 5 |
+| 39 | `rounds20` generation 200 | 57 | 45 | 18 |
+| 52 | `even-bigger2` generation 500 | 39 | 27 | 7 |
+| 58 | `rounds20` generation 300 | 56 | 53 | 19 |
+
+- Brown (81–100 wins), MichiStrong and GNU Go level 0 (0–3 wins) separate neither run.
+- At equal compute the 20-round champions win more against all three bots at every checkpoint; 57 against 39 wins of 100 against AmiGo is about z = 2.5 on its own. `stats` puts `rounds20`'s champions at 55–92 Elo above AmiGo and `even-bigger2`'s at 52–89 below.
+- Already generation 0's champion, picked from the same population, is better with 20 rounds (Brown 95 against 81), as the reliabilities above predict.
+- Both runs stop improving after generation 100: `even-bigger2`'s champions win 34–39 against AmiGo from then on, `rounds20`'s 56–57. The whole gap opened in the first 100 generations, which one lucky early lineage could also explain, so a second seed (`seed2-rounds10` and `seed2-rounds20`, seed 2246017379882995802) has to repeat it before 20 rounds becomes the default.
 
 ## Benchmark
 
