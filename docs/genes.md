@@ -474,7 +474,7 @@ mise run new-experiment demo --board-size 9 --population-size 12 --hidden-layers
   --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 3 --keep-every 2 \
   --benchmark-games 2 --benchmark-bot-games 0 --initial-structure-rate 0.3 --initial-activation-rate 0.2 \
   --max-hidden-layers 3 --max-layer-size 20 --seed 4242
-for i in 1 2 3 4 5 6; do mise run run demo 4 one-generation; done
+for i in 1 2 3 4 5 6; do mise run run demo --concurrency 4 --one-generation; done
 mise run stats demo
 ```
 

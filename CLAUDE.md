@@ -16,7 +16,7 @@ Use mise: it pins Ruby, Java, and jq and adds the local Go tools to `PATH`. For 
 | C and Ruby tests | `mise run test` (or `test-c`, `test-ruby`) |
 | Full CI-equivalent check | `mise run verify` |
 | Create an experiment without prompts | `mise run new-experiment NAME --board-size 9 ...` |
-| Run or resume an experiment | `mise run run NAME [CONCURRENCY [one-generation]]` |
+| Run or resume an experiment | `mise run run NAME [--concurrency N] [--one-generation \| --until-generation G]` |
 
 `mise run example` opens a GoGui window; do not use it headless.
 
