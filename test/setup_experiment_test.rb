@@ -43,6 +43,11 @@ class SetupExperimentTest < Minitest::Test
     assert_equal SetupExperiment::SETTINGS.keys.sort, settings.keys.sort
   end
 
+  def test_the_tournament_plays_20_rounds_by_default
+    settings = SetupExperiment.settings_from_arguments(REQUIRED.each_slice(2).reject { |flag, _| flag == '--tournament-rounds' }.flatten)
+    assert_equal 20, settings['tournament_rounds']
+  end
+
   def test_an_argument_overrides_a_default
     assert_equal 5, SetupExperiment.settings_from_arguments(REQUIRED + %w[--tournament-size 5])['tournament_size']
   end
@@ -401,8 +406,9 @@ class SetupExperimentTest < Minitest::Test
   end
 
   def test_a_missing_required_setting_is_named
-    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(REQUIRED[0..-3]) }
-    assert_includes error.message, '--tournament-rounds'
+    arguments = REQUIRED.each_slice(2).reject { |flag, _| flag == '--max-moves' }.flatten
+    error = assert_raises(ArgumentError) { SetupExperiment.settings_from_arguments(arguments) }
+    assert_includes error.message, '--max-moves'
   end
 
   def test_an_unknown_setting_is_named

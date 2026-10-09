@@ -102,7 +102,9 @@ class SetupExperiment
     # The arena takes at most 10^6 s of main time.
     'game_seconds' => ['Time per player per game, in seconds', nil, integer(1, 1_000_000)],
     'max_moves' => ['Max moves', nil, integer(1)],
-    'tournament_rounds' => ['Rounds (tournament)', nil, integer(1)],
+    # 20 beat 10 at equal compute with two seeds, and 40 beat neither
+    # (docs/experiment-reference.md, "10, 20 and 40 rounds").
+    'tournament_rounds' => ['Rounds (tournament)', '20', integer(1)],
     'tournament_size' => ['Tournament size for parent selection', '3', integer(1)],
     'keep_every' => ['Keep the SGFs and the champion network of every Nth generation (0 for never)', '10', integer(0)],
     'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }, integer(0, (2**63) - 1)],
