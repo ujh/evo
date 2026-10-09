@@ -27,6 +27,7 @@ Use mise: it pins Ruby, Java, and jq and adds the local Go tools to `PATH`. For 
 - [Performance measurements](docs/performance.md): measured costs and historical experiments. Read before optimizing.
 - [Go features](docs/features.md): feature design, groups, weights, and comparison results.
 - [The evolving genome](docs/genes.md): genes, mutation, crossover, structure, and run interpretation.
+- [Literature](docs/literature.md): self-adaptation, noisy selection, elitism, and evolving game players; read before changing breeding or selection.
 - [GTP version 2 specification](docs/gtp/README.md): the protocol evo and the bot controller speak; grep `gtp2-spec.txt`.
 - [PR workflow](docs/pull-requests.md) and [larger change workflow](docs/orchestration.md): follow when preparing the corresponding work.
 
