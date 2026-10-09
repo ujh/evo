@@ -81,6 +81,24 @@ Many settings rest on assumptions nobody has checked: the tournament size, wheth
 
 A network always plays its highest-scoring allowed move, so the same two networks with the same colors play the same game every time, and a tie between saturated outputs always goes the same way (usually a pass). Repeat pairings in the tournament and benchmark games without openings therefore add no information.
 
+**Measured: repeated games grow as the population fills with clones** (9 Oct 2026). At a checkpoint the tournament keeps every game's SGF, so repeats are a query: a game repeats when another game of the same generation had the same move sequence (`substr(sgf, instr(sgf, ';B['))`). It is a **clone repeat** when the other game had a different pairing (black and white player, a bot's copies counted as one bot through `players.opponent`), and a **rematch** when the same pairing met again, which the tournament allows. Clone repeats, then rematches, as shares of the games of each kind:
+
+| Games repeated | `seed2-rounds20` gen 100 | gen 400 | `seed2-rounds40` gen 100 | gen 400 |
+| --- | ---: | ---: | ---: | ---: |
+| network against network | 0.3 % + 0.8 % | 11.6 % + 0.6 % | 1.9 % + 1.5 % | 22.4 % + 1.5 % |
+| against AmiGo | 0 % + 10.7 % | 11.6 % + 5.6 % | 4.9 % + 10.8 % | 25.0 % + 13.8 % |
+| against Brown | 0 % + 16.7 % | 8.3 % + 8.3 % | 0 % + 25.3 % | 2.0 % + 39.0 % |
+| against GNU Go | 0 % | 0 % | 0 % + 3.7 % (1 of 27) | 3.7 % + 0 % (1 of 27) |
+| against michi | 0 % | 0 % | 0 % | 0 % |
+
+michi and GNU Go nearly always vary through their per-game seeds; networks, AmiGo and Brown do not. Two different pairings play the same game only if the networks move alike, so clone repeats count behavioural clones: they grow over time and with more rounds, as the mutation genes shrink (item 3), and reach 16.7 % (20 rounds) and 35.8 % (40 rounds) of the network games at generation 500. Against AmiGo, from generation 100–300 on different networks also repeat each other's games, so a lineage keeps winning or losing with one line per colour, which the benchmark's openings do not reward. Rematches, as a share most often a network meeting another copy of AmiGo or Brown with the same colour, replay a known game and add nothing.
+
+**Proposed: random openings in the tournament, before any temperature.** Start each tournament game from an opening as the benchmark does (`benchmark_opening_moves` stones from the seed), drawn per game, so clone pairs and games against AmiGo and Brown differ while every network still plays its best move. It makes the tournament and the benchmark alike, which the owner prefers, and it is the arena support for openings that moving the benchmark into the arena needs (above). Unlike temperature it does not make a result partly luck or weaken play on purpose. Neither adds more than one distinct game's information: at generation 500 of the 20-round run, repeats cost about 17 % of the network games. Compare a run with openings against `seed2-rounds20` (same seed, 20 rounds, only the openings changed), apart from the `meta_rate` 0 run.
+
+**Proposed: show the clone-repeat share in `stats`**, per generation that kept its SGFs, as a cheap measure of behavioural diversity: does `meta_rate` 0 or elitism keep the population more varied? Count rematches apart, since they depend on the rounds and the pairing, not on diversity.
+
+The temperature idea below stays for later (owner, 9 Oct 2026: openings first).
+
 **Idea to think about:** make the move choice a little random with a temperature parameter: pick among the allowed moves with probability proportional to `exp(score / T)`, so T near 0 comes close to today's behavior (except that today a tie goes to the pass or the lower index, while sampling would split it) and a larger T plays more varied moves. Questions before building it:
 
 - Where the randomness comes from: a per-game seed passed to `evo` and the arena, derived from the experiment seed like the GNU Go seeds, so runs stay reproducible.
