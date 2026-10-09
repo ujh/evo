@@ -181,9 +181,13 @@ So the order is Brown < AmiGo < MichiWeak < MichiMid < MichiStrong < GnuGo, each
 - **Wins vs rating:** the win count orders the networks much as the rating fit of the same games does (Spearman 0.94–0.95), but ties are many (at generation 235, 116 networks share 7 wins, the score at which the top 50 is cut), and selection breaks them at random. Of the stored ranking's top 50, only 29–35 are in the fit's top 50.
 - **Colour:** White wins 56–63 % of tournament games, but each network's colours even out enough over 10 games that its number of games as White explains 1–7 % of the spread in win counts.
 - The spread of win counts (standard deviation 1.49 at generation 235) is close to that of 10 coin flips (1.58): the Swiss pairing keeps every network near 50 %, so the spread itself says little about skill.
-- What this means for selection is a prediction, not a measurement. Under the breeder's equation the gain per generation grows with the square root of the reliability of what selection ranks by. With the win count's reliability taken as 0.94² of the fit's at any length, 20 rounds would select about 14–15 % better per generation than 10 (√0.65 against √0.49 at generation 235, √0.68 against √0.52 at generation 20) at twice the tournament's cost, so less per unit of compute. The rating fit instead of the win count would select about 6 % better (1/0.94, from the same assumption) at no cost in games. The first run of 20 against 10 rounds follows.
+- What this means for selection is a prediction, not a measurement. Under the breeder's equation the gain per generation grows with the square root of the reliability of what selection ranks by. With the win count's reliability taken as 0.94² of the fit's at any length, 20 rounds would select about 14–15 % better per generation than 10 (√0.65 against √0.49 at generation 235, √0.68 against √0.52 at generation 20) at twice the tournament's cost, so less per unit of compute. The rating fit instead of the win count would select about 6 % better (1/0.94, from the same assumption) at no cost in games. The runs of 10, 20 and 40 rounds follow.
 
-### 10 against 20 rounds, first seed
+### 10, 20 and 40 rounds
+
+`tournament_rounds` defaults to 20 since 9 Oct 2026, from the two seeds below: 20 rounds beat 10 at equal compute with both, and 40 beat neither 10 nor 20.
+
+#### First seed: 10 against 20
 
 `rounds20` repeats `even-bigger2` with `tournament_rounds` 20 and every other setting the same, the seed included, so both start from the same generation 0. Its tournament games add up to about 19 h per 100 generations, against about 10.4 h for `even-bigger2` (summed `games.duration`, so worker time, not wall time; breeding and the benchmark cost the same per generation in both, so the wall-time ratio is a little under 2). Equal compute therefore pairs `rounds20`'s generation N with `even-bigger2`'s 2N. The checkpoint champions' benchmark wins out of 100 (2 Oct 2026, `rounds20` at generation 303, `even-bigger2` at 518):
 
@@ -202,6 +206,35 @@ So the order is Brown < AmiGo < MichiWeak < MichiMid < MichiStrong < GnuGo, each
 - At equal compute the 20-round champions win more against all three bots at every checkpoint; 57 against 39 wins of 100 against AmiGo is about z = 2.5 on its own. `stats` puts `rounds20`'s champions at 55–92 Elo above AmiGo and `even-bigger2`'s at 52–89 below.
 - Already generation 0's champion, picked from the same population, is better with 20 rounds (Brown 95 against 81), as the reliabilities above predict.
 - Both runs stop improving after generation 100: `even-bigger2`'s champions win 34–39 against AmiGo from then on, `rounds20`'s 56–57. The whole gap opened in the first 100 generations, which one lucky early lineage could also explain, so a second seed (`seed2-rounds10`, `seed2-rounds20`, and `seed2-rounds40` with 40 rounds, seed 2246017379882995802) has to repeat it before 20 rounds becomes the default.
+
+#### Second seed: 10, 20 and 40
+
+`seed2-rounds10`, `seed2-rounds20` and `seed2-rounds40` (seed 2246017379882995802, `even-bigger2`'s settings otherwise, so all three start from the same generation 0) ran to generation 500. Their tournament games add up to about 10.5, 18 and 38 h per 100 generations. The checkpoint champions' benchmark wins out of 100, and their rating in Elo above AmiGo from each experiment's own `stats` fit (9 Oct 2026):
+
+| Summed tournament hours | Champion | AmiGo | MichiWeak | MichiMid | All three, of 300 | Rating |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | generation 0 (10, 20, 40 rounds) | 2, 5, 3 | 4, 1, 4 | 0, 0, 0 | 6, 6, 7 | −616, −506, −607 |
+| 10 | 10 rounds, generation 100 | 33 | 22 | 2 | 57 | −94 |
+| 18 | 20 rounds, generation 100 | 18 | 28 | 5 | 51 | −227 |
+| 21 | 10 rounds, generation 200 | 36 | 29 | 3 | 68 | −88 |
+| 31 | 10 rounds, generation 300 | 21 | 20 | 1 | 42 | −102 |
+| 36 | 20 rounds, generation 200 | 43 | 45 | 13 | 101 | 14 |
+| 38 | 40 rounds, generation 100 | 31 | 35 | 9 | 75 | −107 |
+| 42 | 10 rounds, generation 400 | 39 | 20 | 8 | 67 | −68 |
+| 52 | 10 rounds, generation 500 | 48 | 32 | 3 | 83 | −50 |
+| 55 | 20 rounds, generation 300 | 54 | 39 | 9 | 102 | 16 |
+| 72 | 20 rounds, generation 400 | 52 | 45 | 12 | 109 | 45 |
+| 76 | 40 rounds, generation 200 | 34 | 36 | 8 | 78 | −36 |
+| 90 | 20 rounds, generation 500 | 48 | 50 | 16 | 114 | 69 |
+| 114 | 40 rounds, generation 300 | 37 | 40 | 9 | 86 | −54 |
+| 152 | 40 rounds, generation 400 | 37 | 37 | 8 | 82 | −32 |
+| 189 | 40 rounds, generation 500 | 38 | 47 | 9 | 94 | −48 |
+
+- Brown (91–100 wins after generation 0), MichiStrong and GNU Go level 0 (0–4 wins) separate none of the runs.
+- From about 36 summed hours on, the 20-round run leads at every equal-compute point: 101 against 67 of 300 for 10 rounds at 36–42 h (about z = 3), 102 against 83 at 52–55 h. Unlike the first seed, 10 rounds led at about 20 h and the gap opened in the 20-round run's generations 100–300, so the effect does not hang on one early lineage.
+- 40 rounds is beaten at equal compute and, from generation 200 on, even at equal generations (78 against 101 of 300 at generation 200, 94 against 114 at 500). It leads only at generation 100 (75 against 51), at twice the cost.
+- The round count also decides how reliably the champion is picked, and the benchmark plays only the champion: the 10-round run's dip at generation 300 (42 of 300) fits a poor pick better than a worse population.
+- Only the 40-round run is clearly flat after generation 200 (ratings −36 to −54). The 20-round champions' rating still rises at generation 500 (14, 16, 45, 69 at generations 200–500), and the 10-round run's from generation 300 (−102 to −50). Meanwhile the mutation genes shrink: `weight_step`'s median fell from 0.5 to 0.018 with 10 rounds, 0.006 with 20, and 0.0004 with 40 (at generation 500), the less noisy the tournament the further. `PROJECT_NOTES.md` has the open question.
 
 ## Benchmark
 
