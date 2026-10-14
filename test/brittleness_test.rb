@@ -45,7 +45,7 @@ class BrittlenessTest < Minitest::Test
   # behind a bot, with the given genes, and its benchmark games against
   # `opponents` on `openings` openings, won or lost as `stored` says.
   def make_experiment(genes: {}, opponents: %w[AmiGo MichiWeak], openings: 2, stored: ->(*) { 'network' },
-                      length: ->(*) { 93 })
+                      length: ->(*) { 93 }, referee: nil)
     db = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'))
     db.save_settings(SETTINGS.merge('benchmark_games' => 2 * openings, 'seed' => SEED))
     db.save_benchmark_opponents(SetupExperiment::DEFAULT_BENCHMARK)
@@ -56,7 +56,8 @@ class BrittlenessTest < Minitest::Test
     opponents.product((0...openings).to_a, %w[black white]) do |opponent, opening, color|
       winner = stored.call(opponent, opening, color)
       # As the fixtures black_wins and white_wins have it.
-      referee_result = (color == 'black') == (winner == 'network') ? 'B+R' : 'W+22.5'
+      referee_result = referee&.call(opponent, opening, color) ||
+                       ((color == 'black') == (winner == 'network') ? 'B+R' : 'W+22.5')
       db.record_benchmark_game(generation: GEN, opponent:, opening:, network_color: color, network: 'c.ann',
                                winner:, length: length.call(opponent, opening, color), referee_result:)
     end
@@ -311,6 +312,34 @@ class BrittlenessTest < Minitest::Test
     assert_equal 4, results[:selections].count
   end
 
+  # A screen game that fails on every run keeps the re-test waiting until
+  # --accept-failures lets it go ahead with the failure counted as a loss;
+  # the option is not one of the run's stored options.
+  def test_accept_failures_lets_the_retest_go_ahead
+    make_experiment
+    failing = lambda do |game|
+      game.phase == 'screen' && game.player.child == 1 && game.player.step == '0.5' &&
+        [game.opponent, game.opening, game.color] == ['MichiWeak', 0, 'black']
+    end
+    fixture = ->(game) { 'no_referee_score' if failing.call(game) }
+    brittleness(fixture:)
+    assert_match(/add --accept-failures/, @printed)
+    @results = nil
+    pool = brittleness(fixture:)
+    assert_equal 1, pool.identifiers.size
+    assert_empty results[:selections].all
+    @results = nil
+    pool = brittleness('--accept-failures', fixture:)
+    assert_equal 1 + 40, pool.identifiers.size
+    assert_equal 4, results[:selections].count
+    assert_match(/chosen while 1 screen games had failed, counted as losses \(--accept-failures\)/, @printed)
+    # Once chosen, the children stay, and the re-test no longer waits.
+    @results = nil
+    assert_equal 1, brittleness(fixture:).identifiers.size
+    refute_match(/re-test waits/, @printed)
+    assert_match(/chosen while 1 screen games had failed/, report)
+  end
+
   def test_an_interrupted_game_is_not_stored
     make_experiment
     third = 0
@@ -513,6 +542,13 @@ class BrittlenessTest < Minitest::Test
     assert_match(/MichiWeak 0 black: replay network, length 93, B\+R; stored network, length 94, B\+R/, @printed)
   end
 
+  def test_a_replay_with_another_score_differs
+    make_experiment(referee: ->(opponent, opening, color) { 'B+5.5' if [opponent, opening, color] == ['MichiWeak', 0, 'black'] })
+    brittleness
+    assert_match(/Replay: 1 of 8 stored benchmark games differ/, @printed)
+    assert_match(/MichiWeak 0 black: replay network, length 93, B\+R; stored network, length 93, B\+5\.5/, @printed)
+  end
+
   def test_a_matching_replay
     make_experiment
     brittleness
@@ -593,11 +629,14 @@ class BrittlenessTest < Minitest::Test
   # controls are re-tested and m is 1), screen rows for children 0–3
   # only, and a champion that wins 3 of 4 AmiGo and 1 of 4 MichiWeak
   # screen games.
-  def rich_report
+  # A second step, 0.02, has screen rows for children 0–3 too but no
+  # re-test; m is 4. With `retest_games` other than 8 the re-test games
+  # are not recorded (the MDE takes only the option).
+  def rich_report(retest_games: 8)
     FileUtils.mkdir_p(@out)
     store = B::Results.new(File.join(@out, 'results.sqlite3'))
-    options = { 'steps' => ['0.5'], 'changes' => 229.0, 'children' => 20, 'opponents' => %w[AmiGo MichiWeak],
-                'retest_games' => 8 }
+    options = { 'steps' => %w[0.5 0.02], 'changes' => 229.0, 'children' => 20, 'opponents' => %w[AmiGo MichiWeak],
+                'retest_games' => retest_games }
     store.check_run('exp', GEN, options, champion: 'c.ann', own: [229.0, 0.5])
     screen_keys = B.screen_keys(%w[AmiGo MichiWeak], 2)
     champion = [1, 1, 1, 0, 1, 0, 0, 0]
@@ -615,12 +654,15 @@ class BrittlenessTest < Minitest::Test
                 2 => [1, 1, 0, 0, 1, 0, 0, 0], 3 => [0, 1, 0, 0, 0, 0, 0, 0] }
     @retest = { 0 => [1, 1, 1, 0, 1, 1, 0, 1], 1 => [1, 0, 1, 1, 1, 1, 1, 1],
                 2 => [1, 0, 0, 0, 1, 1, 0, 0], 3 => [1, 0, 1, 0, 0, 0, 0, 0] }
+    @screen_002 = { 0 => [0, 0, 1, 0, 1, 0, 0, 0], 1 => [1, 1, 1, 0, 0, 0, 0, 0],
+                    2 => [1, 1, 1, 0, 1, 0, 1, 0], 3 => [1, 0, 1, 0, 1, 0, 0, 0] }
     @champion_retest = [1, 0, 1, 0, 1, 1, 0, 0]
     retest_keys = B.retest_keys(8, %w[AmiGo MichiWeak])
-    record.call('retest', B::CHAMPION, retest_keys, @champion_retest)
+    record.call('retest', B::CHAMPION, retest_keys, @champion_retest) if retest_games == 8
     @screen.each_key do |child|
       record.call('screen', player('0.5', child), screen_keys, @screen[child])
-      record.call('retest', player('0.5', child), retest_keys, @retest[child])
+      record.call('screen', player('0.02', child), screen_keys, @screen_002[child])
+      record.call('retest', player('0.5', child), retest_keys, @retest[child]) if retest_games == 8
     end
     store.record_selection('exp', GEN, @screen.keys.map do |child|
       { step: '0.5', weight_changes: 229.0, weight_step: 0.5, child:, role: child < 2 ? 'best' : 'control',
@@ -629,6 +671,25 @@ class BrittlenessTest < Minitest::Test
     store.close
     @champion_screen = champion
     report
+  end
+
+  # The main comparison: 0.5's children win 6, 5, 3 and 1, 0.02's 2, 3,
+  # 5 and 3, so 0.5 − 0.02 is +0.50.
+  def test_the_report_compares_the_steps
+    text = rich_report
+    se = Math.sqrt(B::Stats.crossed_variance(@screen.values, @screen_002.values))
+    assert_includes text, "| 0.5 | 0.02 | +0.50 | #{format('%.2f', se)} (n 4, 4) |"
+  end
+
+  # The MDE at the re-test's size and the Bonferroni level, m = 2 steps ×
+  # 2 best; 0.02's discordance: AmiGo 2, 0, 0, 1 of 4, MichiWeak 0, 1, 1,
+  # 0 of 4.
+  def test_the_report_gives_each_steps_mde
+    text = rich_report(retest_games: 600)
+    { '0.5' => (0.3125 + 0.125) / 2, '0.02' => ((3 / 16.0) + (2 / 16.0)) / 2 }.each do |step, d|
+      mdes = [0.5, 0.8].map { |power| format('%.1f', 100 * B::Stats.mde(d, 600, Rational(1, 20) / 4, power)) }
+      assert_includes text, "| #{step} | #{format('%.3f', d)} | #{mdes.join(' | ')} |"
+    end
   end
 
   def test_the_report_summarises_the_retest_by_role

@@ -59,10 +59,10 @@ module Brittleness
   LOCK = 'brittleness.lock'.freeze
 
   Options = Data.define(:experiment, :generations, :steps, :changes, :children, :opponents, :retest_games,
-                        :concurrency, :report_only, :out) do
+                        :concurrency, :accept_failures, :report_only, :out) do
     def self.parse(argv)
       given = { steps: DEFAULT_STEPS, changes: 229.0, children: 32, opponents: DEFAULT_OPPONENTS, retest_games: 600,
-                concurrency: 2, report_only: false, out: nil }
+                concurrency: 2, accept_failures: false, report_only: false, out: nil }
       parser = OptionParser.new do |o|
         o.banner = 'Usage: scripts/brittleness.rb EXPERIMENT GEN... --out DIR [options] | --report-only --out DIR [EXPERIMENT [GEN...]]'
         o.on('--steps LIST', 'Fixed weight steps, comma-separated') { |v| given[:steps] = Brittleness.step_labels(v) }
@@ -71,6 +71,9 @@ module Brittleness
         o.on('--opponents LIST', 'Benchmark bots, comma-separated') { |v| given[:opponents] = v.split(',') }
         o.on('--retest-games N', 'Re-test games per player') { |v| given[:retest_games] = whole(v, '--retest-games', 1) }
         o.on('--concurrency N', 'Games at once (may change between resumes)') { |v| given[:concurrency] = whole(v, '--concurrency', 1) }
+        o.on('--accept-failures', 'Choose the re-tested children although screen games failed (as losses)') do
+          given[:accept_failures] = true
+        end
         o.on('--report-only', 'Print the report from DIR alone') { given[:report_only] = true }
         o.on('--out DIR', 'Output directory') { |v| given[:out] = v }
       end
@@ -400,8 +403,20 @@ module Brittleness
 
     def children(experiment, generation) = @db[:children].where(experiment:, generation:).all
 
-    def record_selection(experiment, generation, rows)
-      @db[:selections].multi_insert(rows.map { |row| { experiment:, generation:, **row } })
+    # The re-tested children, and how many screen games had failed when
+    # they were chosen (only with --accept-failures, else 0).
+    def record_selection(experiment, generation, rows, screen_failures: 0)
+      @db.transaction do
+        @db[:selections].multi_insert(rows.map { |row| { experiment:, generation:, **row } })
+        @db[:selection_failures].insert(experiment:, generation:, screen_failures:)
+      end
+    end
+
+    def selection_failures(experiment, generation)
+      # A directory from before the table has none.
+      return 0 unless @db.table_exists?(:selection_failures)
+
+      @db[:selection_failures].where(experiment:, generation:).get(:screen_failures) || 0
     end
 
     def selections(experiment, generation)
@@ -469,6 +484,12 @@ module Brittleness
         String :role, null: false
         Integer :screen_difference, null: false
         primary_key %i[experiment generation step weight_changes weight_step child]
+      end
+      @db.create_table?(:selection_failures) do
+        String :experiment, null: false
+        Integer :generation, null: false
+        Integer :screen_failures, null: false
+        primary_key %i[experiment generation]
       end
       @db.create_table?(:games) do
         String :experiment, null: false
@@ -599,15 +620,19 @@ module Brittleness
       write_openings('screen', settings['benchmark_games'] / 2)
       play(champion, 'screen', [CHAMPION, *children], champion.screen_keys)
       # A failure counts as a loss, which would bias the selection: the
-      # re-test waits until a later run has replayed every failure.
+      # re-test waits until a later run has replayed every failure, or
+      # --accept-failures takes the failures as losses. Once chosen, the
+      # children stay.
       failed = @results.games(options.name, champion.generation, 'screen').count { |row| row[:failure] }
-      if failed.positive?
-        puts "Generation #{champion.generation}: #{failed} screen games failed; the re-test waits until a run of " \
-             'the same command has replayed them.'
+      chosen = @results.selections(options.name, champion.generation).any?
+      if failed.positive? && !chosen && !options.accept_failures
+        puts "Generation #{champion.generation}: #{failed} screen games failed; the re-test waits until they are " \
+             'replayed. Run the same command again, and add --accept-failures if the same games keep failing ' \
+             '(they then count as losses).'
         return
       end
 
-      retest = selection(champion)
+      retest = selection(champion, failed)
       keys = Brittleness.retest_keys(options.retest_games, options.opponents)
       write_openings('retest', keys.map { |_, opening, _| opening }.max + 1)
       play(champion, 'retest', [CHAMPION, *retest], keys)
@@ -615,11 +640,11 @@ module Brittleness
 
     # The re-tested children, chosen once from the complete screen and
     # stored, so a resume re-tests the same ones.
-    def selection(champion)
+    def selection(champion, failed)
       stored = @results.selections(options.name, champion.generation)
       if stored.empty?
         stored = choose_retest(champion)
-        @results.record_selection(options.name, champion.generation, stored)
+        @results.record_selection(options.name, champion.generation, stored, screen_failures: failed)
       end
       stored.map do |row|
         Player.new(step: row[:step], weight_changes: row[:weight_changes], weight_step: row[:weight_step], child: row[:child])
@@ -802,6 +827,7 @@ module Brittleness
           row.values_at(:opponent, :opening, :color)] = row
       end
       @selections = results.selections(run[:experiment], run[:generation])
+      @selection_failures = results.selection_failures(run[:experiment], run[:generation])
     end
 
     def call
@@ -982,6 +1008,10 @@ module Brittleness
       end
 
       champion = wins(champion_rows, @retest_keys)
+      if @selection_failures.positive?
+        puts "The re-tested children were chosen while #{@selection_failures} screen games had failed, counted as " \
+             'losses (--accept-failures).'
+      end
       puts "The champion won #{champion.sum}. Improvement: a re-tested best child is better when its wins among the " \
            "games its result differs from the champion's, k of n_d, satisfy P(Bin(n_d, ½) ≥ k) ≤ 0.05 / m " \
            "(exact one-sided sign test, Bonferroni over the champion's re-tested best children, m = #{@m})."
