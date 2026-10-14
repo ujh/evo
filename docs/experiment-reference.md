@@ -236,6 +236,22 @@ So the order is Brown < AmiGo < MichiWeak < MichiMid < MichiStrong < GnuGo, each
 - The round count also decides how reliably the champion is picked, and the benchmark plays only the champion: the 10-round run's dip at generation 300 (42 of 300) fits a poor pick better than a worse population.
 - Only the 40-round run is clearly flat after generation 200 (ratings −36 to −54). The 20-round champions' rating still rises at generation 500 (14, 16, 45, 69 at generations 200–500), and the 10-round run's from generation 300 (−102 to −50). Meanwhile the mutation genes shrink: `weight_step`'s median fell from 0.5 to 0.018 with 10 rounds, 0.006 with 20, and 0.0004 with 40 (at generation 500), the less noisy the tournament the further. `PROJECT_NOTES.md` has the open question.
 
+## How often tournament games repeat
+
+A network always plays its best move, so two networks that move alike play the same game. `scripts/game-repeats.rb` counts, from an experiment's recorded games alone (read-only), how many of a generation's tournament games repeat another game of that generation move for move. Only the generations that keep their SGFs (every `keep_every`-th) can be counted; it refuses any other.
+
+    mise exec -- scripts/game-repeats.rb experiments/seed2-rounds20/experiment.sqlite3 100 400 500
+
+It prints one Markdown table per generation, one row per kind of game: network against network, against each bot (in the order of the `opponents` table), and bot against bot. How to read it:
+
+- A game's move sequence is its SGF from Black's first move on (`substr(sgf, instr(sgf, ';B['))`), and its pairing is (Black, White), a bot's copies counted as the bot itself through `players.opponent` (AmiGo2 is AmiGo).
+- The games with one move sequence form a group. The first in (round, black, white) order, the `games` key, is the original; of a group of n games with p distinct pairings, the other n − 1 add no new game: p − 1 are **clone repeats** (another pairing played the same game, so those networks move alike) and n − p are **rematches** (a pairing met again and replayed its game).
+- Each game counts in its own kind's row, also in a group of several kinds (a network's game against another network identical to one against AmiGo).
+- **No moves** counts games without a move (a bot that resigned at once); they are no one's repeat.
+- The shares are of the row's games. Clone repeats measure how alike the population plays; rematches depend on the rounds and the pairing (most are a network meeting another copy of AmiGo or Brown with the same colour). michi and GNU Go vary through their per-game seeds, so their rows stay near 0.
+
+`PROJECT_NOTES.md` (item 7, "Measured: repeated games grow…") has the counts for `seed2-rounds20` and `seed2-rounds40`.
+
 ## Fixed mutation genes (`meta_rate` 0)
 
 `seed2-meta0` and `seed2-meta0-step015` repeat `seed2-rounds20` with `meta_rate` 0, so every network keeps generation 0's mutation genes, and every other setting the same, the seed included, so all three start from the same generation 0 (the same champion, 6 of 300). `seed2-meta0` keeps the default genes (`weight_step` 0.5, 229 weight changes, `copy_chance` 0.01, `activation_rate` and `structure_rate` 0.02); `seed2-meta0-step015` the same with `initial_weight_step` 0.15. They test whether the self-adaptive genes' shrinking limits progress (`docs/literature.md` sections 1 and 7). Both ran to about generation 570, at nearly the same cost per generation as `seed2-rounds20` (summed tournament hours to generation 500: 94 and 106 against 90), so equal generations are close to equal compute. The checkpoint champions' benchmark wins out of 300 against AmiGo, MichiWeak and MichiMid, and their rating in Elo above AmiGo from each experiment's own `stats` fit (14 Oct 2026):
