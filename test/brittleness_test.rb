@@ -590,6 +590,10 @@ class BrittlenessTest < Minitest::Test
     assert_equal B.moves_hash('(;GM[1]SZ[9];B[aa];W[cc])'), B.moves_hash('(;GM[1]SZ[19];B[aa];W[cc])')
   end
 
+  def test_the_mde_of_no_discordance_is_na
+    assert_nil B::Stats.mde(Float::NAN, 600, Rational(1, 80), 0.5)
+  end
+
   # Two points always correlate ±1.
   def test_pearson_is_na_below_three
     assert_in_delta(-1.0, B::Stats.pearson([1, 2, 3], [3, 2, 1]))
@@ -1102,6 +1106,40 @@ class BrittlenessTest < Minitest::Test
     text = report('exp', [20])
     assert text.start_with?('# exp generation 20')
     refute_includes text, 'generation 10'
+  end
+
+  # A run of two generations stopped while generation 10 plays: both
+  # generations' champion games are stored before any game is played.
+  def test_every_generations_champion_games_are_stored_before_play
+    make_experiment(generations: [10, 20])
+    events = 0
+    script = nil
+    pool = FakePool.new(on_event: ->(_) { script.stop! if (events += 1) == 5 }) do |game|
+      copy_dat(game.color == 'black' ? 'black_wins' : 'white_wins', game.prefix)
+    end
+    options = B::Options.parse([@experiment, '10', '20', '--out', @out, *DEFAULT_ARGS])
+    script = B::Run.new(options, pool:, perturb: @perturb)
+    assert_raises(B::Interrupted) { capture_io { script.call } }
+    assert_equal({ 10 => 8, 20 => 8 }, results[:champion_games].group_and_count(:generation).as_hash(:generation, :count))
+    assert_equal [10], results[:games].select_map(:generation).uniq
+    refute_match(/NaN/, report)
+  end
+
+  # A generation with its options stored and nothing else is reported as
+  # not started, without a figure; the report does not rely on how far a
+  # run has filled the directory.
+  def test_the_whole_report_of_a_generation_not_started
+    FileUtils.mkdir_p(@out)
+    store = B::Results.new(File.join(@out, 'results.sqlite3'))
+    options = { 'steps' => %w[0.5], 'changes' => 229.0, 'children' => 2, 'opponents' => %w[MichiWeak AmiGo],
+                'retest_games' => 8 }
+    store.check_run('exp', 20, options, champion: 'c.ann', own: [229.0, 0.5])
+    store.close
+    assert_equal <<~TEXT, report
+      # exp generation 20
+
+      Not started: no game of this generation is stored yet.
+    TEXT
   end
 
   # --report-only while a run plays: incomplete screens and re-tests are

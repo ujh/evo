@@ -316,8 +316,11 @@ module Brittleness
     # detects with probability `power`, from a discordance rate d over
     # `games` re-test games: n_d = round(d × games) discordant games, of
     # which the child wins each with probability (1 + δ/d) / 2. nil when no
-    # δ ≤ d is detected (or nothing is discordant).
+    # δ ≤ d is detected (or nothing is discordant, or d is not a number:
+    # no child has a complete screen).
     def mde(d, games, alpha, power)
+      return nil unless d.finite?
+
       discordant = (d * games).round
       return nil if discordant.zero?
 
@@ -562,15 +565,13 @@ module Brittleness
       reset_work_directory
       @results = Results.new(File.join(options.out, RESULTS))
       champions = Dir.chdir(work) { options.generations.map { |generation| champion(generation) } }
+      # Every generation's champion games are stored before any game is
+      # played, so a report while an earlier generation plays has them.
       champions.each do |c|
         @results.check_run(options.name, c.generation, options.run_options, champion: c.name, own: c.own)
+        @results.save_champion_games(options.name, c.generation, c.stored_games)
       end
-      Dir.chdir(work) do
-        champions.each do |c|
-          @results.save_champion_games(options.name, c.generation, c.stored_games)
-          play_generation(c)
-        end
-      end
+      Dir.chdir(work) { champions.each { |c| play_generation(c) } }
     ensure
       @results&.close
       @store&.close
@@ -850,6 +851,13 @@ module Brittleness
     end
 
     def call
+      if @champion_games.empty?
+        puts "# #{@run[:experiment]} generation #{@run[:generation]}"
+        puts
+        puts 'Not started: no game of this generation is stored yet.'
+        return
+      end
+
       header
       replay
       screen
