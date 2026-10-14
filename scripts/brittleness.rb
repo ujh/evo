@@ -1033,12 +1033,22 @@ module Brittleness
         return
       end
 
-      champion = wins(champion_rows, @retest_keys)
+      # A game the champion's re-test failed is no loss of the champion's:
+      # counted as one, every child that won it would gain a discordant
+      # win. It is left out of every child's comparison.
+      keys = @retest_keys.reject { |key| champion_rows[key][:failure] }
+      champion = wins(champion_rows, keys)
       if @selection_failures.positive?
         puts "The re-tested children were chosen while #{@selection_failures} screen games had failed, counted as " \
              'losses (--accept-failures).'
       end
-      puts "The champion won #{champion.sum}. Improvement: a re-tested best child is better when its wins among the " \
+      won = if keys.size < @retest_keys.size
+              "The champion won #{champion.sum} of #{keys.size}: #{@retest_keys.size - keys.size} of its re-test games " \
+                'failed; they are left out of every comparison below and replayed by the same command.'
+            else
+              "The champion won #{champion.sum}."
+            end
+      puts "#{won} Improvement: a re-tested best child is better when its wins among the " \
            "games its result differs from the champion's, k of n_d, satisfy P(Bin(n_d, ½) ≥ k) ≤ 0.05 / m " \
            "(exact one-sided sign test, Bonferroni over the champion's re-tested best children, m = #{@m})."
       puts
@@ -1055,7 +1065,7 @@ module Brittleness
           playing = true
           next
         end
-        table = wins(rows, @retest_keys)
+        table = wins(rows, keys)
         discordant = table.zip(champion).count { |c, h| c != h }
         k = table.zip(champion).count { |c, h| c > h }
         p = Stats.sign_tail(discordant, k)

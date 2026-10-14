@@ -41,15 +41,21 @@ class BrittlenessTest < Minitest::Test
     FileUtils.rm_rf(@tmp)
   end
 
-  # An experiment whose generation GEN has the champion c.ann, ranked
-  # behind a bot, with the given genes, and its benchmark games against
-  # `opponents` on `openings` openings, won or lost as `stored` says.
+  # An experiment whose generation GEN (or each of `generations`) has the
+  # champion c.ann, ranked behind a bot, with the given genes, and its
+  # benchmark games against `opponents` on `openings` openings, won or
+  # lost as `stored` says.
   def make_experiment(genes: {}, opponents: %w[AmiGo MichiWeak], openings: 2, stored: ->(*) { 'network' },
-                      length: ->(*) { 93 }, referee: nil)
+                      length: ->(*) { 93 }, referee: nil, generations: [GEN])
     db = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'))
     db.save_settings(SETTINGS.merge('benchmark_games' => 2 * openings, 'seed' => SEED))
     db.save_benchmark_opponents(SetupExperiment::DEFAULT_BENCHMARK)
-    db.save_state(GEN, { 'players' => { 'AmiGo1' => { 'external' => true }, 'c.ann' => {}, 'd.ann' => {} },
+    generations.each { |generation| save_generation(db, generation, genes:, opponents:, openings:, stored:, length:, referee:) }
+    db.close
+  end
+
+  def save_generation(db, generation, genes:, opponents:, openings:, stored:, length:, referee:)
+    db.save_state(generation, { 'players' => { 'AmiGo1' => { 'external' => true }, 'c.ann' => {}, 'd.ann' => {} },
                          'ranking' => [{ 'name' => 'AmiGo1', 'score' => 3 }, { 'name' => 'c.ann', 'score' => 2 },
                                        { 'name' => 'd.ann', 'score' => 1 }] },
                   champion: ['c.ann', ann(**genes)])
@@ -58,10 +64,9 @@ class BrittlenessTest < Minitest::Test
       # As the fixtures black_wins and white_wins have it.
       referee_result = referee&.call(opponent, opening, color) ||
                        ((color == 'black') == (winner == 'network') ? 'B+R' : 'W+22.5')
-      db.record_benchmark_game(generation: GEN, opponent:, opening:, network_color: color, network: 'c.ann',
+      db.record_benchmark_game(generation:, opponent:, opening:, network_color: color, network: 'c.ann',
                                winner:, length: length.call(opponent, opening, color), referee_result:)
     end
-    db.close
   end
 
   DEFAULT_ARGS = %w[--opponents AmiGo,MichiWeak --children 2 --steps 0.5,0.02 --retest-games 8].freeze
@@ -334,6 +339,9 @@ class BrittlenessTest < Minitest::Test
     pool = brittleness('--accept-failures', fixture:)
     assert_equal 1 + 40, pool.identifiers.size
     assert_equal 4, results[:selections].count
+    # The failed game counts as a loss: 7 of 8 against the champion's 8.
+    assert_equal [[0, 'best', 0], [1, 'control', -1]],
+                 results[:selections].where(step: '0.5').order(:child).select_map(%i[child role screen_difference])
     assert_match(/chosen while 1 screen games had failed, counted as losses \(--accept-failures\)/, @printed)
     # Once chosen, the children stay, and the re-test no longer waits.
     @results = nil
@@ -360,6 +368,27 @@ class BrittlenessTest < Minitest::Test
     [-> { brittleness }, -> { report }].each do |call|
       assert_match(/written by an older brittleness\.rb; use a new --out/, assert_raises(B::Refused) { call.call }.message)
     end
+  end
+
+  # The documented use: several generations in one invocation, each
+  # with its own games, resumed as a whole.
+  def test_one_run_plays_several_generations
+    make_experiment(generations: [10, 20])
+    run = lambda do
+      pool = FakePool.new do |game|
+        copy_dat('black_wins', game.prefix) if game.color == 'black'
+        copy_dat('white_wins', game.prefix) if game.color == 'white'
+      end
+      options = B::Options.parse([@experiment, '10', '20', '--out', @out, *DEFAULT_ARGS])
+      capture_io { B::Run.new(options, pool:, perturb: @perturb).call }
+      pool
+    end
+    pool = run.call
+    assert_equal({ 10 => 80, 20 => 80 }, pool.identifiers.map(&:generation).tally)
+    assert_equal({ 10 => 80, 20 => 80 }, results[:games].group_and_count(:generation).as_hash(:generation, :count))
+    assert_includes File.read(@perturb_log), Seeds.derive(SEED, 'brittleness', 'exp', 20, '0.5', 0).to_s
+    @results = nil
+    assert_empty run.call.identifiers
   end
 
   def test_an_interrupted_game_is_not_stored
@@ -801,6 +830,8 @@ class BrittlenessTest < Minitest::Test
   def scripted_fixture(game)
     return 'no_referee_score' if game.phase == 'screen' && game.player.replay? && [game.opponent, game.opening, game.color] == ['AmiGo', 0, 'white']
 
+    # The champion's re-test game every child wins: left out.
+    return 'no_referee_score' if game.phase == 'retest' && game.player.replay? && [game.opponent, game.opening, game.color] == ['AmiGo', 0, 'black']
     return unless game.phase == 'retest' && game.player.step == '0.02' && game.player.child == 1
 
     # A bot that crashes after the network's win: a failure, twice.
@@ -814,7 +845,10 @@ class BrittlenessTest < Minitest::Test
   # for the child and the replay (MichiWeak 1 white) is not identical, so
   # `own`, whose moves are otherwise the replay's, has 7 of 8 (88 %); the
   # replay's failed game is listed with its reason; the selection, made
-  # without a child's failure, has no --accept-failures line.
+  # without a child's failure, has no --accept-failures line. The
+  # champion's failed re-test game (AmiGo 0 black, which every child
+  # wins) is left out: counted as its loss, it would add a discordant
+  # win to every child.
   def test_the_whole_report_with_an_own_step
     make_experiment(genes: { weight_changes: 26.25, weight_step: 0.00048 }, stored: STORED)
     perturb_differs_by_seed
@@ -826,7 +860,7 @@ class BrittlenessTest < Minitest::Test
       Champion c.ann, own genes: weight_changes 26.25, weight_step 0.00048.
       2 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
       Screen: 56 games stored, 1 failures (1 × no referee score: ?).
-      Re-test: 56 games stored, 2 failures (2 × MichiWeak crashed).
+      Re-test: 56 games stored, 3 failures (2 × MichiWeak crashed; 1 × no referee score: ?).
       Weights a child changed (perturb's differs), per step: 0.5 59–76, 0.02 20–30, own 35–89.
 
       Replay: 1 of 8 stored benchmark games differ: this champion's results are unreliable.
@@ -854,7 +888,7 @@ class BrittlenessTest < Minitest::Test
 
       ## Re-test on 8 fresh games (wins of 8)
 
-      The champion won 4. Improvement: a re-tested best child is better when its wins among the games its result differs from the champion's, k of n_d, satisfy P(Bin(n_d, ½) ≥ k) ≤ 0.05 / m (exact one-sided sign test, Bonferroni over the champion's re-tested best children, m = 3).
+      The champion won 3 of 7: 1 of its re-test games failed; they are left out of every comparison below and replayed by the same command. Improvement: a re-tested best child is better when its wins among the games its result differs from the champion's, k of n_d, satisfy P(Bin(n_d, ½) ≥ k) ≤ 0.05 / m (exact one-sided sign test, Bonferroni over the champion's re-tested best children, m = 3).
 
       | Step | Role | Child | Screen difference | Re-test difference | n_d | k | P | Better |
       | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -996,6 +1030,13 @@ class BrittlenessTest < Minitest::Test
 
   # --report-only while a run plays: incomplete screens and re-tests are
   # named and left out of every figure, and the replay is counted so far.
+  def test_the_report_takes_only_the_given_generations
+    partial_directory
+    text = report('exp', [20])
+    assert text.start_with?('# exp generation 20')
+    refute_includes text, 'generation 10'
+  end
+
   def test_the_whole_report_of_a_directory_still_playing
     partial_directory
     assert_equal <<~TEXT, report
