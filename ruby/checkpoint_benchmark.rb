@@ -65,6 +65,47 @@ class CheckpointBenchmark
 
   def self.champion_name(source) = "Gen#{source}Champion"
 
+  # The gogui-twogtp command of one game of a network (`network`, its
+  # command) against `opponent` (a bot's or a network's command), the
+  # network playing `color`, as the benchmark plays it; scripts/brittleness.rb
+  # plays its players' games through it too. GNU Go, as the referee and as
+  # a bot, and michi play at random unless seeded; the referee and the bot
+  # share the game's `seed`. twogtp writes PREFIX.dat and PREFIX-0.sgf, and
+  # its stderr goes to PREFIX.err. `openings` is the directory holding the
+  # opening (nil for none) and `opening_stones` its number of stones.
+  def self.game_command(network:, opponent:, color:, seed:, prefix:, openings:, opening_stones:, settings:)
+    bot = Seeds.with_bot_seed(opponent, seed)
+    black, white = color == 'black' ? [network, bot] : [bot, network]
+    twogtp_command(black, white, seed:, prefix:, openings:, opening_stones:, settings:)
+  end
+
+  # The gogui-twogtp command of one game between the commands `black` and
+  # `white`; the arguments are game_command's.
+  def self.twogtp_command(black, white, seed:, prefix:, openings:, opening_stones:, settings:)
+    # twogtp counts the opening's stones toward -maxmoves.
+    maxmoves = settings['max_moves'] + opening_stones
+    openings = openings ? " -openings #{openings}" : ''
+    %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "#{GameResult::REFEREE} --seed #{seed}" ) +
+      %(-size #{settings['board_size']} -komi #{settings.fetch('komi')} -auto -games 1 -sgffile #{prefix} ) +
+      %(-time #{settings['game_seconds']}s ) +
+      %(-force -maxmoves #{maxmoves}#{openings} 2> #{prefix}.err)
+  end
+
+  # The tournament's rules, from the network's side, which played `color`
+  # against `opponent` (its name; `bot` whether it is a bot): the referee
+  # decides, a crashed network loses, and a crashed bot, like any game
+  # without a usable result, is a failure with no winner.
+  def self.score(result, color:, opponent:, bot:)
+    return { winner: nil, failure: result.failure } if result.failure
+    return { winner: nil, failure: nil } unless result.winner
+
+    network_won = (result.winner == :black) == (color == 'black')
+    # A bot crashing says nothing about the network that played it.
+    return { winner: nil, failure: "#{opponent} crashed" } if network_won && result.crashed? && bot
+
+    { winner: network_won ? 'network' : 'opponent', failure: nil }
+  end
+
   def self.call(generation, settings, pool, store, heading: nil)
     new(generation, settings, pool, store).call(heading:)
   end
@@ -190,12 +231,12 @@ class CheckpointBenchmark
   def command(game)
     return bot_game_command(game) if game.is_a?(BotGame)
 
-    # GNU Go, as the referee and as a bot, and michi play at random unless
-    # seeded; the referee and the bot share the game's seed.
     seed = Seeds.gnugo(settings.fetch('seed'), 'benchmark', generation, game.opponent.name, game.opening, game.color)
-    opponent = Seeds.with_bot_seed(game.opponent.command, seed)
-    black, white = game.color == 'black' ? [network_command, opponent] : [opponent, network_command]
-    twogtp(black, white, seed, game)
+    moves = opening_moves(game.opening)
+    self.class.game_command(
+      network: network_command, opponent: game.opponent.command, color: game.color, seed:, prefix: game.prefix,
+      openings: (opening_directory(game.opening, moves) unless moves.empty?), opening_stones: moves.size, settings:
+    )
   end
 
   # The seed has no generation in it, so a bot game is the same whichever
@@ -207,14 +248,10 @@ class CheckpointBenchmark
 
   def twogtp(black, white, seed, game)
     moves = opening_moves(game.opening)
-    # twogtp counts the opening's stones toward -maxmoves.
-    maxmoves = settings['max_moves'] + moves.size
-    openings = moves.empty? ? '' : " -openings #{opening_directory(game.opening, moves)}"
-    prefix = game.prefix
-    %(gogui-twogtp -black "#{black}" -white "#{white}" -referee "#{GameResult::REFEREE} --seed #{seed}" ) +
-      %(-size #{settings['board_size']} -komi #{settings.fetch('komi')} -auto -games 1 -sgffile #{prefix} ) +
-      %(-time #{settings['game_seconds']}s ) +
-      %(-force -maxmoves #{maxmoves}#{openings} 2> #{prefix}.err)
+    self.class.twogtp_command(
+      black, white, seed:, prefix: game.prefix,
+      openings: (opening_directory(game.opening, moves) unless moves.empty?), opening_stones: moves.size, settings:
+    )
   end
 
   def opening_moves(index)
@@ -226,18 +263,9 @@ class CheckpointBenchmark
     Openings.write(File.join(DIRECTORY, 'openings', index.to_s), settings['board_size'], moves)
   end
 
-  # The tournament's rules, from the benchmarked network's side: the
-  # referee decides, a crashed network loses, and a crashed bot, like any
-  # game without a usable result, is a failure with no winner.
+  # The class's score, for one of the checkpoint's games.
   def score(game, result)
-    return { winner: nil, failure: result.failure } if result.failure
-    return { winner: nil, failure: nil } unless result.winner
-
-    network_won = (result.winner == :black) == (game.color == 'black')
-    # A bot crashing says nothing about the network that played it.
-    return { winner: nil, failure: "#{game.opponent.name} crashed" } if network_won && result.crashed? && game.opponent.bot?
-
-    { winner: network_won ? 'network' : 'opponent', failure: nil }
+    self.class.score(result, color: game.color, opponent: game.opponent.name, bot: game.opponent.bot?)
   end
 
   # Both players are bots, so a crash says nothing about either: like any
