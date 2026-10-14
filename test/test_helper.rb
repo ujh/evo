@@ -210,6 +210,12 @@ class FakePool
     running
   end
 
+  # Stands in for WorkerPool#halt: the jobs not yet back come back not
+  # started, without running.
+  def halt
+    @halted = true
+  end
+
   # Every job "takes" 1.5 seconds unless told otherwise.
   def next_finished
     identifier = @reverse ? @queued.last : @queued.first
@@ -222,6 +228,8 @@ class FakePool
 
   def run(identifier)
     @queued.delete_at(@reverse ? -1 : 0)
+    return [identifier, 0, WorkerPool::NOT_STARTED] if @halted
+
     @run&.call(identifier)
     @clock&.advance(@duration)
     [identifier, @duration, status_of(identifier)]
