@@ -26,12 +26,19 @@ SOFTWARE.
 
 #include <pcg_variants.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "ann.h"
 
 extern pcg32_random_t rng;
 
 void seed();
+// The command-line numbers evolve and perturb take, parsed strictly: a typo
+// exits 1 with a message instead of falling back to a default (for a seed,
+// to an unseeded run). A seed is a non-negative decimal integer; a number a
+// finite decimal in [min, max].
+uint64_t parse_seed(const char *text);
+double parse_number(const char *name, const char *text, double min, double max);
 // Reads both parents, their genes, and their features; exits 1 if either
 // cannot be read.
 genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2], ann_features features[2]);
@@ -45,6 +52,9 @@ void check_nns(genann **nns, ann_features const features[2]);
 // Whether two networks have the same shape: the same inputs, outputs, hidden
 // layers, and width (the width does not count without hidden layers).
 bool same_shape(genann const *a, genann const *b);
+// How many weights of the child differ from the parent's, or -1 when their
+// shapes differ.
+int count_differences(genann const *child, genann const *parent);
 
 // The one structural change a mutated child may undergo.
 typedef enum {
@@ -172,3 +182,9 @@ bool mutate_activations(genann *child, double activation_rate);
 genann *mutate(genann const *parent, ann_genes const *parent_genes, ann_features const *parent_features,
                double meta_rate, shape_bounds const *bounds, ann_genes *child_genes,
                ann_features *child_features, mutation_outcome *outcome);
+// mutate()'s last step, which draws last: each weight changes with
+// probability min(1, weight_changes / total_weights) by a uniform amount in
+// [-weight_step, +weight_step]. It draws one number per weight, in weight
+// order, and one more for each weight it changes. Nothing but the weights
+// changes. The perturb program calls it alone, with numbers of its own.
+void perturb_weights(genann *ann, double weight_changes, double weight_step);

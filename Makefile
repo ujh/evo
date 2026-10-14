@@ -18,6 +18,7 @@ test: pcg lib
 	cd engine; $(MAKE) arenatest
 	cd evolve; $(MAKE) test
 	cd evolve; $(MAKE) evolvetest
+	cd evolve; $(MAKE) perturbtest
 
 pcg:
 	cd pcg-c/src; $(MAKE)

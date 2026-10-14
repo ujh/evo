@@ -1347,6 +1347,120 @@ void test_breed_takes_the_picked_parents_features() {
   genann_free(a);
 }
 
+// mutate()'s weights for two seeds, recorded from the build in which the
+// weight loop was still part of mutate(), before perturb_weights() was split
+// out of it: the indices of the changed weights and their changes. Seed 2
+// switches an activation, seed 6 does not; neither is a copy or changes the
+// structure, but both draw for the structure, the features, and the
+// activations first. Not a hash of the file: clang on macOS and GCC may
+// differ in the last bits of exp(), which the genes go through.
+typedef struct {
+  int index;
+  double change;
+} weight_change;
+
+static void check_mutate_weights(uint64_t seed, weight_change const *expected, int count) {
+  pcg32_srandom(70, 54u);
+  genann *parent = genann_init(3, 1, 4, 2);
+  lequal(parent->total_weights, 26);
+  ann_genes genes = {
+    .copy_chance = 0.05,
+    .weight_changes = 6,
+    .weight_step = 0.3,
+    .activation_rate = 0.3,
+    .structure_rate = 0.3,
+  };
+  ann_features features = ann_default_features(ANN_GROUPS_ALL);
+  shape_bounds bounds = {.max_hidden_layers = 2, .max_layer_size = 6, .add_layer_size = 4};
+  ann_genes child_genes;
+  ann_features child_features;
+  mutation_outcome outcome;
+  pcg32_srandom(seed, 54u);
+  genann *child = mutate(parent, &genes, &features, META_RATE, &bounds, &child_genes, &child_features, &outcome);
+  lok(!outcome.copy);
+  lequal(outcome.structure, STRUCTURE_NONE);
+  lequal(child->total_weights, parent->total_weights);
+  int found = 0;
+  for (int i = 0; i < parent->total_weights; i++) {
+    double change = child->weight[i] - parent->weight[i];
+    if (change == 0) continue;
+    if (found < count) {
+      lequal(i, expected[found].index);
+      check_close("pinned weight change", change, expected[found].change, 1e-12);
+    }
+    found++;
+  }
+  lequal(found, count);
+  genann_free(child);
+  genann_free(parent);
+}
+
+void test_mutate_weights_are_pinned() {
+  weight_change seed_2[] = {
+    {1, 0.13686854466594933}, {7, 0.20405328883397217}, {11, 0.30236203020833829},
+    {16, -0.24864341371183601}, {18, 0.18613021286001563}, {20, 0.23306028246352528},
+  };
+  check_mutate_weights(2, seed_2, sizeof seed_2 / sizeof seed_2[0]);
+  weight_change seed_6[] = {
+    {3, -0.019382613675090699}, {8, 0.11143575839437853}, {9, 0.17798113825199596},
+    {11, -0.072192995486835776}, {15, 0.25261067533460946}, {23, -0.062326704525158705},
+    {24, -0.22837006075509225},
+  };
+  check_mutate_weights(6, seed_6, sizeof seed_6 / sizeof seed_6[0]);
+}
+
+// perturb_weights() changes each weight with probability weight_changes /
+// total_weights by a uniform amount in [-weight_step, +weight_step], from the
+// numbers it is given, and touches nothing but the weights.
+void test_perturb_weights_by_its_arguments() {
+  pcg32_srandom(41, 54u);
+  genann *parent = genann_init(82, 1, 100, 82);
+  lequal(parent->total_weights, 16582);
+  const int runs = 4000;
+  const double weight_changes = 50, weight_step = 0.3;
+  long changed = 0, small = 0;
+  double largest = 0, sum = 0;
+  int wrong = 0;
+  for (int r = 0; r < runs; r++) {
+    genann *child = genann_copy(parent);
+    perturb_weights(child, weight_changes, weight_step);
+    if (!same_shape(child, parent) || child->total_weights != parent->total_weights
+        || child->activation_hidden != parent->activation_hidden
+        || child->activation_output != parent->activation_output) {
+      wrong++;
+    }
+    for (int i = 0; i < parent->total_weights; i++) {
+      double change = child->weight[i] - parent->weight[i];
+      if (change == 0) continue;
+      changed++;
+      sum += change;
+      if (fabs(change) > largest) largest = fabs(change);
+      if (fabs(change) < weight_step / 2) small++;
+    }
+    genann_free(child);
+  }
+  lequal(wrong, 0);
+  // Binomial(16582, 50/16582) per run: SE = sqrt(50 / 4000) = 0.11.
+  check_close("changed weights per run", (double)changed / runs, weight_changes, 0.45);
+  // Uniform in [-0.3, 0.3]: sd 0.173, so over ~200,000 changes the mean has
+  // SE 0.0004, and the share below 0.15 in size SE 0.0011.
+  lok(largest <= weight_step);
+  lok(largest > 0.99 * weight_step);
+  check_close("mean change", sum / changed, 0.0, 0.0016);
+  check_close("share of changes smaller than half the step", (double)small / changed, 0.5, 0.0045);
+
+  // A weight_changes of total_weights or more changes every weight.
+  genann *child = genann_copy(parent);
+  perturb_weights(child, parent->total_weights + 10, 0.01);
+  int unchanged = 0;
+  for (int i = 0; i < parent->total_weights; i++) {
+    if (child->weight[i] == parent->weight[i]) unchanged++;
+  }
+  lequal(unchanged, 0);
+  genann_free(child);
+  genann_free(parent);
+}
+
 int main(int argc, char **argv) {
   printf("Evolve test suite\n");
 
@@ -1357,6 +1471,8 @@ int main(int argc, char **argv) {
   lrun("mutate_copy_chance", test_mutate_copies_with_copy_chance);
   lrun("mutate_weights", test_mutate_changes_weights_by_the_genes);
   lrun("mutate_every_weight", test_mutate_changes_every_weight_at_most);
+  lrun("mutate_weights_pinned", test_mutate_weights_are_pinned);
+  lrun("perturb_weights", test_perturb_weights_by_its_arguments);
   lrun("mutate_new_genes", test_mutate_uses_the_mutated_genes);
   lrun("mutate_gene_distributions", test_mutate_genes_distributions);
   lrun("mutate_gene_clamps", test_mutate_genes_clamps);

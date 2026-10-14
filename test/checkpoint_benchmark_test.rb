@@ -145,6 +145,43 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
+  # scripts/brittleness.rb plays its players' games through the class
+  # method, with its own network file, game prefix and openings directory.
+  def test_the_class_builds_the_command_the_benchmark_plays
+    in_experiment do
+      only_opponents('MichiWeak')
+      store_generations(0)
+      commands = run_benchmark(0).commands
+      %w[black white].each_with_index do |color, i|
+        seed = Seeds.gnugo(1, 'benchmark', 0, 'MichiWeak', 0, color)
+        built = CheckpointBenchmark.game_command(
+          network: '../evo benchmark/0-b.ann', opponent: SetupExperiment::MICHI_WEAK, color:, seed:,
+          prefix: "benchmark/MichiWeak-0-#{color}", openings: 'benchmark/openings/0', opening_stones: 4, settings: SETTINGS
+        )
+        assert_equal commands[i], built
+      end
+    end
+  end
+
+  def test_the_class_command_without_openings_has_no_openings_option
+    command = CheckpointBenchmark.game_command(network: '../evo x.ann', opponent: 'brown', color: 'white', seed: 7,
+                                               prefix: 'g/p', openings: nil, opening_stones: 0, settings: SETTINGS)
+    assert_equal %(gogui-twogtp -black "brown" -white "../evo x.ann" -referee "gnugo --mode gtp --chinese-rules --seed 7" ) +
+                 '-size 9 -komi 6.5 -auto -games 1 -sgffile g/p -time 600s -force -maxmoves 200 2> g/p.err', command
+  end
+
+  # The scoring the benchmark stores, for a caller without a Game.
+  def test_the_class_scores_from_the_networks_side
+    black = GameResult.new(winner: :black)
+    assert_equal({ winner: 'network', failure: nil }, CheckpointBenchmark.score(black, color: 'black', opponent: 'AmiGo', bot: true))
+    assert_equal({ winner: 'opponent', failure: nil }, CheckpointBenchmark.score(black, color: 'white', opponent: 'AmiGo', bot: true))
+    crashed = GameResult.new(winner: :black, crashed: true)
+    assert_equal({ winner: nil, failure: 'AmiGo crashed' }, CheckpointBenchmark.score(crashed, color: 'black', opponent: 'AmiGo', bot: true))
+    assert_equal({ winner: 'network', failure: nil }, CheckpointBenchmark.score(crashed, color: 'black', opponent: 'Gen0Champion', bot: false))
+    assert_equal({ winner: nil, failure: nil }, CheckpointBenchmark.score(GameResult.new, color: 'black', opponent: 'AmiGo', bot: true))
+    assert_equal({ winner: nil, failure: 'x' }, CheckpointBenchmark.score(GameResult.new(failure: 'x'), color: 'black', opponent: 'AmiGo', bot: true))
+  end
+
   # michi picks moves at random too, so it gets the game's seed like GNU Go;
   # Brown and AmiGo take none.
   def test_michi_gets_the_games_seed_and_brown_and_amigo_none

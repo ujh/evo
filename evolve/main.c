@@ -33,31 +33,6 @@ SOFTWARE.
 
 #include "evolve.h"
 
-// A seed is a non-negative decimal integer; anything else is an error, so a
-// typo cannot silently fall back to an unseeded run.
-static uint64_t parse_seed(const char *text) {
-  char *end;
-  errno = 0;
-  unsigned long long value = strtoull(text, &end, 10);
-  if (errno != 0 || end == text || *end != '\0' || text[0] == '-') {
-    fprintf(stderr, "seed must be a non-negative integer, got %s\n", text);
-    exit(1);
-  }
-  return value;
-}
-
-// A decimal number in [min, max]; anything else is an error.
-static double parse_number(const char *name, const char *text, double min, double max) {
-  char *end;
-  errno = 0;
-  double value = strtod(text, &end);
-  if (errno != 0 || end == text || *end != '\0' || !isfinite(value) || value < min || value > max) {
-    fprintf(stderr, "%s must be a number from %g to %g, got %s\n", name, min, max, text);
-    exit(1);
-  }
-  return value;
-}
-
 // A decimal whole number in [min, max]; anything else is an error.
 static int parse_whole(const char *name, const char *text, long min, long max) {
   char *end;
@@ -68,17 +43,6 @@ static int parse_whole(const char *name, const char *text, long min, long max) {
     exit(1);
   }
   return (int)value;
-}
-
-// How many weights of the child differ from a parent's, or -1 when their
-// shapes differ.
-static int count_differences(genann const *child, genann const *parent) {
-  if (!same_shape(child, parent)) return -1;
-  int differences = 0;
-  for (int i = 0; i < child->total_weights; i++) {
-    if (child->weight[i] != parent->weight[i]) differences++;
-  }
-  return differences;
 }
 
 int main(int argc, char **argv) {
