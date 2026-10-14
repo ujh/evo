@@ -42,6 +42,37 @@ void seed() {
   pcg32_srandom(time(NULL), (intptr_t)&rng);
 }
 
+uint64_t parse_seed(const char *text) {
+  char *end;
+  errno = 0;
+  unsigned long long value = strtoull(text, &end, 10);
+  if (errno != 0 || end == text || *end != '\0' || text[0] == '-') {
+    fprintf(stderr, "seed must be a non-negative integer, got %s\n", text);
+    exit(1);
+  }
+  return value;
+}
+
+double parse_number(const char *name, const char *text, double min, double max) {
+  char *end;
+  errno = 0;
+  double value = strtod(text, &end);
+  if (errno != 0 || end == text || *end != '\0' || !isfinite(value) || value < min || value > max) {
+    fprintf(stderr, "%s must be a number from %g to %g, got %s\n", name, min, max, text);
+    exit(1);
+  }
+  return value;
+}
+
+int count_differences(genann const *child, genann const *parent) {
+  if (!same_shape(child, parent)) return -1;
+  int differences = 0;
+  for (int i = 0; i < child->total_weights; i++) {
+    if (child->weight[i] != parent->weight[i]) differences++;
+  }
+  return differences;
+}
+
 // Exits with an error, instead of returning NULL, when the file cannot be
 // opened or does not hold a network. The drawing load, not the play load:
 // main seeds the generator before loading the parents, so a child depends
@@ -468,14 +499,17 @@ genann *mutate(genann const *parent, ann_genes const *parent_genes, ann_features
   if (bounds) result.structure = mutate_structure(&child, bounds, child_genes->structure_rate);
   child_genes->weight_changes = fmin(child_genes->weight_changes, child->total_weights);
 
-  double change_chance = fmin(1.0, child_genes->weight_changes / child->total_weights);
-  double step = child_genes->weight_step;
-  for (int i = 0; i < child->total_weights; i++) {
-    if (GENANN_RANDOM() < change_chance) {
-      child->weight[i] += (2.0 * GENANN_RANDOM() - 1.0) * step;
-    }
-  }
+  perturb_weights(child, child_genes->weight_changes, child_genes->weight_step);
 
   if (outcome) *outcome = result;
   return child;
+}
+
+void perturb_weights(genann *ann, double weight_changes, double weight_step) {
+  double change_chance = fmin(1.0, weight_changes / ann->total_weights);
+  for (int i = 0; i < ann->total_weights; i++) {
+    if (GENANN_RANDOM() < change_chance) {
+      ann->weight[i] += (2.0 * GENANN_RANDOM() - 1.0) * weight_step;
+    }
+  }
 }

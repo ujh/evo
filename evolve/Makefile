@@ -3,15 +3,18 @@ LDLIBS = -L../pcg-c/src -lm -lpcg_random
 
 OBJS = evolve.o
 
-.PHONY: test evolvetest clean
+.PHONY: test evolvetest perturbtest clean
 
-default: evolve
+default: evolve perturb
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
 include $(OBJS:.o=.dep)
 
 evolve: $(OBJS) main.o ../lib/libann.a
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
+perturb: $(OBJS) perturb.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # The summary line's fields, space-separated: operator, parent, structure,
@@ -174,6 +177,76 @@ evolvetest: evolve
 	  feat-cross.ann feat-cross.out feat-copy.ann feat-copy.out feat-mutated.ann feat-mutated.out \
 	  feat-flat.ann feat-flat.out feat-mixed.out feat-mutated.out.genes feat-reread.ann feat-reread.out
 
+# perturb must change only the network weights, by the numbers it is given
+# (example.ann's own weight_changes gene is 1), write the child through a
+# temporary file renamed onto OUT, and refuse bad arguments with exit 1,
+# leaving nothing behind. PT is its scratch directory.
+PT = perturb-test
+EXAMPLE = ../engine/example.ann
+# The weights as hex words and as numbers, one per line, after BYTES bytes.
+WEIGHT_WORDS = od -An -v -t x8 -j
+WEIGHT_NUMBERS = od -An -v -t f8 -j
+perturbtest: perturb
+	rm -rf $(PT) && mkdir $(PT) $(PT)/dir
+	for args in '5 0.1' '5 0.1 7 8' '5 0.1 x' '5 0.1 -1' '5 0.1 1.5' '5 0.1 ""' \
+	    'x 0.1 7' '5x 0.1 7' '0.5 0.1 7' 'nan 0.1 7' 'inf 0.1 7' '419 0.1 7' \
+	    '5 x 7' '5 0 7' '5 0.00005 7' '5 11 7' '5 nan 7' '5 -0.1 7'; do \
+	  eval "./perturb $(EXAMPLE) $(PT)/out.ann $$args"; test $$? -eq 1 || exit 1; \
+	done
+	./perturb $(PT)/missing.ann $(PT)/out.ann 5 0.1 7; test $$? -eq 1
+	./perturb $(PT)/dir $(PT)/out.ann 5 0.1 7; test $$? -eq 1
+	./perturb $(EXAMPLE) $(PT)/missing/out.ann 5 0.1 7; test $$? -eq 1
+	./perturb $(EXAMPLE) $(PT)/dir 5 0.1 7; test $$? -eq 1
+	./perturb $(EXAMPLE); test $$? -eq 1
+	test "$$(ls -A $(PT))" = dir && test -z "$$(ls -A $(PT)/dir)"
+	# A refused OUT that exists is left as it was.
+	cp $(EXAMPLE) $(PT)/dir/kept.ann
+	./perturb $(EXAMPLE) $(PT)/dir/kept.ann 5 x 7; test $$? -eq 1
+	./perturb $(EXAMPLE) $(PT)/dir/kept.ann 419 0.1 7; test $$? -eq 1
+	cmp $(PT)/dir/kept.ann $(EXAMPLE) && test "$$(ls -A $(PT)/dir)" = kept.ann
+	rm $(PT)/dir/kept.ann
+	# WEIGHT_CHANGES as large as the 418 weights changes every one of them by
+	# at most WEIGHT_STEP; the header, sizes, activations, genes, and features
+	# (the first 86 bytes) stay, and only OUT is left in its directory.
+	./perturb $(EXAMPLE) $(PT)/all.ann 418 0.001 7 > $(PT)/all.out
+	test "$$(cat $(PT)/all.out)" = differs=418
+	test "$$(ls -A $(PT))" = "$$(printf 'all.ann\nall.out\ndir')"
+	test $$(wc -c < $(PT)/all.ann) -eq $$(wc -c < $(EXAMPLE))
+	cmp -n 86 $(PT)/all.ann $(EXAMPLE)
+	$(WEIGHT_NUMBERS) 86 $(EXAMPLE) | tr -s ' ' '\n' | sed '/^$$/d' > $(PT)/parent.numbers
+	$(WEIGHT_NUMBERS) 86 $(PT)/all.ann | tr -s ' ' '\n' | sed '/^$$/d' > $(PT)/all.numbers
+	paste $(PT)/parent.numbers $(PT)/all.numbers | awk '{ d = $$2 - $$1; if (d < 0) d = -d; if (d == 0 || d > 0.001 * 1.000001) bad++; if (d > max) max = d } END { exit !(NR == 418 && bad == 0 && max > 0.00095) }'
+	# The same seed gives the same child, another seed another one.
+	./perturb $(EXAMPLE) $(PT)/again.ann 418 0.001 7 > /dev/null
+	cmp $(PT)/all.ann $(PT)/again.ann
+	./perturb $(EXAMPLE) $(PT)/other.ann 418 0.001 8 > /dev/null
+	! cmp -s $(PT)/all.ann $(PT)/other.ann
+	# A few changes: the count printed is the number of weights that differ.
+	./perturb $(EXAMPLE) $(PT)/few.ann 5 0.1 7 > $(PT)/few.out
+	$(WEIGHT_WORDS) 86 $(EXAMPLE) | tr -s ' ' '\n' | sed '/^$$/d' > $(PT)/parent.words
+	$(WEIGHT_WORDS) 86 $(PT)/few.ann | tr -s ' ' '\n' | sed '/^$$/d' > $(PT)/few.words
+	set -- $$(paste $(PT)/parent.words $(PT)/few.words | awk '$$1 != $$2' | wc -l) && \
+	  test "$$(cat $(PT)/few.out)" = "differs=$$1" && test $$1 -ge 1 && test $$1 -le 20
+	# OUT is replaced, not written in place: a hard link to the old OUT keeps
+	# the old bytes.
+	cp $(EXAMPLE) $(PT)/linked.ann && ln $(PT)/linked.ann $(PT)/kept.ann
+	./perturb $(EXAMPLE) $(PT)/linked.ann 418 0.001 7 > /dev/null
+	cmp $(PT)/kept.ann $(EXAMPLE)
+	cmp $(PT)/linked.ann $(PT)/all.ann
+	# A network with every feature group keeps its genes and features, the
+	# first 142 bytes (86 plus 7 feature weights), and changes only weights.
+	mkdir $(PT)/features
+	cd $(PT)/features && ../../../initial-population/initial-population 1 9 1 5 0.05 1 0.5 0.02 0.02 all 0.3 0.01 42 > /dev/null
+	./perturb $(PT)/features/0001.ann $(PT)/features/child.ann 100 0.5 3 > $(PT)/features/child.out
+	cmp -n 142 $(PT)/features/child.ann $(PT)/features/0001.ann
+	test $$(wc -c < $(PT)/features/child.ann) -eq $$(wc -c < $(PT)/features/0001.ann)
+	$(WEIGHT_WORDS) 142 $(PT)/features/0001.ann | tr -s ' ' '\n' | sed '/^$$/d' > $(PT)/features/parent.words
+	$(WEIGHT_WORDS) 142 $(PT)/features/child.ann | tr -s ' ' '\n' | sed '/^$$/d' > $(PT)/features/child.words
+	set -- $$(paste $(PT)/features/parent.words $(PT)/features/child.words | awk '$$1 != $$2' | wc -l) && \
+	  test "$$(cat $(PT)/features/child.out)" = "differs=$$1" && test $$1 -ge 60 && test $$1 -le 140
+	printf 'boardsize 9\ngenmove b\nquit\n' | ../engine/evo $(PT)/features/child.ann | grep -q '^= [A-Z]'
+	rm -rf $(PT)
+
 test: $(OBJS) test.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 	./$@
@@ -183,4 +256,5 @@ test: $(OBJS) test.o ../lib/libann.a
 
 clean:
 	$(RM) *.o *.dep
-	$(RM) evolve test child.ann
+	$(RM) evolve perturb test child.ann
+	$(RM) -r perturb-test
