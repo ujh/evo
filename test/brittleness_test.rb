@@ -536,6 +536,12 @@ class BrittlenessTest < Minitest::Test
     assert_in_delta 1.75, B::Stats.crossed_variance([[1, 0, 1], [0, 0, 1]], [1, 0, 0])
   end
 
+  # Tables of different games would be misaligned silently.
+  def test_the_crossed_variance_refuses_tables_of_other_games
+    assert_raises(ArgumentError) { B::Stats.crossed_variance([[1, 0, 1], [0, 0, 1]], [1, 0]) }
+    assert_raises(ArgumentError) { B::Stats.crossed_variance([[1, 0, 1], [0, 0, 1]], [[1, 0], [0, 1]]) }
+  end
+
   # The games part is never negative: here var_g(z) is 0 and MSE/n 0.5.
   def test_the_games_part_is_clamped_at_zero
     assert_in_delta 0.0, B::Stats.crossed_variance([[1, 0], [0, 1]], [1, 1])
@@ -569,6 +575,13 @@ class BrittlenessTest < Minitest::Test
   end
 
   # Two points always correlate ±1.
+  # A pass is a move: games that differ only in when a player passed
+  # are not identical.
+  def test_the_moves_hash_keeps_passes
+    refute_equal B.moves_hash('(;GM[1];B[aa];W[];B[bb])'), B.moves_hash('(;GM[1];B[aa];B[bb])')
+    assert_equal B.moves_hash('(;GM[1]SZ[9];B[aa];W[cc])'), B.moves_hash('(;GM[1]SZ[19];B[aa];W[cc])')
+  end
+
   def test_pearson_is_na_below_three
     assert_in_delta(-1.0, B::Stats.pearson([1, 2, 3], [3, 2, 1]))
     assert_nil B::Stats.pearson([1], [2])
@@ -683,7 +696,10 @@ class BrittlenessTest < Minitest::Test
   # A second step, 0.02, has screen rows for children 0–3 too but no
   # re-test; m is 4. With `retest_games` other than 8 the re-test games
   # are not recorded (the MDE takes only the option).
-  def rich_report(retest_games: 8)
+  # With `champion_failure` the champion's first re-test game (AmiGo 0
+  # black) failed.
+  # With `control_missing` control 3 has not played its first re-test game.
+  def rich_report(retest_games: 8, champion_failure: false, control_missing: false)
     FileUtils.mkdir_p(@out)
     store = B::Results.new(File.join(@out, 'results.sqlite3'))
     options = { 'steps' => %w[0.5 0.02], 'changes' => 229.0, 'children' => 20, 'opponents' => %w[AmiGo MichiWeak],
@@ -694,11 +710,12 @@ class BrittlenessTest < Minitest::Test
     store.save_champion_games('exp', GEN, screen_keys.zip(champion).map do |(opponent, opening, color), won|
       { opponent:, opening:, network_color: color, winner: won == 1 ? 'network' : 'opponent', length: 50, referee_result: 'B+R' }
     end)
-    record = lambda do |phase, player, keys, wins|
-      keys.zip(wins).each do |(opponent, opening, color), won|
+    record = lambda do |phase, player, keys, wins, failed: []|
+      keys.zip(wins).each_with_index do |((opponent, opening, color), won), i|
         game = B::Game.new(generation: GEN, phase:, player:, opponent:, opening:, color:)
-        store.record_game('exp', game, winner: won == 1 ? 'network' : 'opponent', failure: nil, length: 50,
-                                       referee_result: 'B+R', moves_hash: 'x', duration: 0.1)
+        failure = 'no referee score: ?' if failed.include?(i)
+        store.record_game('exp', game, winner: failure || won != 1 ? (failure ? nil : 'opponent') : 'network', failure:,
+                                       length: 50, referee_result: 'B+R', moves_hash: 'x', duration: 0.1)
       end
     end
     @screen = { 0 => [1, 1, 1, 1, 1, 1, 0, 0], 1 => [1, 1, 1, 1, 1, 0, 0, 0],
@@ -709,11 +726,13 @@ class BrittlenessTest < Minitest::Test
                     2 => [1, 1, 1, 0, 1, 0, 1, 0], 3 => [1, 0, 1, 0, 1, 0, 0, 0] }
     @champion_retest = [1, 0, 1, 0, 1, 1, 0, 0]
     retest_keys = B.retest_keys(8, %w[AmiGo MichiWeak])
-    record.call('retest', B::CHAMPION, retest_keys, @champion_retest) if retest_games == 8
+    record.call('retest', B::CHAMPION, retest_keys, @champion_retest, failed: champion_failure ? [0] : []) if retest_games == 8
     @screen.each_key do |child|
       record.call('screen', player('0.5', child), screen_keys, @screen[child])
       record.call('screen', player('0.02', child), screen_keys, @screen_002[child])
-      record.call('retest', player('0.5', child), retest_keys, @retest[child]) if retest_games == 8
+      keys = control_missing && child == 3 ? retest_keys.drop(1) : retest_keys
+      wins = control_missing && child == 3 ? @retest[child].drop(1) : @retest[child]
+      record.call('retest', player('0.5', child), keys, wins) if retest_games == 8
     end
     store.record_selection('exp', GEN, @screen.keys.map do |child|
       { step: '0.5', weight_changes: 229.0, weight_step: 0.5, child:, role: child < 2 ? 'best' : 'control',
@@ -741,6 +760,29 @@ class BrittlenessTest < Minitest::Test
       mdes = [0.5, 0.8].map { |power| format('%.1f', 100 * B::Stats.mde(d, 600, Rational(1, 20) / 4, power)) }
       assert_includes text, "| #{step} | #{format('%.3f', d)} | #{mdes.join(' | ')} |"
     end
+  end
+
+  # Every re-test table loses the champion's failed game, so the
+  # controls' and the best children's SEs compare the same 7 games. The
+  # differences stay: every player won that game.
+  def test_the_retest_summary_leaves_out_the_champions_failed_game
+    text = rich_report(champion_failure: true)
+    champion = @champion_retest.drop(1)
+    best = [@retest[0], @retest[1]].map { |t| t.drop(1) }
+    controls = [@retest[2], @retest[3]].map { |t| t.drop(1) }
+    level = B::Stats.crossed_variance(controls, champion)
+    gap = B::Stats.crossed_variance(best, controls)
+    r = B::Stats.pearson([2, 1, -1, -3], [2, 3, -1, -2])
+    assert_includes text, "| 0.5 | -1.50 | #{format('%.2f', Math.sqrt(level))} (n 2) | +4.00 | " \
+                          "#{format('%.2f', Math.sqrt(gap))} (n 2, 2) | #{format('%+.2f', r)} (n 4) |"
+    assert_includes text, 'The champion won 3 of 7: 1 of its re-test games failed;'
+  end
+
+  # A child is complete only with every re-test game, the one the
+  # champion's failed included: it may still be playing it.
+  def test_a_child_without_the_champions_failed_game_is_still_playing
+    text = rich_report(champion_failure: true, control_missing: true)
+    assert_includes text, '| 0.5 | control | 3 | -3 | 7 of 8 games | | | | |'
   end
 
   def test_the_report_summarises_the_retest_by_role
@@ -1004,11 +1046,17 @@ class BrittlenessTest < Minitest::Test
       end
     end
     stored = ->(*key) { STORED.call(*key) == 'network' }
-    [10, 20].each do |generation|
+    # Generation 20's champion played 3 openings and won 3 of 6 AmiGo and 1
+    # of 6 MichiWeak games: band SD √(1.5 + 5/6) ≈ 1.53, so ±3.0 at 1.96.
+    stored20 = lambda do |opponent, opening, color|
+      won = opponent == 'AmiGo' ? color == 'black' : [opening, color] == [0, 'black']
+      won ? 'network' : 'opponent'
+    end
+    { 10 => [screen_keys, STORED], 20 => [B.screen_keys(%w[AmiGo MichiWeak], 3), stored20] }.each do |generation, (keys, won)|
       store.check_run('exp', generation, options, champion: 'c.ann', own: [229.0, 0.5])
-      store.save_champion_games('exp', generation, screen_keys.map do |opponent, opening, color|
-        winner = STORED.call(opponent, opening, color)
-        { opponent:, opening:, network_color: color, winner:, length: 93, referee_result: 'B+R' }
+      store.save_champion_games('exp', generation, keys.map do |opponent, opening, color|
+        { opponent:, opening:, network_color: color, winner: won.call(opponent, opening, color), length: 93,
+          referee_result: 'B+R' }
       end)
     end
     record.call(10, 'screen', B::CHAMPION, screen_keys.first(5), stored)
@@ -1101,26 +1149,26 @@ class BrittlenessTest < Minitest::Test
       # exp generation 20
 
       Champion c.ann, own genes: weight_changes 229, weight_step 0.5 (the same as a fixed step: no own step).
-      3 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
+      3 children a step; opponents AmiGo, MichiWeak; screen 12 games a player (the benchmark's), re-test 8 fresh games.
       Screen: 0 games stored, 0 failures.
       Re-test: 3 games stored, 0 failures.
 
-      Replay: 0 of 8 stored benchmark games replayed so far.
+      Replay: 0 of 12 stored benchmark games replayed so far.
 
-      ## Screen: children against the champion on its 8 benchmark games
+      ## Screen: children against the champion on its 12 benchmark games
 
-      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+      The champion won 4 of 12 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
 
       | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
       | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
       | 0.5 | 229 | 0.5 | 0 | n/a | n/a (n 0) | n/a | n/a | n/a |
       | 0.02 | 229 | 0.02 | 0 | n/a | n/a (n 0) | n/a | n/a | n/a |
 
-      Left out until their screen is complete: 0.5 child 0 (0 of 8), 0.5 child 1 (0 of 8), 0.5 child 2 (0 of 8), 0.02 child 0 (0 of 8), 0.02 child 1 (0 of 8), 0.02 child 2 (0 of 8).
+      Left out until their screen is complete: 0.5 child 0 (0 of 12), 0.5 child 1 (0 of 12), 0.5 child 2 (0 of 12), 0.02 child 0 (0 of 12), 0.02 child 1 (0 of 12), 0.02 child 2 (0 of 12).
 
-      Null band of the screen, independence approximation: a child as strong as the champion lands within ±2.4 of 0 (95 %, SD 1.22); compare the observed SD above. Children agree with the champion more than independence predicts, so the band is too wide.
+      Null band of the screen, independence approximation: a child as strong as the champion lands within ±3.0 of 0 (95 %, SD 1.53); compare the observed SD above. Children agree with the champion more than independence predicts, so the band is too wide.
 
-      ## Between steps (screen, wins of 8)
+      ## Between steps (screen, wins of 12)
 
       | Step A | Step B | A − B | SE (crossed) |
       | --- | --- | ---: | ---: |

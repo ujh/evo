@@ -250,6 +250,9 @@ module Brittleness
     # var_g(ȳA_g − ȳB_g) − MSE_A/n_A − MSE_B/n_B). `b` is rows too, or one
     # player's results (the champion's), whose s_T² and MSE terms drop.
     def crossed_variance(a, b)
+      games = [*a, *(b.first.is_a?(Array) ? b : [b])].map(&:size).uniq
+      raise ArgumentError, "tables of different games (#{games.join(', ')})" unless games.size == 1
+
       pa = parts(a)
       children = pa[:s_t2] / pa[:n]
       noise = pa[:mse] / pa[:n]
