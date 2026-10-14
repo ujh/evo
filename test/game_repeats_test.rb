@@ -55,8 +55,11 @@ class GameRepeatsTest < Minitest::Test
       end)
     end
     db[:games].multi_insert(GAMES.map { |round, black, white, moves| game(10, round, black, white, moves ? sgf(moves) : NO_MOVES) })
-    # Generation 11 is not a checkpoint: its games kept no SGF.
-    db[:games].multi_insert(GAMES.first(3).map { |round, black, white, _| game(11, round, black, white, nil) })
+    # Generation 11 is not a checkpoint: its games kept no SGF, but one,
+    # so a partial set is refused too.
+    db[:games].multi_insert(GAMES.first(3).each_with_index.map do |(round, black, white, moves), i|
+      game(11, round, black, white, i.zero? ? sgf(moves) : nil)
+    end)
     db.disconnect
   end
 
@@ -122,7 +125,7 @@ class GameRepeatsTest < Minitest::Test
 
   def test_refuses_a_generation_without_sgfs
     error = assert_raises(GameRepeats::Refused) { counts(11) }
-    assert_match(/generation 11: 0 of 3 games kept their SGF/, error.message)
+    assert_match(/generation 11: 1 of 3 games kept their SGF/, error.message)
     error = assert_raises(GameRepeats::Refused) { counts(12) }
     assert_match(/generation 12 has no games/, error.message)
   end
@@ -140,6 +143,15 @@ class GameRepeatsTest < Minitest::Test
     TABLE
   end
 
+  # Opened read-only, a mistyped path fails instead of creating an empty
+  # database inside an experiment.
+  def test_the_script_creates_no_database_at_a_missing_path
+    missing = File.join(@dir, 'missing.sqlite3')
+    _out, _err, status = Open3.capture3(RbConfig.ruby, SCRIPT, missing, '10')
+    refute status.success?
+    refute File.exist?(missing)
+  end
+
   def test_the_script_prints_each_generation_and_leaves_the_database_alone
     before = File.binread(@path)
     out, err, status = Open3.capture3(RbConfig.ruby, SCRIPT, @path, '10', '10')
@@ -153,7 +165,7 @@ class GameRepeatsTest < Minitest::Test
   def test_the_script_refuses_a_generation_without_sgfs
     _, err, status = Open3.capture3(RbConfig.ruby, SCRIPT, @path, '10', '11')
     refute status.success?
-    assert_match(/generation 11: 0 of 3 games kept their SGF/, err)
+    assert_match(/generation 11: 1 of 3 games kept their SGF/, err)
   end
 
   def test_the_script_needs_a_generation

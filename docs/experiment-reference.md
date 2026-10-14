@@ -248,7 +248,7 @@ It prints one Markdown table per generation, one row per kind of game: network a
 - The games with one move sequence form a group. The first in (round, black, white) order, the `games` key, is the original; of a group of n games with p distinct pairings, the other n − 1 add no new game: p − 1 are **clone repeats** (another pairing played the same game, so those networks move alike) and n − p are **rematches** (a pairing met again and replayed its game).
 - Each game counts in its own kind's row, also in a group of several kinds (a network's game against another network identical to one against AmiGo).
 - **No moves** counts games without a move (a bot that resigned at once); they are no one's repeat.
-- The shares are of the row's games. Clone repeats measure how alike the population plays; rematches depend on the rounds and the pairing (most are a network meeting another copy of AmiGo or Brown with the same colour). michi and GNU Go vary through their per-game seeds, so their rows stay near 0.
+- The shares are of the row's games. Clone repeats measure how alike the population plays; rematches depend on the rounds and the pairing (as a share of their row highest against AmiGo and Brown: a network meeting another copy of the bot with the same colour). michi and GNU Go vary through their per-game seeds, so their rows stay near 0.
 
 `PROJECT_NOTES.md` (item 7, "Measured: repeated games grow…") has the counts for `seed2-rounds20` and `seed2-rounds40`.
 
