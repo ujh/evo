@@ -44,7 +44,9 @@ class BrittlenessTest < Minitest::Test
   # An experiment whose generation GEN (or each of `generations`) has the
   # champion c.ann, ranked behind a bot, with the given genes, and its
   # benchmark games against `opponents` on `openings` openings, won or
-  # lost as `stored` says.
+  # lost as `stored` says. As in a real experiment, the benchmark also
+  # holds games against opponents the test does not select: Brown, and
+  # generation 0's champion, a network.
   def make_experiment(genes: {}, opponents: %w[AmiGo MichiWeak], openings: 2, stored: ->(*) { 'network' },
                       length: ->(*) { 93 }, referee: nil, generations: [GEN])
     db = ExperimentDatabase.new(File.join(@experiment, 'experiment.sqlite3'))
@@ -59,6 +61,11 @@ class BrittlenessTest < Minitest::Test
                          'ranking' => [{ 'name' => 'AmiGo1', 'score' => 3 }, { 'name' => 'c.ann', 'score' => 2 },
                                        { 'name' => 'd.ann', 'score' => 1 }] },
                   champion: ['c.ann', ann(**genes)])
+    %w[Brown Gen0Champion].product((0...openings).to_a, %w[black white]) do |opponent, opening, color|
+      db.record_benchmark_game(generation:, opponent:, opening:, network_color: color, network: 'c.ann',
+                               opponent_network: ('0:c.ann' if opponent == 'Gen0Champion'),
+                               winner: opening.zero? ? 'network' : 'opponent', length: 60, referee_result: 'B+R')
+    end
     opponents.product((0...openings).to_a, %w[black white]) do |opponent, opening, color|
       winner = stored.call(opponent, opening, color)
       # As the fixtures black_wins and white_wins have it.
@@ -69,7 +76,9 @@ class BrittlenessTest < Minitest::Test
     end
   end
 
-  DEFAULT_ARGS = %w[--opponents AmiGo,MichiWeak --children 2 --steps 0.5,0.02 --retest-games 8].freeze
+  # Not in alphabetical order, as the default AmiGo,MichiWeak,MichiMid is
+  # not: the stored games come ordered by opponent name.
+  DEFAULT_ARGS = %w[--opponents MichiWeak,AmiGo --children 2 --steps 0.5,0.02 --retest-games 8].freeze
 
   def options(*args, defaults: DEFAULT_ARGS)
     B::Options.parse([@experiment, GEN.to_s, '--out', @out, *defaults, *args])
@@ -251,7 +260,7 @@ class BrittlenessTest < Minitest::Test
     make_experiment
     pool = brittleness
     replay = pool.identifiers.select { |g| g.phase == 'retest' && g.player.replay? }
-    assert_equal B.retest_keys(8, %w[AmiGo MichiWeak]), replay.map { |g| [g.opponent, g.opening, g.color] }
+    assert_equal B.retest_keys(8, %w[MichiWeak AmiGo]), replay.map { |g| [g.opponent, g.opening, g.color] }
   end
 
   def test_every_game_has_its_own_files
@@ -574,7 +583,6 @@ class BrittlenessTest < Minitest::Test
     assert_nil B::Stats.mde(0.01, 6, alpha, 0.5)
   end
 
-  # Two points always correlate ±1.
   # A pass is a move: games that differ only in when a player passed
   # are not identical.
   def test_the_moves_hash_keeps_passes
@@ -582,6 +590,7 @@ class BrittlenessTest < Minitest::Test
     assert_equal B.moves_hash('(;GM[1]SZ[9];B[aa];W[cc])'), B.moves_hash('(;GM[1]SZ[19];B[aa];W[cc])')
   end
 
+  # Two points always correlate ±1.
   def test_pearson_is_na_below_three
     assert_in_delta(-1.0, B::Stats.pearson([1, 2, 3], [3, 2, 1]))
     assert_nil B::Stats.pearson([1], [2])
@@ -611,6 +620,17 @@ class BrittlenessTest < Minitest::Test
     brittleness
     assert_match(/Replay: 1 of 8 stored benchmark games differ/, @printed)
     assert_match(/MichiWeak 0 black: replay network, length 93, B\+R; stored network, length 93, B\+5\.5/, @printed)
+  end
+
+  # A stored game without a winner (a draw) is no win of the champion's,
+  # in the selection as in the report; the replay that wins it differs
+  # from the stored game in its winner alone.
+  def test_a_stored_draw_is_no_win_of_the_champions
+    draw = ->(*key) { key == ['MichiWeak', 0, 'black'] }
+    make_experiment(stored: ->(*key) { draw.call(*key) ? nil : 'network' }, referee: ->(*key) { 'B+R' if draw.call(*key) })
+    brittleness
+    assert_equal [1], results[:selections].select_map(:screen_difference).uniq
+    assert_match(/MichiWeak 0 black: replay network, length 93, B\+R; stored draw, length 93, B\+R/, @printed)
   end
 
   def test_a_matching_replay
@@ -702,7 +722,7 @@ class BrittlenessTest < Minitest::Test
   def rich_report(retest_games: 8, champion_failure: false, control_missing: false)
     FileUtils.mkdir_p(@out)
     store = B::Results.new(File.join(@out, 'results.sqlite3'))
-    options = { 'steps' => %w[0.5 0.02], 'changes' => 229.0, 'children' => 20, 'opponents' => %w[AmiGo MichiWeak],
+    options = { 'steps' => %w[0.5 0.02], 'changes' => 229.0, 'children' => 20, 'opponents' => %w[MichiWeak AmiGo],
                 'retest_games' => retest_games }
     store.check_run('exp', GEN, options, champion: 'c.ann', own: [229.0, 0.5])
     screen_keys = B.screen_keys(%w[AmiGo MichiWeak], 2)
@@ -802,7 +822,8 @@ class BrittlenessTest < Minitest::Test
   # MichiWeak 1, 0, 0, 1 (0.125); the MDE's d is their mean.
   def test_the_report_gives_discordance_per_opponent
     text = rich_report
-    assert_match(/\| 0\.5 \| 229 \| 0\.5 \| 4 \| [^\n]*\| #{format('%.2f', 0.3125)}\/#{format('%.2f', 0.125)} \|/, text)
+    # In the order of --opponents, MichiWeak first.
+    assert_match(/\| 0\.5 \| 229 \| 0\.5 \| 4 \| [^\n]*\| #{format('%.2f', 0.125)}\/#{format('%.2f', 0.3125)} \|/, text)
     assert_match(/^\| 0\.5 \| #{Regexp.escape(format('%.3f', 0.21875))} \|/, text)
   end
 
@@ -900,7 +921,7 @@ class BrittlenessTest < Minitest::Test
       # exp generation 10
 
       Champion c.ann, own genes: weight_changes 26.25, weight_step 0.00048.
-      2 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
+      2 children a step; opponents MichiWeak, AmiGo; screen 8 games a player (the benchmark's), re-test 8 fresh games.
       Screen: 56 games stored, 1 failures (1 × no referee score: ?).
       Re-test: 56 games stored, 3 failures (2 × MichiWeak crashed; 1 × no referee score: ?).
       Weights a child changed (perturb's differs), per step: 0.5 59–76, 0.02 20–30, own 35–89.
@@ -910,13 +931,13 @@ class BrittlenessTest < Minitest::Test
 
       ## Screen: children against the champion on its 8 benchmark games
 
-      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (MichiWeak/AmiGo).
 
       | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
       | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-      | 0.5 | 229 | 0.5 | 2 | +0.50 | 0.50 (n 2) | 0.71 | 0 % | 0.12/0.25 |
-      | 0.02 | 229 | 0.02 | 2 | -2.00 | 2.00 (n 2) | 2.83 | 38 % | 0.38/0.12 |
-      | own | 26.25 | 0.00048 | 2 | -0.50 | 0.50 (n 2) | 0.71 | 88 % | 0.12/0.00 |
+      | 0.5 | 229 | 0.5 | 2 | +0.50 | 0.50 (n 2) | 0.71 | 0 % | 0.25/0.12 |
+      | 0.02 | 229 | 0.02 | 2 | -2.00 | 2.00 (n 2) | 2.83 | 38 % | 0.12/0.38 |
+      | own | 26.25 | 0.00048 | 2 | -0.50 | 0.50 (n 2) | 0.71 | 88 % | 0.00/0.12 |
 
       Null band of the screen, independence approximation: a child as strong as the champion lands within ±2.4 of 0 (95 %, SD 1.22); compare the observed SD above. Children agree with the champion more than independence predicts, so the band is too wide.
 
@@ -972,7 +993,7 @@ class BrittlenessTest < Minitest::Test
       # exp generation 10
 
       Champion c.ann, own genes: weight_changes 229, weight_step 0.5 (the same as a fixed step: no own step).
-      2 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
+      2 children a step; opponents MichiWeak, AmiGo; screen 8 games a player (the benchmark's), re-test 8 fresh games.
       Screen: 40 games stored, 0 failures.
       Re-test: 40 games stored, 0 failures.
       Weights a child changed (perturb's differs), per step: 0.5 5–5, 0.02 5–5.
@@ -981,12 +1002,12 @@ class BrittlenessTest < Minitest::Test
 
       ## Screen: children against the champion on its 8 benchmark games
 
-      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (MichiWeak/AmiGo).
 
       | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
       | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-      | 0.5 | 229 | 0.5 | 2 | +0.50 | 0.50 (n 2) | 0.71 | 0 % | 0.12/0.25 |
-      | 0.02 | 229 | 0.02 | 2 | -2.00 | 2.00 (n 2) | 2.83 | 38 % | 0.38/0.12 |
+      | 0.5 | 229 | 0.5 | 2 | +0.50 | 0.50 (n 2) | 0.71 | 0 % | 0.25/0.12 |
+      | 0.02 | 229 | 0.02 | 2 | -2.00 | 2.00 (n 2) | 2.83 | 38 % | 0.12/0.38 |
 
       Null band of the screen, independence approximation: a child as strong as the champion lands within ±2.4 of 0 (95 %, SD 1.22); compare the observed SD above. Children agree with the champion more than independence predicts, so the band is too wide.
 
@@ -1036,7 +1057,7 @@ class BrittlenessTest < Minitest::Test
     store = B::Results.new(File.join(@out, 'results.sqlite3'))
     screen_keys = B.screen_keys(%w[AmiGo MichiWeak], 2)
     retest_keys = B.retest_keys(8, %w[AmiGo MichiWeak])
-    options = { 'steps' => %w[0.5 0.02], 'changes' => 229.0, 'children' => 3, 'opponents' => %w[AmiGo MichiWeak],
+    options = { 'steps' => %w[0.5 0.02], 'changes' => 229.0, 'children' => 3, 'opponents' => %w[MichiWeak AmiGo],
                 'retest_games' => 8 }
     record = lambda do |generation, phase, player, keys, wins|
       keys.each do |opponent, opening, color|
@@ -1076,8 +1097,6 @@ class BrittlenessTest < Minitest::Test
     store.close
   end
 
-  # --report-only while a run plays: incomplete screens and re-tests are
-  # named and left out of every figure, and the replay is counted so far.
   def test_the_report_takes_only_the_given_generations
     partial_directory
     text = report('exp', [20])
@@ -1085,13 +1104,15 @@ class BrittlenessTest < Minitest::Test
     refute_includes text, 'generation 10'
   end
 
+  # --report-only while a run plays: incomplete screens and re-tests are
+  # named and left out of every figure, and the replay is counted so far.
   def test_the_whole_report_of_a_directory_still_playing
     partial_directory
     assert_equal <<~TEXT, report
       # exp generation 10
 
       Champion c.ann, own genes: weight_changes 229, weight_step 0.5 (the same as a fixed step: no own step).
-      3 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
+      3 children a step; opponents MichiWeak, AmiGo; screen 8 games a player (the benchmark's), re-test 8 fresh games.
       Screen: 38 games stored, 0 failures.
       Re-test: 21 games stored, 0 failures.
 
@@ -1100,11 +1121,11 @@ class BrittlenessTest < Minitest::Test
 
       ## Screen: children against the champion on its 8 benchmark games
 
-      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (MichiWeak/AmiGo).
 
       | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
       | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-      | 0.5 | 229 | 0.5 | 2 | +2.00 | 2.00 (n 2) | 2.83 | n/a | 0.12/0.38 |
+      | 0.5 | 229 | 0.5 | 2 | +2.00 | 2.00 (n 2) | 2.83 | n/a | 0.38/0.12 |
       | 0.02 | 229 | 0.02 | 1 | +0.00 | n/a (n 1) | n/a | n/a | 0.25/0.25 |
 
       Left out until their screen is complete: 0.5 child 2 (3 of 8), 0.02 child 1 (6 of 8), 0.02 child 2 (0 of 8).
@@ -1149,7 +1170,7 @@ class BrittlenessTest < Minitest::Test
       # exp generation 20
 
       Champion c.ann, own genes: weight_changes 229, weight_step 0.5 (the same as a fixed step: no own step).
-      3 children a step; opponents AmiGo, MichiWeak; screen 12 games a player (the benchmark's), re-test 8 fresh games.
+      3 children a step; opponents MichiWeak, AmiGo; screen 12 games a player (the benchmark's), re-test 8 fresh games.
       Screen: 0 games stored, 0 failures.
       Re-test: 3 games stored, 0 failures.
 
@@ -1157,7 +1178,7 @@ class BrittlenessTest < Minitest::Test
 
       ## Screen: children against the champion on its 12 benchmark games
 
-      The champion won 4 of 12 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+      The champion won 4 of 12 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (MichiWeak/AmiGo).
 
       | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
       | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
