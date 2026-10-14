@@ -114,7 +114,7 @@ Kumar et al. (2022), Ni & Spector (2024) and the GA review in Meyer-Nieberg (200
 | Dynamic lower bound | A floor that follows the search, e.g. the median σ of successful children, or a success rate | Liang, Yao & Newton 2001; Meyer-Nieberg 2007 | A fixed floor is "highly problem dependent"; evo's 1e-4 clamp was hit |
 | Offset floor instead of clamp | Effective step = floor + evolved step | Kruisselbrink et al. 2011: hard clamps make the rate "hover" just above the bound, as evo's 0.0002–0.0004 does | The clamp did better in their larger populations, through implicit elitism |
 | Always make some children with fixed default genes | Exploration can never fully stop | Rudolph 2001 (a fixed wide distribution next to the self-adapted children) | Shown for a (1+1) algorithm; benefit in practice unknown |
-| Population-level 1/5 success rule | One shared step: raise it if more than ~20% of children beat their parent, lower it otherwise | Hansen, Arnold & Auger 2015; Luke 2013 | Near-copies give success near ½ or ties, so the rule pushes the step *up*, which is what evo needs. The 1/5 rule beat GESMR on an MNIST neuroevolution task (Kumar et al. 2022) |
+| Population-level 1/5 success rule | One shared step: raise it if more than ~20% of children beat their parent, lower it otherwise | Hansen, Arnold & Auger 2015; Luke 2013 | Near-copies give success near ½ or ties, so the rule pushes the step *up*, which is what evo needs (but in evo's tournament scores, exact copies beat their parent only about a fifth of the time: `experiment-reference.md`, "Fixed mutation genes"). The 1/5 rule beat GESMR on an MNIST neuroevolution task (Kumar et al. 2022) |
 | Cumulative step-size adaptation (CSA, as in CMA-ES) | Step change is unbiased on the log scale when selection is random | Hansen 2016 | Needs a population mean; evo has none, so it does not apply directly |
 | Re-evaluate and raise σ when rankings are noisy (UH-CMA-ES) | Re-play a fraction of the population and count rank changes. If rankings are mostly noise, first lengthen evaluation, then **raise** σ | Hansen et al. 2009 | The opposite of what evo's genes do |
 | Best-child credit | Judge a rate by the best child in its group, not the average | Kumar et al. 2022 (GESMR); Ni & Spector 2024 | GESMR also keeps one elite |
@@ -342,6 +342,7 @@ Sources: Beyer & Schwefel 2002; Case & Lehre 2020; Pagliuca, Milano & Nolfi 2020
 ### Ranked experiments
 
 **1. meta_rate 0 control (the owner's plan).**
+- **Result (14 Oct 2026):** on one seed, fixed genes ended below self-adaptation, the step-0.5 population rose and then fell (the warning sign below), and the one-third rule below does not work in evo, since exact copies score at or above their parent as often as mutation children (`experiment-reference.md`, "Fixed mutation genes").
 - **Hypothesis:** fixed genes keep exploring, so benchmark strength keeps rising past generation 100–300, or plateaus higher.
 - **Single change:** meta_rate 0.2 → 0. Genes stay at their initial values: step 0.5, ~229 changes, initial copy_chance.
 - **Compare:** the 20-round seed 1 and 2 runs.
@@ -380,7 +381,7 @@ How the literature refines it:
 - **Literature:** Beyer & Schwefel 2002; Meyer-Nieberg 2007; Hansen, Arnold & Auger 2015.
 
 **5. Population-level 1/5 success rule (replaces weight_step self-adaptation).**
-- **Hypothesis:** a shared step driven by the measured success rate cannot be gamed by single lineages. Near-copies push it *up*.
+- **Hypothesis:** a shared step driven by the measured success rate cannot be gamed by single lineages. Near-copies push it *up* (not with evo's tournament scores as the success measure: `experiment-reference.md`, "Fixed mutation genes").
 - **Single change:** a shared weight_step, multiplied up when more than ~20% of mutation children out-rank their parent's previous percentile, down otherwise.
 - **Compare:** runs 1 and 4.
 - **Literature:** Hansen, Arnold & Auger 2015; Luke 2013; Kumar et al. 2022; Plappert et al. 2018 (adapt the step to a target behavioural change instead).

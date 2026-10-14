@@ -157,7 +157,9 @@ e^(0.2 × a standard normal number), so a typical nudge is about ±22%
 about 0.008 to 0.012.
 
 The three chances move the same way on the log-odds scale, which for small
-values like 0.02 is nearly the same ±22%. `meta_rate` 0 freezes the genes.
+values like 0.02 is nearly the same ±22%. `meta_rate` 0 freezes the genes;
+with one seed, that did worse than self-adaptation
+(`experiment-reference.md`, "Fixed mutation genes").
 
 ### Why `weight_changes` is a count, not a rate
 
