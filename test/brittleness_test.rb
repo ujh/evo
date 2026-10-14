@@ -281,7 +281,9 @@ class BrittlenessTest < Minitest::Test
 
   def test_a_resumed_run_skips_stored_games_and_replays_failures
     make_experiment
-    failing = ->(game) { game.phase == 'screen' && game.player.child == 0 && game.player.step == '0.5' && game.opening == 1 && game.color == 'black' && game.opponent == 'AmiGo' }
+    failing = lambda do |game|
+      game.phase == 'retest' && game.player.replay? && [game.opponent, game.opening, game.color] == ['AmiGo', 1, 'black']
+    end
     brittleness(fixture: ->(game) { 'no_referee_score' if failing.call(game) })
     assert_equal 1, stored_games.count { |row| row[:failure] }
     @results = nil
@@ -290,6 +292,23 @@ class BrittlenessTest < Minitest::Test
     assert failing.call(pool.identifiers.first)
     assert_equal 0, stored_games.count { |row| row[:failure] }
     assert_equal 80, stored_games.size
+  end
+
+  # Failures count as losses, so a child whose screen failed could be
+  # passed over: the re-test waits until no screen failure is left.
+  def test_the_retest_waits_for_the_screen_failures_to_be_replayed
+    make_experiment
+    failing = lambda do |game|
+      game.phase == 'screen' && game.player.child == 1 && game.player.step == '0.5' && game.opponent == 'MichiWeak'
+    end
+    pool = brittleness(fixture: ->(game) { 'no_referee_score' if failing.call(game) })
+    assert_empty pool.identifiers.select { |game| game.phase == 'retest' }
+    assert_empty results[:selections].all
+    assert_match(/4 screen games failed/, @printed)
+    @results = nil
+    pool = brittleness
+    assert_equal 4 + 40, pool.identifiers.size
+    assert_equal 4, results[:selections].count
   end
 
   def test_an_interrupted_game_is_not_stored
@@ -310,6 +329,21 @@ class BrittlenessTest < Minitest::Test
       brittleness(on_event: ->(_) { script.stop! if (events += 1) == 4 }) { |r| script = r }
     end
     assert_equal 3, stored_games.size
+  end
+
+  # Ctrl-C reaches perturb too, which then fails: that is an interrupt,
+  # not a perturb failure. The stub sends the test process SIGINT, whose
+  # trap stops the run as the script's does.
+  def test_ctrl_c_during_perturb_is_an_interrupt
+    make_experiment
+    File.write(@perturb, "#!#{RbConfig.ruby}\nProcess.kill('INT', Process.ppid)\nsleep 0.2\nexit 1\n")
+    script = nil
+    previous = trap('INT') { script.stop! }
+    begin
+      assert_raises(B::Interrupted) { brittleness { |r| script = r } }
+    ensure
+      trap('INT', previous)
+    end
   end
 
   def test_a_halted_pools_unstarted_games_are_not_stored
@@ -454,10 +488,12 @@ class BrittlenessTest < Minitest::Test
     assert_nil B::Stats.mde(0.01, 6, alpha, 0.5)
   end
 
-  def test_pearson_is_na_below_two
+  # Two points always correlate ±1.
+  def test_pearson_is_na_below_three
     assert_in_delta(-1.0, B::Stats.pearson([1, 2, 3], [3, 2, 1]))
     assert_nil B::Stats.pearson([1], [2])
-    assert_nil B::Stats.pearson([1, 1], [2, 3])
+    assert_nil B::Stats.pearson([1, 2], [2, 3])
+    assert_nil B::Stats.pearson([1, 1, 1], [2, 3, 4])
   end
 
   # --- Report -------------------------------------------------------------
@@ -534,6 +570,92 @@ class BrittlenessTest < Minitest::Test
   # 0.05 / 2.
   def test_a_best_child_not_better_after_bonferroni
     assert_equal '| 0.5 | best | 1 | +0 | +5 | 5 | 5 | 0.0312 | no |', verdict(1)
+  end
+
+  # A champion with its own genes (seed2-rounds20 generation 500's) gets
+  # the `own` step: perturbed with those genes, keyed by them, reported,
+  # and resumed without replaying a game.
+  def test_the_own_step_uses_the_champions_genes
+    make_experiment(genes: { weight_changes: 26.25, weight_step: 0.00048 })
+    pool = brittleness('--steps', '0.5')
+    own = File.readlines(@perturb_log, chomp: true).map(&:split).select { |call| call[3] == '0.00048' }
+    assert_equal [0, 1, 0, 1].map { |k| ['26.25', '0.00048', Seeds.derive(SEED, 'brittleness', 'exp', GEN, 'own', k).to_s] }.sort,
+                 own.map { |call| call[2..] }.sort
+    assert_equal [26.25], stored_games.select { |row| row[:step] == 'own' }.map { |row| row[:weight_changes] }.uniq
+    assert_equal 2 * 8, pool.identifiers.count { |game| game.phase == 'screen' && game.player.step == 'own' }
+    assert_match(/^\| own \| 26\.25 \| 0\.00048 \| 2 \| \+0\.00 \|/, @printed)
+    assert_match(/m = 2/, @printed)
+    @results = nil
+    assert_empty brittleness('--steps', '0.5').identifiers
+  end
+
+  # A report on a hand-made table: one step, 20 children (so 2 best and 2
+  # controls are re-tested and m is 1), screen rows for children 0–3
+  # only, and a champion that wins 3 of 4 AmiGo and 1 of 4 MichiWeak
+  # screen games.
+  def rich_report
+    FileUtils.mkdir_p(@out)
+    store = B::Results.new(File.join(@out, 'results.sqlite3'))
+    options = { 'steps' => ['0.5'], 'changes' => 229.0, 'children' => 20, 'opponents' => %w[AmiGo MichiWeak],
+                'retest_games' => 8 }
+    store.check_run('exp', GEN, options, champion: 'c.ann', own: [229.0, 0.5])
+    screen_keys = B.screen_keys(%w[AmiGo MichiWeak], 2)
+    champion = [1, 1, 1, 0, 1, 0, 0, 0]
+    store.save_champion_games('exp', GEN, screen_keys.zip(champion).map do |(opponent, opening, color), won|
+      { opponent:, opening:, network_color: color, winner: won == 1 ? 'network' : 'opponent', length: 50, referee_result: 'B+R' }
+    end)
+    record = lambda do |phase, player, keys, wins|
+      keys.zip(wins).each do |(opponent, opening, color), won|
+        game = B::Game.new(generation: GEN, phase:, player:, opponent:, opening:, color:)
+        store.record_game('exp', game, winner: won == 1 ? 'network' : 'opponent', failure: nil, length: 50,
+                                       referee_result: 'B+R', moves_hash: 'x', duration: 0.1)
+      end
+    end
+    @screen = { 0 => [1, 1, 1, 1, 1, 1, 0, 0], 1 => [1, 1, 1, 1, 1, 0, 0, 0],
+                2 => [1, 1, 0, 0, 1, 0, 0, 0], 3 => [0, 1, 0, 0, 0, 0, 0, 0] }
+    @retest = { 0 => [1, 1, 1, 0, 1, 1, 0, 1], 1 => [1, 0, 1, 1, 1, 1, 1, 1],
+                2 => [1, 0, 0, 0, 1, 1, 0, 0], 3 => [1, 0, 1, 0, 0, 0, 0, 0] }
+    @champion_retest = [1, 0, 1, 0, 1, 1, 0, 0]
+    retest_keys = B.retest_keys(8, %w[AmiGo MichiWeak])
+    record.call('retest', B::CHAMPION, retest_keys, @champion_retest)
+    @screen.each_key do |child|
+      record.call('screen', player('0.5', child), screen_keys, @screen[child])
+      record.call('retest', player('0.5', child), retest_keys, @retest[child])
+    end
+    store.record_selection('exp', GEN, @screen.keys.map do |child|
+      { step: '0.5', weight_changes: 229.0, weight_step: 0.5, child:, role: child < 2 ? 'best' : 'control',
+        screen_difference: @screen[child].sum - champion.sum }
+    end)
+    store.close
+    @champion_screen = champion
+    report
+  end
+
+  def test_the_report_summarises_the_retest_by_role
+    text = rich_report
+    champion = @champion_retest
+    level = B::Stats.crossed_variance([@retest[2], @retest[3]], champion)
+    gap = B::Stats.crossed_variance([@retest[0], @retest[1]], [@retest[2], @retest[3]])
+    r = B::Stats.pearson([2, 1, -1, -3], [2, 3, -1, -2])
+    # Controls win 3 and 2 against the champion's 4; best 6 and 7.
+    row = "| 0.5 | -1.50 | #{format('%.2f', Math.sqrt(level))} (n 2) | +4.00 | " \
+          "#{format('%.2f', Math.sqrt(gap))} (n 2, 2) | #{format('%+.2f', r)} (n 4) |"
+    assert_includes text, row
+    assert_match(/Screen–re-test correlation: #{Regexp.escape(format('%+.2f', r))} \(n 4\)/, text)
+  end
+
+  # Per opponent: AmiGo 1, 1, 1 and 2 of 4 games differ (0.3125),
+  # MichiWeak 1, 0, 0, 1 (0.125); the MDE's d is their mean.
+  def test_the_report_gives_discordance_per_opponent
+    text = rich_report
+    assert_match(/\| 0\.5 \| 229 \| 0\.5 \| 4 \| [^\n]*\| #{format('%.2f', 0.3125)}\/#{format('%.2f', 0.125)} \|/, text)
+    assert_match(/^\| 0\.5 \| #{Regexp.escape(format('%.3f', 0.21875))} \|/, text)
+  end
+
+  # The champion's rates 3/4 and 1/4: SD √(4 × 3/16 × 2) = √1.5.
+  def test_the_independence_band_takes_each_opponents_rate
+    text = rich_report
+    assert_includes text, "within ±#{format('%.1f', 1.96 * Math.sqrt(1.5))} of 0 (95 %, SD #{format('%.2f', Math.sqrt(1.5))})"
   end
 
   def test_estimates_below_two_children_are_na

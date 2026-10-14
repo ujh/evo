@@ -327,9 +327,9 @@ module Brittleness
       high
     end
 
-    # nil without spread, so below two pairs.
+    # nil below three pairs (two always give ±1) or without spread.
     def pearson(xs, ys)
-      return nil if xs.empty?
+      return nil if xs.size < 3
 
       mx = mean(xs)
       my = mean(ys)
@@ -598,6 +598,14 @@ module Brittleness
       end
       write_openings('screen', settings['benchmark_games'] / 2)
       play(champion, 'screen', [CHAMPION, *children], champion.screen_keys)
+      # A failure counts as a loss, which would bias the selection: the
+      # re-test waits until a later run has replayed every failure.
+      failed = @results.games(options.name, champion.generation, 'screen').count { |row| row[:failure] }
+      if failed.positive?
+        puts "Generation #{champion.generation}: #{failed} screen games failed; the re-test waits until a run of " \
+             'the same command has replayed them.'
+        return
+      end
 
       retest = selection(champion)
       keys = Brittleness.retest_keys(options.retest_games, options.opponents)
