@@ -236,6 +236,25 @@ So the order is Brown < AmiGo < MichiWeak < MichiMid < MichiStrong < GnuGo, each
 - The round count also decides how reliably the champion is picked, and the benchmark plays only the champion: the 10-round run's dip at generation 300 (42 of 300) fits a poor pick better than a worse population.
 - Only the 40-round run is clearly flat after generation 200 (ratings −36 to −54). The 20-round champions' rating still rises at generation 500 (14, 16, 45, 69 at generations 200–500), and the 10-round run's from generation 300 (−102 to −50). Meanwhile the mutation genes shrink: `weight_step`'s median fell from 0.5 to 0.018 with 10 rounds, 0.006 with 20, and 0.0004 with 40 (at generation 500), the less noisy the tournament the further. `PROJECT_NOTES.md` has the open question.
 
+## Fixed mutation genes (`meta_rate` 0)
+
+`seed2-meta0` and `seed2-meta0-step015` repeat `seed2-rounds20` with `meta_rate` 0, so every network keeps generation 0's mutation genes, and every other setting the same, the seed included, so all three start from the same generation 0 (the same champion, 6 of 300). `seed2-meta0` keeps the default genes (`weight_step` 0.5, 229 weight changes, `copy_chance` 0.01, `activation_rate` and `structure_rate` 0.02); `seed2-meta0-step015` the same with `initial_weight_step` 0.15. They test whether the self-adaptive genes' shrinking limits progress (`docs/literature.md` sections 1 and 7). Both ran to about generation 570, at nearly the same cost per generation as `seed2-rounds20` (summed tournament hours to generation 500: 94 and 106 against 90), so equal generations are close to equal compute. The checkpoint champions' benchmark wins out of 300 against AmiGo, MichiWeak and MichiMid, and their rating in Elo above AmiGo from each experiment's own `stats` fit (14 Oct 2026):
+
+| Generation | `seed2-rounds20` | `seed2-meta0` | `seed2-meta0-step015` | Ratings, same order |
+| ---: | ---: | ---: | ---: | --- |
+| 100 | 51 | 73 | 56 | −227, −106, −117 |
+| 200 | 101 | 102 | 61 | 14, −24, −80 |
+| 300 | 102 | 93 | 58 | 16, −27, −127 |
+| 400 | 109 | 81 | 83 | 45, −14, −52 |
+| 500 | 114 | 77 | 80 | 69, −59, −60 |
+
+- Fixed genes learn faster at first and then stop lower. Both fixed runs lead at generation 100 (73 against 51 wins, about z = 2). `seed2-meta0` draws level at generations 200–300 and then falls behind, while the self-adaptive run keeps rising: 77 against 114 wins at generation 500 (about z = 3.2). `seed2-meta0-step015` is behind from generation 200 on.
+- The populations agree, so this is not only the champion pick. Averaged over 50 generations, the share of networks scoring above the AmiGo copies' mean tournament score is, for `seed2-rounds20`, `seed2-meta0` and `seed2-meta0-step015`: 11, 6 and 5 % at generations 151–200, 32, 15 and 5 % at 251–300, 41, 22 and 6 % at 351–400, and 40, 23 and 9 % at 451–500. `seed2-meta0`'s share peaks at 27 % (generations 401–450) and is 18 % at 501–550.
+- A smaller fixed step is no better: 0.15 trails 0.5 up to generation 300 and matches it at 400–500. So neither "self-adaptation hurts" nor "0.5 is too big a step" holds for this seed.
+- The share of mutation children that score at least as well as their parent cannot tell whether a step is too big. It is 30.5–31.6 % per 100 generations in all three runs, about the same as for exact copies (30–38 % in every 100 generations with a few hundred copies), whose play is unchanged: it measures how far a parent's lucky score regresses, not the mutation. A mutation child scores on average 0.1–0.4 wins (of 20 games) less than a copy, measured against its parent's score in the generation before.
+- The self-adaptive run did not stop exploring; it moved from weights to shapes. In `seed2-rounds20` the mean `weight_step` fell to 0.006–0.018 and `weight_changes` to 15–40 at generations 400–500, but `structure_rate` rose from 0.02 to 0.06–0.075 from generation 300 on: 6,483 and 8,717 shape changes in generations 301–400 and 401–500, against 1,356–1,750 per 100 generations in the fixed runs, and 123–141 distinct shapes among the children per 100 generations against 20–50. By generation 500 its networks have 7–9 hidden layers of about 198, the fixed runs' 9–10 of about 200–204. Whether the shapes are what kept it improving is not measured.
+- One seed only. `PROJECT_NOTES.md` (item 3) has what remains open.
+
 ## Benchmark
 
 - `CheckpointBenchmark` (`ruby/checkpoint_benchmark.rb`) measures progress apart from the tournament. Tournament games use the arena; checkpoint games use `gogui-twogtp`, one game per run, with the GNU Go referee (`GameResult::REFEREE`), and are read from its `.dat` file by `GameResult`. `RunGeneration#call` runs it after the tournament of every `keep_every`-th generation (the checkpoints, whose networks are kept); with `keep_every` 0 it never runs.
