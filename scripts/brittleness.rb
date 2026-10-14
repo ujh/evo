@@ -6,7 +6,7 @@
 #   mise exec -- scripts/brittleness.rb EXPERIMENT GEN... --out DIR
 #       [--steps 0.005,0.02,0.1,0.5] [--changes 229] [--children 32]
 #       [--opponents AmiGo,MichiWeak,MichiMid] [--retest-games 600]
-#       [--concurrency N]
+#       [--concurrency N] [--accept-failures]
 #   mise exec -- scripts/brittleness.rb --report-only --out DIR [EXPERIMENT [GEN...]]
 #
 # For each generation the champion's children (evolve/perturb, one seed
@@ -352,9 +352,22 @@ module Brittleness
   class Results
     KEY = %i[experiment generation phase step weight_changes weight_step child opponent opening color].freeze
 
+    # The layout this script writes; a directory with another (or none,
+    # from before the version) is refused, not converted.
+    VERSION = 2
+
     def initialize(path, readonly: false)
       @db = Sequel.sqlite(path, readonly:, timeout: 5_000)
-      create_tables unless readonly
+      if @db.tables.empty? && !readonly
+        create_tables
+        return
+      end
+
+      version = @db.tables.include?(:version) ? @db[:version].get(:version) : nil
+      return if version == VERSION
+
+      @db.disconnect
+      raise Refused, "#{File.dirname(path)} was written by an older brittleness.rb; use a new --out"
     end
 
     def close = @db.disconnect
@@ -413,9 +426,6 @@ module Brittleness
     end
 
     def selection_failures(experiment, generation)
-      # A directory from before the table has none.
-      return 0 unless @db.table_exists?(:selection_failures)
-
       @db[:selection_failures].where(experiment:, generation:).get(:screen_failures) || 0
     end
 
@@ -442,6 +452,8 @@ module Brittleness
     private
 
     def create_tables
+      @db.create_table(:version) { Integer :version, null: false }
+      @db[:version].insert(version: VERSION)
       @db.create_table?(:runs) do
         String :experiment, null: false
         Integer :generation, null: false
@@ -623,7 +635,11 @@ module Brittleness
       # re-test waits until a later run has replayed every failure, or
       # --accept-failures takes the failures as losses. Once chosen, the
       # children stay.
-      failed = @results.games(options.name, champion.generation, 'screen').count { |row| row[:failure] }
+      # The replay's failures do not count: the selection compares with
+      # the champion's stored games.
+      failed = @results.games(options.name, champion.generation, 'screen').count do |row|
+        row[:failure] && row[:child] != REPLAY
+      end
       chosen = @results.selections(options.name, champion.generation).any?
       if failed.positive? && !chosen && !options.accept_failures
         puts "Generation #{champion.generation}: #{failed} screen games failed; the re-test waits until they are " \
@@ -956,6 +972,16 @@ module Brittleness
              "#{stats[:identical] ? format('%.0f %%', 100 * stats[:identical]) : 'n/a'} | " \
              "#{stats[:discordance] ? stats[:discordance].map { |d| format('%.2f', d) }.join('/') : 'n/a'} |"
       end
+      incomplete = @steps.flat_map do |step|
+        (0...@options['children']).filter_map do |child|
+          rows = player_rows('screen', player(step, child))
+          "#{step.label} child #{child} (#{rows.size} of #{@screen_keys.size})" unless complete?(rows, @screen_keys)
+        end
+      end
+      unless incomplete.empty?
+        puts
+        puts "Left out until their screen is complete: #{incomplete.join(', ')}."
+      end
       independence(champion)
     end
 
@@ -1019,12 +1045,14 @@ module Brittleness
       puts '| Step | Role | Child | Screen difference | Re-test difference | n_d | k | P | Better |'
       puts '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |'
       by_step = Hash.new { |h, k| h[k] = { 'best' => [], 'control' => [] } }
+      playing = false
       @selections.each do |sel|
         step = @steps.find { |s| s.label == sel[:step] }
         rows = player_rows('retest', player(step, sel[:child]))
         unless complete?(rows, @retest_keys)
           puts "| #{sel[:step]} | #{sel[:role]} | #{sel[:child]} | #{format('%+d', sel[:screen_difference])} | " \
                "#{rows.size} of #{@retest_keys.size} games | | | | |"
+          playing = true
           next
         end
         table = wins(rows, @retest_keys)
@@ -1035,6 +1063,10 @@ module Brittleness
         puts "| #{sel[:step]} | #{sel[:role]} | #{sel[:child]} | #{format('%+d', sel[:screen_difference])} | " \
              "#{format('%+d', table.sum - champion.sum)} | #{discordant} | #{k} | #{format('%.4f', p.to_f)} | #{verdict} |"
         by_step[sel[:step]][sel[:role]] << [sel[:screen_difference], table]
+      end
+      if playing
+        puts
+        puts 'A child whose re-test is not complete is left out of the summary below.'
       end
       retest_summary(by_step, champion)
     end

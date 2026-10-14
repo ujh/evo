@@ -78,7 +78,9 @@ class BrittlenessTest < Minitest::Test
     pool = FakePool.new(status:, on_event:) do |game|
       won = wins.call(game)
       copy_dat(fixture.call(game) || ((game.color == 'black') == won ? 'black_wins' : 'white_wins'), game.prefix)
-      File.write("#{game.prefix}-0.sgf", "(;GM[1]SZ[9];B[aa];W[#{moves.call(game)}])")
+      # moves nil: twogtp left no SGF.
+      move = moves.call(game)
+      File.write("#{game.prefix}-0.sgf", "(;GM[1]SZ[9];B[aa];W[#{move}])") if move
     end
     script = B::Run.new(options(*args, defaults:), pool:, perturb: @perturb)
     with_run&.call(script)
@@ -338,6 +340,26 @@ class BrittlenessTest < Minitest::Test
     assert_equal 1, brittleness(fixture:).identifiers.size
     refute_match(/re-test waits/, @printed)
     assert_match(/chosen while 1 screen games had failed/, report)
+  end
+
+  # The selection compares children with the champion's stored games, so
+  # a failed replay game does not hold the re-test back.
+  def test_a_failed_replay_game_does_not_hold_the_retest
+    make_experiment
+    pool = brittleness(fixture: ->(game) { 'no_referee_score' if game.phase == 'screen' && game.player.replay? && game.opening == 0 })
+    assert_equal 40, pool.identifiers.count { |game| game.phase == 'retest' }
+    refute_match(/re-test waits|chosen while/, @printed)
+  end
+
+  # No backwards compatibility: a directory an older script wrote is
+  # refused, by a run and by the report.
+  def test_a_directory_of_an_older_script_is_refused
+    make_experiment
+    FileUtils.mkdir_p(@out)
+    Sequel.sqlite(File.join(@out, 'results.sqlite3')) { |db| db.create_table(:runs) { String :experiment } }
+    [-> { brittleness }, -> { report }].each do |call|
+      assert_match(/written by an older brittleness\.rb; use a new --out/, assert_raises(B::Refused) { call.call }.message)
+    end
   end
 
   def test_an_interrupted_game_is_not_stored
@@ -717,6 +739,365 @@ class BrittlenessTest < Minitest::Test
   def test_the_independence_band_takes_each_opponents_rate
     text = rich_report
     assert_includes text, "within ±#{format('%.1f', 1.96 * Math.sqrt(1.5))} of 0 (95 %, SD #{format('%.2f', Math.sqrt(1.5))})"
+  end
+
+  # --- Whole reports -------------------------------------------------------
+
+  # perturb's differs varies by child: the seed's last two digits + 10.
+  def perturb_differs_by_seed
+    File.write(@perturb, <<~RUBY)
+      #!#{RbConfig.ruby}
+      net, out, changes, step, seed = ARGV
+      File.binwrite(out, File.binread(net) + "child \#{changes} \#{step} \#{seed}")
+      puts "differs=\#{(seed.to_i % 100) + 10}"
+    RUBY
+  end
+
+  # The champion's stored games: AmiGo lost only on opening 1 with
+  # White, MichiWeak won only on opening 0 with Black (3 and 1 of 4).
+  STORED = lambda do |opponent, opening, color|
+    won = opponent == 'AmiGo' ? [opening, color] != [1, 'white'] : [opening, color] == [0, 'black']
+    won ? 'network' : 'opponent'
+  end
+
+  def stored_win?(game) = STORED.call(game.opponent, game.opening, game.color) == 'network'
+
+  # Who wins what in the whole-report runs: the replay plays the stored
+  # games; on the re-test the champion wins 4 of 8.
+  def scripted_wins(game)
+    key = [game.opponent, game.opening, game.color]
+    player = game.player
+    return stored_win?(game) if game.phase == 'screen' && player.replay?
+
+    if game.phase == 'screen'
+      case [player.step, player.child]
+      when ['0.5', 0] then game.opponent == 'AmiGo'
+      when ['0.5', 1] then stored_win?(game) || key == ['MichiWeak', 1, 'white']
+      when ['0.02', 1] then false
+      when ['own', 1] then stored_win?(game) && key != ['AmiGo', 0, 'black']
+      else stored_win?(game)
+      end
+    else
+      champion = game.opponent == 'AmiGo' ? key != ['AmiGo', 1, 'white'] : key == ['MichiWeak', 0, 'black']
+      case [player.step, player.child]
+      when ['0.5', 0] then game.opponent == 'AmiGo' || game.opening.zero?
+      when ['0.02', 0] then champion || key == ['MichiWeak', 1, 'black']
+      when ['0.02', 1] then key == ['AmiGo', 0, 'black']
+      when ['own', 1] then champion && key != ['AmiGo', 1, 'black']
+      else champion
+      end
+    end
+  end
+
+  def scripted_moves(game)
+    return nil if game.phase == 'screen' && [game.opponent, game.opening, game.color] == ['MichiWeak', 1, 'white']
+    return nil if game.player.step == '0.5' && game.player.child.zero? && [game.opponent, game.opening, game.color] == ['AmiGo', 1, 'black']
+    return 'ee' if game.player.replay? || game.player.step == 'own'
+    return 'dd' if game.player.step == '0.5'
+
+    game.opponent == 'AmiGo' ? 'cc' : 'ee'
+  end
+
+  def scripted_fixture(game)
+    return 'no_referee_score' if game.phase == 'screen' && game.player.replay? && [game.opponent, game.opening, game.color] == ['AmiGo', 0, 'white']
+
+    return unless game.phase == 'retest' && game.player.step == '0.02' && game.player.child == 1
+
+    # A bot that crashes after the network's win: a failure, twice.
+    { ['MichiWeak', 1, 'black'] => 'white_crashed', ['MichiWeak', 1, 'white'] => 'black_crashed' }[
+      [game.opponent, game.opening, game.color]]
+  end
+
+  # The whole text, so no figure or line can change unnoticed. Checked by
+  # hand: the champion wins 4 of 8 screen games (AmiGo 3/4, MichiWeak 1/4:
+  # band SD √1.5) and 4 of 8 re-test games; a game whose SGF is missing
+  # for the child and the replay (MichiWeak 1 white) is not identical, so
+  # `own`, whose moves are otherwise the replay's, has 7 of 8 (88 %); the
+  # replay's failed game is listed with its reason; the selection, made
+  # without a child's failure, has no --accept-failures line.
+  def test_the_whole_report_with_an_own_step
+    make_experiment(genes: { weight_changes: 26.25, weight_step: 0.00048 }, stored: STORED)
+    perturb_differs_by_seed
+    brittleness('--steps', '0.5,0.02', wins: method(:scripted_wins), moves: method(:scripted_moves),
+                                        fixture: method(:scripted_fixture))
+    assert_equal <<~TEXT, report
+      # exp generation 10
+
+      Champion c.ann, own genes: weight_changes 26.25, weight_step 0.00048.
+      2 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
+      Screen: 56 games stored, 1 failures (1 × no referee score: ?).
+      Re-test: 56 games stored, 2 failures (2 × MichiWeak crashed).
+      Weights a child changed (perturb's differs), per step: 0.5 59–76, 0.02 20–30, own 35–89.
+
+      Replay: 1 of 8 stored benchmark games differ: this champion's results are unreliable.
+      - AmiGo 0 white: replay no referee score: ?, length 93, ?; stored network, length 93, W+22.5
+
+      ## Screen: children against the champion on its 8 benchmark games
+
+      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+
+      | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
+      | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+      | 0.5 | 229 | 0.5 | 2 | +0.50 | 0.50 (n 2) | 0.71 | 0 % | 0.12/0.25 |
+      | 0.02 | 229 | 0.02 | 2 | -2.00 | 2.00 (n 2) | 2.83 | 38 % | 0.38/0.12 |
+      | own | 26.25 | 0.00048 | 2 | -0.50 | 0.50 (n 2) | 0.71 | 88 % | 0.12/0.00 |
+
+      Null band of the screen, independence approximation: a child as strong as the champion lands within ±2.4 of 0 (95 %, SD 1.22); compare the observed SD above. Children agree with the champion more than independence predicts, so the band is too wide.
+
+      ## Between steps (screen, wins of 8)
+
+      | Step A | Step B | A − B | SE (crossed) |
+      | --- | --- | ---: | ---: |
+      | 0.5 | 0.02 | +2.50 | 2.06 (n 2, 2) |
+      | 0.5 | own | +1.00 | 0.71 (n 2, 2) |
+      | 0.02 | own | -1.50 | 2.06 (n 2, 2) |
+
+      ## Re-test on 8 fresh games (wins of 8)
+
+      The champion won 4. Improvement: a re-tested best child is better when its wins among the games its result differs from the champion's, k of n_d, satisfy P(Bin(n_d, ½) ≥ k) ≤ 0.05 / m (exact one-sided sign test, Bonferroni over the champion's re-tested best children, m = 3).
+
+      | Step | Role | Child | Screen difference | Re-test difference | n_d | k | P | Better |
+      | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+      | 0.02 | best | 0 | +0 | +1 | 1 | 1 | 0.5000 | no |
+      | 0.02 | control | 1 | -4 | -3 | 3 | 0 | 1.0000 | — |
+      | 0.5 | best | 1 | +1 | +0 | 0 | 0 | 1.0000 | no |
+      | 0.5 | control | 0 | +0 | +2 | 2 | 2 | 0.2500 | — |
+      | own | best | 0 | +0 | +0 | 0 | 0 | 1.0000 | no |
+      | own | control | 1 | -1 | -1 | 1 | 0 | 1.0000 | — |
+
+      Controls against the champion (an unbiased level only as far as the screen does not predict the re-test), the re-tested best minus the controls, and the screen–re-test correlation over both, each with n (a t interval on n − 1 degrees of freedom applies to a few children):
+
+      | Step | Controls − champion | SE (crossed) | Best − controls | SE (crossed) | Screen–re-test correlation |
+      | --- | ---: | ---: | ---: | ---: | ---: |
+      | 0.5 | +2.00 | n/a (n 1) | -2.00 | n/a (n 1, 1) | n/a (n 2) |
+      | 0.02 | -3.00 | n/a (n 1) | +4.00 | n/a (n 1, 1) | n/a (n 2) |
+      | own | -1.00 | n/a (n 1) | +1.00 | n/a (n 1, 1) | n/a (n 2) |
+
+      Screen–re-test correlation: +0.82 (n 6) over every re-tested child.
+
+      ## Smallest detectable improvement (estimate, percentage points of the 8 re-test games)
+
+      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 3. A null result means no child better by at least this much, not never.
+
+      | Step | d | 50 % power | 80 % power |
+      | --- | ---: | ---: | ---: |
+      | 0.5 | 0.188 | n/a | n/a |
+      | 0.02 | 0.250 | n/a | n/a |
+      | own | 0.062 | n/a | n/a |
+    TEXT
+  end
+
+  # The champion's genes are the 0.5 step's, so the header says so and
+  # no `own` row appears.
+  def test_the_whole_report_without_an_own_step
+    make_experiment(stored: STORED)
+    brittleness('--steps', '0.5,0.02', wins: method(:scripted_wins), moves: method(:scripted_moves))
+    assert_equal <<~TEXT, report
+      # exp generation 10
+
+      Champion c.ann, own genes: weight_changes 229, weight_step 0.5 (the same as a fixed step: no own step).
+      2 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
+      Screen: 40 games stored, 0 failures.
+      Re-test: 40 games stored, 0 failures.
+      Weights a child changed (perturb's differs), per step: 0.5 5–5, 0.02 5–5.
+
+      Replay: all 8 stored benchmark games reproduced (winner, length, referee result).
+
+      ## Screen: children against the champion on its 8 benchmark games
+
+      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+
+      | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
+      | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+      | 0.5 | 229 | 0.5 | 2 | +0.50 | 0.50 (n 2) | 0.71 | 0 % | 0.12/0.25 |
+      | 0.02 | 229 | 0.02 | 2 | -2.00 | 2.00 (n 2) | 2.83 | 38 % | 0.38/0.12 |
+
+      Null band of the screen, independence approximation: a child as strong as the champion lands within ±2.4 of 0 (95 %, SD 1.22); compare the observed SD above. Children agree with the champion more than independence predicts, so the band is too wide.
+
+      ## Between steps (screen, wins of 8)
+
+      | Step A | Step B | A − B | SE (crossed) |
+      | --- | --- | ---: | ---: |
+      | 0.5 | 0.02 | +2.50 | 2.06 (n 2, 2) |
+
+      ## Re-test on 8 fresh games (wins of 8)
+
+      The champion won 4. Improvement: a re-tested best child is better when its wins among the games its result differs from the champion's, k of n_d, satisfy P(Bin(n_d, ½) ≥ k) ≤ 0.05 / m (exact one-sided sign test, Bonferroni over the champion's re-tested best children, m = 2).
+
+      | Step | Role | Child | Screen difference | Re-test difference | n_d | k | P | Better |
+      | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+      | 0.02 | best | 0 | +0 | +1 | 1 | 1 | 0.5000 | no |
+      | 0.02 | control | 1 | -4 | -3 | 3 | 0 | 1.0000 | — |
+      | 0.5 | best | 1 | +1 | +0 | 0 | 0 | 1.0000 | no |
+      | 0.5 | control | 0 | +0 | +2 | 2 | 2 | 0.2500 | — |
+
+      Controls against the champion (an unbiased level only as far as the screen does not predict the re-test), the re-tested best minus the controls, and the screen–re-test correlation over both, each with n (a t interval on n − 1 degrees of freedom applies to a few children):
+
+      | Step | Controls − champion | SE (crossed) | Best − controls | SE (crossed) | Screen–re-test correlation |
+      | --- | ---: | ---: | ---: | ---: | ---: |
+      | 0.5 | +2.00 | n/a (n 1) | -2.00 | n/a (n 1, 1) | n/a (n 2) |
+      | 0.02 | -3.00 | n/a (n 1) | +4.00 | n/a (n 1, 1) | n/a (n 2) |
+
+      Screen–re-test correlation: +0.84 (n 4) over every re-tested child.
+
+      ## Smallest detectable improvement (estimate, percentage points of the 8 re-test games)
+
+      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means no child better by at least this much, not never.
+
+      | Step | d | 50 % power | 80 % power |
+      | --- | ---: | ---: | ---: |
+      | 0.5 | 0.188 | n/a | n/a |
+      | 0.02 | 0.250 | n/a | n/a |
+    TEXT
+  end
+
+  # A directory as a run leaves it while it plays: generation 10 has a
+  # partial replay, children with partial and no screens, and a partial
+  # re-test of a control; generation 20 a partial re-test of the
+  # champion and nothing else.
+  def partial_directory
+    FileUtils.mkdir_p(@out)
+    store = B::Results.new(File.join(@out, 'results.sqlite3'))
+    screen_keys = B.screen_keys(%w[AmiGo MichiWeak], 2)
+    retest_keys = B.retest_keys(8, %w[AmiGo MichiWeak])
+    options = { 'steps' => %w[0.5 0.02], 'changes' => 229.0, 'children' => 3, 'opponents' => %w[AmiGo MichiWeak],
+                'retest_games' => 8 }
+    record = lambda do |generation, phase, player, keys, wins|
+      keys.each do |opponent, opening, color|
+        game = B::Game.new(generation:, phase:, player:, opponent:, opening:, color:)
+        store.record_game('exp', game, winner: wins.call(opponent, opening, color) ? 'network' : 'opponent',
+                                       failure: nil, length: 93, referee_result: 'B+R', moves_hash: 'x', duration: 0.1)
+      end
+    end
+    stored = ->(*key) { STORED.call(*key) == 'network' }
+    [10, 20].each do |generation|
+      store.check_run('exp', generation, options, champion: 'c.ann', own: [229.0, 0.5])
+      store.save_champion_games('exp', generation, screen_keys.map do |opponent, opening, color|
+        winner = STORED.call(opponent, opening, color)
+        { opponent:, opening:, network_color: color, winner:, length: 93, referee_result: 'B+R' }
+      end)
+    end
+    record.call(10, 'screen', B::CHAMPION, screen_keys.first(5), stored)
+    record.call(10, 'screen', player('0.5', 0), screen_keys, ->(*) { true })
+    record.call(10, 'screen', player('0.5', 1), screen_keys, stored)
+    record.call(10, 'screen', player('0.5', 2), screen_keys.first(3), stored)
+    record.call(10, 'screen', player('0.02', 0), screen_keys, ->(opponent, *) { opponent == 'AmiGo' })
+    record.call(10, 'screen', player('0.02', 1), screen_keys.first(6), stored)
+    store.record_selection('exp', 10, [
+                             { step: '0.5', weight_changes: 229.0, weight_step: 0.5, child: 0, role: 'best', screen_difference: 4 },
+                             { step: '0.5', weight_changes: 229.0, weight_step: 0.5, child: 1, role: 'control', screen_difference: 0 }
+                           ])
+    record.call(10, 'retest', B::CHAMPION, retest_keys, ->(opponent, *) { opponent == 'AmiGo' })
+    record.call(10, 'retest', player('0.5', 0), retest_keys, ->(*) { true })
+    record.call(10, 'retest', player('0.5', 1), retest_keys.first(5), ->(*) { true })
+    record.call(20, 'retest', B::CHAMPION, retest_keys.first(3), ->(*) { true })
+    store.close
+  end
+
+  # --report-only while a run plays: incomplete screens and re-tests are
+  # named and left out of every figure, and the replay is counted so far.
+  def test_the_whole_report_of_a_directory_still_playing
+    partial_directory
+    assert_equal <<~TEXT, report
+      # exp generation 10
+
+      Champion c.ann, own genes: weight_changes 229, weight_step 0.5 (the same as a fixed step: no own step).
+      3 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
+      Screen: 38 games stored, 0 failures.
+      Re-test: 21 games stored, 0 failures.
+
+      Replay: 5 of 8 stored benchmark games replayed so far.
+      Replay: all 5 stored benchmark games reproduced (winner, length, referee result).
+
+      ## Screen: children against the champion on its 8 benchmark games
+
+      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+
+      | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
+      | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+      | 0.5 | 229 | 0.5 | 2 | +2.00 | 2.00 (n 2) | 2.83 | n/a | 0.12/0.38 |
+      | 0.02 | 229 | 0.02 | 1 | +0.00 | n/a (n 1) | n/a | n/a | 0.25/0.25 |
+
+      Left out until their screen is complete: 0.5 child 2 (3 of 8), 0.02 child 1 (6 of 8), 0.02 child 2 (0 of 8).
+
+      Null band of the screen, independence approximation: a child as strong as the champion lands within ±2.4 of 0 (95 %, SD 1.22); compare the observed SD above. Children agree with the champion more than independence predicts, so the band is too wide.
+
+      ## Between steps (screen, wins of 8)
+
+      | Step A | Step B | A − B | SE (crossed) |
+      | --- | --- | ---: | ---: |
+      | 0.5 | 0.02 | +2.00 | n/a (n 2, 1) |
+
+      ## Re-test on 8 fresh games (wins of 8)
+
+      The champion won 4. Improvement: a re-tested best child is better when its wins among the games its result differs from the champion's, k of n_d, satisfy P(Bin(n_d, ½) ≥ k) ≤ 0.05 / m (exact one-sided sign test, Bonferroni over the champion's re-tested best children, m = 2).
+
+      | Step | Role | Child | Screen difference | Re-test difference | n_d | k | P | Better |
+      | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+      | 0.5 | best | 0 | +4 | +4 | 4 | 4 | 0.0625 | no |
+      | 0.5 | control | 1 | +0 | 5 of 8 games | | | | |
+
+      A child whose re-test is not complete is left out of the summary below.
+
+      Controls against the champion (an unbiased level only as far as the screen does not predict the re-test), the re-tested best minus the controls, and the screen–re-test correlation over both, each with n (a t interval on n − 1 degrees of freedom applies to a few children):
+
+      | Step | Controls − champion | SE (crossed) | Best − controls | SE (crossed) | Screen–re-test correlation |
+      | --- | ---: | ---: | ---: | ---: | ---: |
+      | 0.5 | n/a | n/a (n 0) | n/a | n/a (n 1, 0) | n/a (n 1) |
+      | 0.02 | n/a | n/a (n 0) | n/a | n/a (n 0, 0) | n/a (n 0) |
+
+      Screen–re-test correlation: n/a (n 1) over every re-tested child.
+
+      ## Smallest detectable improvement (estimate, percentage points of the 8 re-test games)
+
+      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means no child better by at least this much, not never.
+
+      | Step | d | 50 % power | 80 % power |
+      | --- | ---: | ---: | ---: |
+      | 0.5 | 0.250 | n/a | n/a |
+      | 0.02 | 0.250 | n/a | n/a |
+
+      # exp generation 20
+
+      Champion c.ann, own genes: weight_changes 229, weight_step 0.5 (the same as a fixed step: no own step).
+      3 children a step; opponents AmiGo, MichiWeak; screen 8 games a player (the benchmark's), re-test 8 fresh games.
+      Screen: 0 games stored, 0 failures.
+      Re-test: 3 games stored, 0 failures.
+
+      Replay: 0 of 8 stored benchmark games replayed so far.
+
+      ## Screen: children against the champion on its 8 benchmark games
+
+      The champion won 4 of 8 (stored). Differences are the children's wins minus the champion's, the mean over a step's children labelled as its champion-relative level; SEs from the crossed children × games formula, with n children. Identical games: share of a child's games move for move the replay's. Discordance: share of games a child's result differs from the champion's, per opponent (AmiGo/MichiWeak).
+
+      | Step | Changes | Weight step | Children | Mean difference | SE (crossed) | Observed SD | Identical games | Discordance |
+      | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+      | 0.5 | 229 | 0.5 | 0 | n/a | n/a (n 0) | n/a | n/a | n/a |
+      | 0.02 | 229 | 0.02 | 0 | n/a | n/a (n 0) | n/a | n/a | n/a |
+
+      Left out until their screen is complete: 0.5 child 0 (0 of 8), 0.5 child 1 (0 of 8), 0.5 child 2 (0 of 8), 0.02 child 0 (0 of 8), 0.02 child 1 (0 of 8), 0.02 child 2 (0 of 8).
+
+      Null band of the screen, independence approximation: a child as strong as the champion lands within ±2.4 of 0 (95 %, SD 1.22); compare the observed SD above. Children agree with the champion more than independence predicts, so the band is too wide.
+
+      ## Between steps (screen, wins of 8)
+
+      | Step A | Step B | A − B | SE (crossed) |
+      | --- | --- | ---: | ---: |
+      | 0.5 | 0.02 | n/a | n/a |
+
+      ## Re-test on 8 fresh games (wins of 8)
+
+      Not complete: the champion has 3 of 8 re-test games; 0 children selected.
+
+      ## Smallest detectable improvement (estimate, percentage points of the 8 re-test games)
+
+      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means no child better by at least this much, not never.
+
+      | Step | d | 50 % power | 80 % power |
+      | --- | ---: | ---: | ---: |
+      | 0.5 | n/a | n/a | n/a |
+      | 0.02 | n/a | n/a | n/a |
+    TEXT
   end
 
   def test_estimates_below_two_children_are_na
