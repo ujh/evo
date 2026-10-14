@@ -342,7 +342,7 @@ Sources: Beyer & Schwefel 2002; Case & Lehre 2020; Pagliuca, Milano & Nolfi 2020
 ### Ranked experiments
 
 **1. meta_rate 0 control (the owner's plan).**
-- **Result (14 Oct 2026):** on one seed, fixed genes stayed below self-adaptation, and the one-third rule below does not work in evo, since exact copies score at or above their parent as often as mutation children (`experiment-reference.md`, "Fixed mutation genes").
+- **Result (14 Oct 2026):** on one seed, fixed genes ended below self-adaptation, the step-0.5 population rose and then fell (the warning sign below), and the one-third rule below does not work in evo, since exact copies score at or above their parent as often as mutation children (`experiment-reference.md`, "Fixed mutation genes").
 - **Hypothesis:** fixed genes keep exploring, so benchmark strength keeps rising past generation 100–300, or plateaus higher.
 - **Single change:** meta_rate 0.2 → 0. Genes stay at their initial values: step 0.5, ~229 changes, initial copy_chance.
 - **Compare:** the 20-round seed 1 and 2 runs.
