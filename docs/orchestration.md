@@ -91,7 +91,7 @@ Stop and ask only:
 - before an action seen outside the repository's branches and PRs, such as uploading archives to the external-tools release (`mise run mirror-external-tools`), unless the owner approved it in advance (record that as an owner decision); a step agent never runs one;
 - which triaged out-of-scope items go into `PROJECT_NOTES.md` (step 6);
 - for parallel work, and before merging, an analysis plan's script PRs included, which must merge before they run (step 5, analysis phase), unless the owner granted merging ([While the owner is away](#while-the-owner-is-away));
-- to start a long analysis run, with its command (step 5, analysis phase).
+- to start a long run (an analysis or a real run longer than the Bash tool's 10-minute limit), with its command (step 5), unless the owner is away and the run is one the orchestrator may start itself ([While the owner is away](#while-the-owner-is-away)).
 
 Everything else the orchestrator decides and explains in the report and the PR descriptions. Do not stop for sign-off between steps.
 
@@ -103,8 +103,8 @@ The owner may let the orchestrator go on alone, for example overnight. That is a
 - decide a PR or step the plan made conditional on measurements, from those measurements;
 - carry out an irreversible step the plan describes (such as archiving data) once it is built and its reviews are clean;
 - merge PRs whose review loop is clean and whose `mise run pr-checks` is green, as [merging a stack](#worktrees-and-stacked-prs) says;
-- start a long run itself (an analysis, a real run) that would otherwise go to the owner as a command, at concurrency 3 at most, and resume it in parts if it outlasts the Bash tool's limit (owner, 15 Oct 2026: "Yes, while away you can start long running stuff (max concurrency of 3). Not during normal operations though."); while the owner is there, long runs still go to them as a command;
-- run [quiet] measurements unattended, when the owner said nothing else runs on the machine, only while no agent of its own builds or runs tests, and recording the load average before each.
+- start a long run itself (an analysis, or a real run in a worktree; a run in place on an existing experiment is blocked by the permission check, see [real runs](#5-build-the-prs-one-at-a-time-up-the-stack), and waits for the owner) that would otherwise go to the owner as a command, at concurrency 3 at most, as a background job of its own (the Bash tool's `run_in_background`, which notifies it when the job ends) rather than a step agent's (owner, 15 Oct 2026: "Yes, while away you can start long running stuff (max concurrency of 3). Not during normal operations though."); while the owner is there, long runs still go to them as a command;
+- run [quiet] measurements unattended, when the owner said nothing else runs on the machine, only while no agent of its own builds, runs tests or plays a long run, and recording the load average before each.
 
 It records each such decision in the plan as it makes it and lists them in the report, so the owner can check them on return.
 
@@ -121,7 +121,7 @@ Give the step agent the plan's path, the step, every clause of the plan that nam
 - runs `mise run test` before each commit, and checks `git status` so no stray file is left or committed, and `git status --ignored` after adding files, since a rule such as `*.out` can hide a fixture the tests need;
 - where the tests stub the programs a change spans (the Ruby tests stub the C programs), runs a short seeded experiment through the real runner, such as the smoke run in `docs/experiment-reference.md`, or for a runner change the seeded comparison against the base under [real runs](#5-build-the-prs-one-at-a-time-up-the-stack): a mismatch between the C output and the Ruby parser passes every test. The runner works only from a repository root, so an experiment outside the checkout runs in a worktree ([Worktrees and stacked PRs](#worktrees-and-stacked-prs));
 - runs the other checks its step names;
-- runs every command in the foreground with an explicit time limit (the Bash tool's `timeout`: without one, Claude Code moves a command still running after 2 minutes to the background), starts no background job, never ends a turn waiting on background work, and reports as soon as the step is done ([Watching running agents](#watching-running-agents)); a run longer than the tool's 10-minute maximum goes to the owner as a command, or into resumable parts;
+- runs every command in the foreground with an explicit time limit (the Bash tool's `timeout`: without one, Claude Code moves a command still running after 2 minutes to the background), starts no background job, never ends a turn waiting on background work, and reports as soon as the step is done ([Watching running agents](#watching-running-agents)); a run longer than the tool's 10-minute maximum is not the step agent's to run: it reports the command, and the orchestrator gives it to the owner or, while the owner is away, starts it itself ([While the owner is away](#while-the-owner-is-away));
 - for a [quiet] measurement, writes its command or script and uses a provisional value where the code needs the number, and does not run it ([Measurements](#measurements));
 - runs no action seen outside the repository's branches and PRs, such as `mise run mirror-external-tools`, and leaves it to the orchestrator, which asks the owner first ([When to ask the owner](#when-to-ask-the-owner));
 - cites commit ids and GitHub PR numbers, never the plan's labels ([the plan](#2-write-the-plan));
