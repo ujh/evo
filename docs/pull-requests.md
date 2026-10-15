@@ -50,7 +50,7 @@ In docs that record results, a figure or claim the quoted outputs do not support
 
 ### The loop
 
-1. Fix every blocker and important finding, and treat each as one instance of its kind: look through the whole change for the others (every report line without a test, every sentence that claims more than its output) and fix them too. A reviewer reports the instances it found; the rest come back one round at a time: in #121 three rounds each found more untested report lines, and in the docs of its results five rounds each found another claim stronger than the output.
+1. Fix every blocker and important finding, and treat each as one instance of its kind: look through the whole change for the others (every report line without a test, every sentence that claims more than its output) and fix them too. A reviewer reports the instances it found; the rest come back one round at a time: in #121 three rounds each found more untested report lines, and in the results docs five rounds each found another claim stronger than the output.
 2. Review again, from scratch: a fresh reviewer reviews the whole change as the first round did, not only the fixes, so a fix that breaks something elsewhere or leaves the design lopsided is found. Give it the list of earlier findings and what happened to each (fixed, or declined with the reason), only so it does not raise them again.
 3. The loop ends when a round has no blocker and no important finding. Nits do not start another round. Fix a nit only if it is a small change to lines the change already touches and no later step rewrites; otherwise mention it when reporting (in a planned run, a nit about lines a later step touches goes into that step).
 
