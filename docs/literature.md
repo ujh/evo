@@ -2,6 +2,8 @@
 
 A literature review made on 9 Oct 2026, after the 500-generation runs of 10, 20 and 40 tournament rounds (`experiment-reference.md`, "10, 20 and 40 rounds") showed the self-adaptive mutation genes shrinking: `weight_step` from 0.5 to 0.018, 0.006 and 0.0004, further the less noisy the tournament. It describes evo as it was then: six self-adaptive genes nudged by `meta_rate` 0.2 (`genes.md`), no elitism, tournament selection of size 3, 1,000 networks, one-point crossover at rate 0.4. Only the 40-round run had clearly stopped improving; the 20-round run's champions still gained at generation 500.
 
+Sections 4.4–4.9 come from a follow-up review of elitism on 15 Oct 2026, made after the `meta_rate` 0 runs (`experiment-reference.md`, "Fixed mutation genes"). It started from Poli, Langdon & McPhee (2008), the *Field Guide to Genetic Programming*.
+
 Every claim was checked against its source by a second reader; claims that could not be checked carry "(not verified)". The review's own arithmetic and simulation are labelled as such and are not published results. "The owner's hypothesis" is the one in `PROJECT_NOTES.md`: without elitism, lineages that make near-copies keep their fitness, so self-adaptation evolves a de-facto elitism and switches exploration off.
 
 ---
@@ -239,6 +241,94 @@ Christenfeld (1996) is the source of the split-half method. It assumes the two h
 
 Prefer new opponents over rematches, since repeating a pairing is "an inefficacious policy" (Sziklai, Biró & Csató 2022).
 
+### 4.4 Stale scores and re-scoring
+
+- **Lucky scores that never expire.** Real et al. (2019) call standard tournament selection that kills the worst model of each sample "non-aging evolution". There a model keeps its first noisy score for good: "such lucky models may remain in the population for a long time—even for the whole experiment. One lucky model, therefore, can produce many children".
+  - They suggest that aging evolution (kill the oldest) helps because an architecture then survives only through children that "re-train well repeatedly". They present this as speculation.
+  - Neither of their results tests that mechanism. In a toy problem whose only difficulty is noise (σ = 0.01, matched to their networks), aging was never worse and significantly better at higher dimensions, which they call "circumstantial evidence" (Supplement C). In a small-compute comparison over population and sample sizes, "aging tends to be beneficial" (Fig. 7).
+  - Their algorithms are steady-state: after each child, one model is removed, the oldest or the worst of the sample. They did not study generational methods.
+- **Re-evaluating a parent corrects a score that looks too good.** Antipov, Doerr & Ivanova (2024, section 3.2) re-compute the parent's fitness in their (1+λ) EA every iteration. Otherwise, with a parent that looks too good, "the EA may get stuck for a long time, simply because all offspring appear to be worse than this parent".
+- **But in another setting, throwing old scores away hurt more.** Antipov & Doerr (2025) prove that the (1+1) EA *without* re-evaluation optimises LeadingOnes in quadratic time under constant noise rates. *With* re-evaluation, only rates of O(n⁻² log n) allow polynomial time (Sudholt 2021, as they cite it). They conclude that this "suggests that re-evaluations are much less needed than what was previously thought, and that they actually can be highly detrimental".
+  - Their explanation, under "reasonable assumptions" (standard operators, noise rates that are not excessive, so that mutation varies more than the noise): it is easier to correct a noisy value by generating a truly better solution than it is for new noise to produce more noisy values.
+  - Their noise flips bits before evaluation. They compare only two cases: replacing the score, and keeping the first one.
+- **Accumulating an elite's samples.** For noisy multi-objective problems, accumulative resampling of the elite set was the most effective resampling approach so far: elite members "progressively accumulate reevaluations", improving the fidelity of their estimated values (Fieldsend 2015, abstract only; exact wording not verified).
+- **For evo (our inference):**
+  - Evo today is the extreme of aging: it is generational without elitism, so every network lives one generation, and a lineage survives only through children that score well again. Aging evolution is therefore not a new arm for evo; Real et al.'s speculation suggests instead what elitism risks: lucky survivors.
+  - An elite that plays the next Swiss tournament against new opponents and is scored on it alone never keeps a stale score. It differs from aging in that the same network, not a child, must win again.
+  - The alternative is an elite's mean over every tournament since the one that selected it, that one included, in the spirit of Fieldsend's accumulated re-evaluations. It keeps earlier evidence, which Antipov & Doerr's result values (though they studied only keeping the first score, not a mean). It has two drawbacks: the selecting tournament, likely a lucky one, still counts at weight 1/k after k tournaments; and the older games were against earlier, possibly weaker populations, which can overrate an elite against children scored on the current one. A sum instead of a mean would let elites outrank every child in parent selection. Neither source tested a setting like evo's.
+
+### 4.5 Elitism and local optima
+
+- **On some problems, full elitism traps a population that 3-tournament selection frees.** Dang, Eremeev & Lehre (2021) prove it on a class of multimodal problems (FUNNEL).
+  - "The elitist (μ+λ) EA gets trapped on a local optimum" and needs exponential time with overwhelming probability. Its parents are picked uniformly at random, and the μ best of parents and offspring survive.
+  - A non-elitist EA with 3-tournament selection escapes in expected polynomial time, given a mutation rate close to but below the error threshold and a large enough population.
+  - The reason is the tournament's non-linear selection profile: a small subpopulation stays on the local optimum while the rest explores the valley. (μ,λ) selection lacks that profile and fails too, under an extra assumption they leave unproven.
+  - Preliminary set-cover experiments point the same way.
+- **Comma selection has no general advantage.** On the jump benchmark, "for all reasonable values of the parameters and the problem", the (μ,λ) EA's expected runtime is, apart from lower-order terms, at least as large as the (μ+λ) EA's (Doerr 2020).
+- **For evo (our inference):** evo is close to the setup Dang et al. favour, with a size-3 tournament and a large population; whether its mutation is below the error threshold is open (`experiment-reference.md`, "Fixed mutation genes": step 0.5 "may be too big without elitism"), and their EA has no crossover. Adding 10–20 elites while every parent is still drawn by size-3 tournament from the whole population is not (μ+λ) truncation. Keep the elite count small, and do not move to truncation.
+- **ALPS keeps elites and fights premature convergence with age.** Age layers with regular random newcomers (Hornby 2006), still with 3 elites per layer of 100 and tournament size 7; its baseline EA keeps 30 of 1000.
+  - An elite carried forward ages by 1 if it was used as a parent. This "forces the individual to compete with its offspring".
+- **The Field Guide's remedies for premature convergence** (Poli, Langdon & McPhee 2008, section 13.7). "Panmictic steady-state populations with tournament selection, reproduction and crossover … are prone to premature convergence."
+  - The first remedy listed is "Not using the reproduction operator". Others are smaller tournaments, a generational instead of a steady-state model, and demes.
+  - A footnote to the remedy of removing individuals at random: "it may be worthwhile to protect the best individual(s) to preserve the elitism".
+  - As a warning sign, it suggests watching *variety*, the share of distinct individuals: below 90% may indicate a problem. "Measuring phenotypic variation (i.e., diversity of behaviour) may also be useful."
+  - For evo (our inference): `copy_chance` is a reproduction operator, the clone-repeat share (`experiment-reference.md`, "How often tournament games repeat") is a behavioural measure, and evo is already generational.
+
+### 4.6 How many elites
+
+The review found no general rule, only statements that the right number depends on the task and that too many elites converge early. Counts used in practice:
+
+| System | Elites |
+|---|---|
+| Deep GA, Atari (Such et al. 2017) | 1 in 1000+1 |
+| Rosin & Belew (1997) | 1 per population of 500 (Nim) and 20 per population of 1000 (3D tic-tac-toe); two populations each |
+| NEAT, robot duel (Stanley & Miikkulainen 2004b) | The champion of each species with more than 5 members |
+| ALPS (Hornby 2006) | 3 per age layer of 100; 30 of 1000 in its baseline EA, to match |
+| PBT (Jaderberg et al. 2017) | No explicit elite. With truncation selection the bottom 20% copy the top 20% and the rest continue training (our inference: the best is not overwritten) |
+
+These run from 0.1% to about 4% (NEAT: up to about 10 species champions per population of 256, with a target of 10 species). 1–2% (10–20 of 1000) sits in the middle (our inference).
+
+### 4.7 Choosing an elite or a champion under noise
+
+- **Extra evaluations for a shortlist.** The Deep GA's top 10 play 30 extra episodes (Section 4.3).
+- **A statistical test before replacing.** PBT's "t-test selection" (Jaderberg et al. 2017) samples another agent. If that agent's last 10 rewards have a higher mean and pass Welch's t-test, its weights and hyperparameters replace the current agent's.
+- **Racing.** Hoeffding and empirical Bernstein races set the number of episodes per policy so that estimates are "just accurate enough for a sufficiently good ranking". This made CMA-ES faster and more robust in direct policy search (Heidrich-Meisner & Igel 2009; this follow-up read the abstract only).
+- **Reduce noise only as far as needed.** "One should not reduce noise further than necessary", and the selection operator should take the problem's noise into account (Branke & Schmidt 2003; this follow-up read the abstract only).
+- **Generalisation against sampled opponents.** Estimate a strategy's quality by its mean result against a random sample of test strategies, with parametric confidence bounds. Small samples suffice, without the large performance swings of classical coevolution (Chong et al. 2012; this follow-up read the abstract only).
+- **Gating, in Go programs:**
+  - AlphaGo Zero (Silver et al. 2017a, Methods, "Evaluator"): each evaluation is 400 games at temperature → 0, with 1,600 simulations per move. "If the new player wins by a margin of > 55% (to avoid selecting on noise alone) then it becomes the best player."
+  - KataGo (Wu 2019, appendix E): a candidate must win at least 100 of 200 games against the current net. This is a parity gate, which Wu calls "fairly lightweight". Gating games change settings "to minimize noise and maximize performance": fixed komi, no handicap, no Dirichlet noise, lower temperature.
+  - AlphaZero (Silver et al. 2017b) dropped gating. Its one network is "updated continually", "omitting the evaluation step and the selection of best player".
+  - Our inference: a margin is an established option, but AlphaZero did well without one. It did not compare the two.
+- **For evo (our inference):** networks, Brown and AmiGo play deterministically, so an extra game against them tells something only with an opponent or opening the candidate has not met. The benchmark's openings or new bot seeds can supply them.
+
+### 4.8 Judging against bots or within the network tournament
+
+- **Jaśkowski, Liskowski, Szubert & Krawiec (2013), Othello.** Every variant is a (μ+λ) evolution strategy, and they differ only in fitness.
+  - Expected utility against random players:
+
+    | Method | Score |
+    |---|---|
+    | Random opponents drawn anew every generation (RSEL) | 86.46% |
+    | Two-population coevolution plus random opponents | 86.44% ("equally good" as RSEL, the authors write) |
+    | One population plus random opponents | 83.63% |
+    | One-population coevolution | 80.34% |
+    | Two-population coevolution | 79.97% |
+  - Head to head, the three coevolution variants other than plain two-population coevolution beat RSEL. One population plus random opponents did best in their round robin (54.9%).
+  - Their conclusion: coevolution can beat random sampling head to head, but "pure coevolution is not sufficient to attain that, and additional means are required (here: two-population setup and random opponents)". Their own tables qualify it: plain one-population coevolution also beat RSEL head to head (51.8%), and with random opponents added or not, the one-population variant beat its two-population counterpart (53.4% and 52.7%), though plain one-population coevolution lost to two-population coevolution plus random opponents (48.8%).
+- **For evo (our inference):** evo's tournament mixes networks and bots, nearest to their one population plus random opponents. Evo's bots are a fixed set, though, not players drawn anew, and GNU Go and michi are much stronger than their random weight vectors. The question stays open (Section 8, question 8).
+
+### 4.9 Hall of fame details
+
+The hall of fame of past champions as tournament opponents is already in Section 6.2 and experiment 10. It is not elitism, since the champions return as opponents, not as parents. Details:
+
+- **Origin.** Rosin & Belew (1997) describe it as extending "elitism in time for purposes of testing": the best individual of every generation is kept, and hosts play a sample of it.
+- **NEAT, robot duel** (Stanley & Miikkulainen 2004b): each host played the 4 best species champions plus 8 random members of a hall of fame of all generation champions, 2 games each. "The Hall of Fame ensures that existing abilities need to be maintained to obtain a high fitness."
+- **Small-board Go** (Lubberts & Miikkulainen 2001, SANE):
+  - The hall of fame keeps each generation's opponent with the most wins. Individuals play a random subset of it, which "works just as well" as shared sampling (citing Rosin 1995).
+  - Average generations to beat gnugo: 7 with every technique on, 12 without the hall of fame, 20 without shared sampling, and 29 without fitness sharing. The number of runs is not stated.
+  - In one typical run, the coevolved networks beat gnugo after 5 generations, and networks evolved against gnugo after 18.
+
 ---
 
 ## 5. Large-scale neuroevolution compared with evo
@@ -364,9 +454,11 @@ How the literature refines it:
 - **How many:** 1–2% (10–20 of 1000). Deep GA used 1; Rosin & Belew 20 in 1000. Keep it small (Luke 2013).
 - **No stale scores:** elites play the next Swiss tournament like everyone else (Arnold & Beyer 2000a; Real et al. 2019; Jaśkowski et al. 2013).
 - **Choosing elites:** give the top ~10–50 plus the current elites a batch of extra colour-paired games against the same fixed panel, and pick by mean or paired difference (Such et al. 2017; Chong et al. 2012). One Swiss tournament alone mostly keeps lucky networks (Section 3.4).
-- **Optional margin:** replace an elite only if a challenger is clearly better (Pollack & Blair 1998; Liu et al. 2019).
+- **Optional margin:** replace an elite only if a challenger is clearly better (Pollack & Blair 1998; Liu et al. 2019). AlphaGo Zero replaced its best player only at more than 55% of 400 games, "to avoid selecting on noise alone" (Silver et al. 2017a; Section 4.7).
 - **Follow-up as a separate change:** set copy_chance to 0 in elitist runs. An exact copy then only duplicates an elite (Kruisselbrink et al. 2011; Poli, Langdon & McPhee 2008).
 - **With meta_rate 0.2:** add a floor or fixed-gene children, because an elite with collapsed genes can block exploration (Doerr, Witt & Yang 2018; Rudolph 2001).
+- **Keep selection as it is:** draw every parent by size-3 tournament from the whole population, elites included, and keep the elite count small. Full (μ+λ) truncation can trap a population that tournament selection frees (Dang, Eremeev & Lehre 2021; Section 4.5).
+- **Elite scores:** decide whether an elite is ranked on its latest tournament alone, or on its mean over every tournament since the one that selected it, which keeps that likely lucky tournament at a shrinking weight and counts games against older populations (Fieldsend 2015; Section 4.4).
 
 **3. Fixed-gene share (if self-adaptation is kept).**
 - **Hypothesis:** a guaranteed stream of default-gene children stops exploration from switching off.
@@ -440,11 +532,13 @@ This theory is proven only for elitist algorithms on bit strings.
 5. **Does elitism remove the drive toward near-copies or only weaken it?** The reduction principle suggests only weaken (Altenberg, Liberman & Feldman 2017).
 6. **Sparse large steps or dense small steps at equal norm?** Untested for deep MLPs trained from scratch (Whitaker & Whitley 2023 did not match norms; Montana & Davis 1989 used a 126-weight net).
 7. **How noisy and how intransitive are Swiss win counts for 1000 networks with bots, draws and colours?** The literature covers at most 256 players. Rating fits can hurt in intransitive games (Harris & Tauritz 2021).
-8. **Should elites be judged against fixed bots or within the network tournament?** Bots are steadier but risk overfitting (Szubert, Jaśkowski & Krawiec 2013).
-9. **Not read in full:**
+8. **Should elites be judged against fixed bots or within the network tournament?** Bots are steadier but risk overfitting (Szubert, Jaśkowski & Krawiec 2013). In Othello, training against random players and two-population coevolution plus random players tied for the best expected utility against random players (86.46% and 86.44%, "equally good"), and adding random players to coevolution gave the best head-to-head players (Jaśkowski et al. 2013; Section 4.8).
+9. **Should an elite be ranked on its latest tournament or on its mean over every tournament since the one that selected it?** No source tests this for coevolutionary fitness (Section 4.4).
+10. **Not read in full:**
    - Arnold & Beyer 2000b (PPSN): reportedly finds both self-adaptation and CSA "prone to failure in the presence of noise" (not verified).
    - Smith & Fogarty 1996: steady-state replacement policies (not verified).
    - Meyer-Nieberg & Beyer 2007 (book chapter), Kramer 2010, Runarsson & Lucas 2005 full text, Lehman & Stanley 2011 full text.
+   - For the elitism follow-up (Sections 4.4–4.9), only the abstracts of Branke & Schmidt 2003, Chong et al. 2012, Fieldsend 2015 and Heidrich-Meisner & Igel 2009.
 
 ---
 
@@ -474,6 +568,8 @@ This theory is proven only for elitist algorithms on bit strings.
 - Altenberg, L., Liberman, U., Feldman, M. (2017). Unified reduction principle for the evolution of mutation, migration, and recombination. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5373362/ (abstract only)
 - Antipov, D., Buzdalov, M., Doerr, B. (2020). Fast Mutation in Crossover-based Algorithms. https://arxiv.org/abs/2004.06538 (free)
 - Antipov, D., Buzdalov, M., Doerr, B. (2021). Lazy Parameter Tuning and Control: Choosing All Parameters Randomly From a Power-Law Distribution. https://arxiv.org/abs/2104.06714 (abstract only)
+- Antipov, D., Doerr, B. (2025). Evolutionary Algorithms Are Significantly More Robust to Noise When They Ignore It. https://www.ijcai.org/proceedings/2025/0983.pdf (free)
+- Antipov, D., Doerr, B., Ivanova, A. (2024). Already Moderate Population Sizes Provably Yield Strong Robustness to Noise. https://arxiv.org/abs/2404.02090 (free)
 - Arnold, D. V., Beyer, H.-G. (2000a). Local Performance of the (1+1)-ES in a Noisy Environment. https://eldorado.tu-dortmund.de/handle/2003/5384 (free)
 - Arnold, D. V., Beyer, H.-G. (2000b). Efficiency and Mutation Strength Adaptation of the (μ/μ_I,λ)-ES in a Noisy Environment. https://doi.org/10.1007/3-540-45356-3_4 (not free; not verified)
 - Azevedo, R., et al. (2006). Sexual reproduction selects for robustness and negative epistasis in artificial gene networks. https://pubmed.ncbi.nlm.nih.gov/16511495 (abstract only)
@@ -485,13 +581,16 @@ This theory is proven only for elitist algorithms on bit strings.
 - Christenfeld, N. (1996). What makes a good sport? https://nature.com/articles/383662b0.pdf (free)
 - Clune, J., et al. (2008). Natural Selection Fails to Optimize Mutation Rates for Long-Term Adaptation on Rugged Fitness Landscapes. https://pmc.ncbi.nlm.nih.gov/articles/PMC2527516/ (free)
 - Csató, L., Krumer, A. (2024). Swiss-system chess tournaments and unfairness. https://arxiv.org/abs/2410.19333 (free)
+- Dang, D.-C., Eremeev, A., Lehre, P. K. (2021). Escaping Local Optima with Non-Elitist Evolutionary Algorithms. https://ojs.aaai.org/index.php/AAAI/article/view/17457 (free)
 - Dang, D.-C., Lehre, P. K. (2016). Self-adaptation of Mutation Rates in Non-elitist Populations. https://arxiv.org/abs/1606.05551 (free)
+- Doerr, B. (2020). Does Comma Selection Help To Cope With Local Optima? https://arxiv.org/abs/2004.01274 (free)
 - Doerr, B., Le, H. P., Makhmara, R., Nguyen, T. D. (2017). Fast Genetic Algorithms. https://arxiv.org/abs/1703.03334 (free)
 - Doerr, B., Witt, C., Yang, J. (2018). Runtime Analysis for Self-adaptive Mutation Rates. https://arxiv.org/pdf/1811.12824 (free)
 - Eiben, A. E., Hinterding, R., Michalewicz, Z. (1999). Parameter Control in Evolutionary Algorithms. https://cs.adelaide.edu.au/~zbyszek/Papers/self9.pdf (free)
 - Eiben, A. E., Smith, J. E. (2003–2015). Introduction to Evolutionary Computing, official slides (chapters 4–8, 11, 15; 1st-edition ES slides). http://web.archive.org/web/20211130111157/http://www.evolutionarycomputation.org/wp-content/uploads/2015/06/ch04-Representation_Mutation_Recombination-2014.pptx and https://www.cs.vu.nl/~gusz/ecbook/slides/Evolution_strategies.ppt (free)
 - Elena, S. F., Sanjuán, R. (2008). The effect of genetic robustness on evolvability in digital organisms. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2588588/ (free)
 - Elena, S. F., Wilke, C. O., Ofria, C., Lenski, R. E. (2007). Effects of population size and mutation rate on the evolution of mutational robustness. https://pubmed.ncbi.nlm.nih.gov/17348929 (abstract only)
+- Fieldsend, J. E. (2015). Elite Accumulative Sampling Strategies for Noisy Multi-Objective Optimisation. https://ore.exeter.ac.uk/repository/handle/10871/17039 (abstract only)
 - Fitzpatrick, J. M., Grefenstette, J. J. (1988). Genetic Algorithms in Noisy Environments. https://mlanthology.org/mlj/1988/fitzpatrick1988mlj-genetic (abstract only)
 - Forster, R., Adami, C., Wilke, C. O. (2006). Selection for mutational robustness in finite populations. https://pubmed.ncbi.nlm.nih.gov/16901510 (abstract only)
 - Glickman, M., Sycara, K. (1998). Evolutionary Algorithms: Exploring the Dynamics of Self-Adaptation. https://publications.ri.cmu.edu/storage/publications/pub_files/pub2/glickman_matthew_1998_1/glickman_matthew_1998_1.pdf (free)
@@ -505,6 +604,9 @@ This theory is proven only for elitist algorithms on bit strings.
 - Hansen, N., Niederberger, A., Guzzella, L., Koumoutsakos, P. (2009). A Method for Handling Uncertainty in Evolutionary Optimization with an Application to Feedback Control of Combustion. http://www.cmap.polytechnique.fr/~nikolaus.hansen/TEC2009.pdf (free)
 - Hansen, N., Ostermeier, A. (2001). Completely Derandomized Self-Adaptation in Evolution Strategies. http://www.cmap.polytechnique.fr/~nikolaus.hansen/cmaartic.pdf (free)
 - Harris, S., Tauritz, D. (2021). Competitive Coevolution for Defense and Security: Elo-Based Similar-Strength Opponent Sampling. http://www.cmap.polytechnique.fr/~nikolaus.hansen/proceedings/2021/GECCO/companion/companion_files/p1898-harris.pdf (free)
+- Heidrich-Meisner, V., Igel, C. (2009). Hoeffding and Bernstein Races for Selecting Policies in Evolutionary Direct Policy Search. https://mlanthology.org/icml/2009/heidrichmeisner2009icml-hoeffding (abstract only)
+- Hornby, G. S. (2006). ALPS: The Age-Layered Population Structure for Reducing the Problem of Premature Convergence. https://gpbib.pmacs.upenn.edu/gecco2006/docs/p815.pdf (free)
+- Jaderberg, M., et al. (2017). Population Based Training of Neural Networks. https://arxiv.org/abs/1711.09846 (free)
 - Jaśkowski, W., Krawiec, K., Wieloch, B. (2008). Fitnessless Coevolution. https://web.archive.org/web/2015/http://www.cs.put.poznan.pl/wjaskowski/pub/papers/jaskowski08fitnessless.pdf (free)
 - Jaśkowski, W., Liskowski, P., Szubert, M., Krawiec, K. (2013). Improving Coevolution by Random Sampling. https://www.cs.put.poznan.pl/mszubert/pub/jaskowski2013gecco.pdf (free)
 - Jin, Y., Branke, J. (2005). Evolutionary Optimization in Uncertain Environments: A Survey. https://web.archive.org/web/2015/http://www.cs.le.ac.uk/people/sy11/ECiDUE/JinBranke-TEVC05.pdf (free)
@@ -542,17 +644,20 @@ This theory is proven only for elitist algorithms on bit strings.
 - Real, E., Aggarwal, A., Huang, Y., Le, Q. V. (2019). Regularized Evolution for Image Classifier Architecture Search. https://arxiv.org/pdf/1802.01548 (free)
 - Richards, N., Moriarty, D. E., Miikkulainen, R. (1998). Evolving Neural Networks to Play Go. https://nn.cs.utexas.edu/downloads/papers/richards.apin97.pdf (free)
 - Risi, S., Togelius, J. (2015). Neuroevolution in Games: State of the Art and Open Challenges. https://arxiv.org/pdf/1410.7326 (free)
-- Rosin, C. D., Belew, R. K. (1997). New Methods for Competitive Coevolution. https://cseweb.ucsd.edu/~crosin/newmethods.ps (free)
+- Rosin, C. D., Belew, R. K. (1997). New Methods for Competitive Coevolution. https://cseweb.ucsd.edu/~crosin/newmethods.ps (free; the elitism follow-up read it as technical report CS96-491, 1996)
 - Rudolph, G. (2001). Self-Adaptive Mutations May Lead to Premature Convergence. https://ls11-www.cs.tu-dortmund.de/people/rudolph/publications/papers/tec335.pdf (free)
 - Runarsson, T. P., Lucas, S. M. (2005). Coevolution versus self-play temporal difference learning for acquiring position evaluation in small-board Go. https://ieeexplore.ieee.org/iel5/4235/32990/01545939.pdf (not free; abstract and secondary sources only)
 - Salimans, T., Ho, J., Chen, X., Sidor, S., Sutskever, I. (2017). Evolution Strategies as a Scalable Alternative to Reinforcement Learning. https://arxiv.org/pdf/1703.03864 (free)
 - Sauer, P., Cseh, Á., Lenzner, P. (2022). Improving Ranking Quality and Fairness in Swiss-System Chess Tournaments. https://arxiv.org/pdf/2112.10522 (free)
 - Schaul, T., Glasmachers, T., Schmidhuber, J. (2011). High Dimensions and Heavy Tails for Natural Evolution Strategies. https://groups.csail.mit.edu/EVO-DesignOpt/gecco2011Proceedings/proceedings/p845.pdf (free)
+- Silver, D., et al. (2017a). Mastering the Game of Go without Human Knowledge. https://doi.org/10.1038/nature24270 (author manuscript read)
+- Silver, D., et al. (2017b). Mastering Chess and Shogi by Self-Play with a General Reinforcement Learning Algorithm (AlphaZero). https://arxiv.org/abs/1712.01815 (free)
 - Silver, D., Sutton, R., Müller, M. (2007). Reinforcement Learning of Local Shape in the Game of Go. https://webdocs.cs.ualberta.ca/~mmueller/ps/silver-ijcai2007.pdf (free)
 - Smith, J. E., Fogarty, T. C. (1996). Self adaptation of mutation rates in a steady state genetic algorithm. https://uwe-repository.worktribe.com/OutputFile/1106226 (not verified)
 - Smith, T., Husbands, P., Layzell, P., O'Shea, M. (2002). Fitness landscapes and evolvability. https://neuro.bstu.by/ai/To-dom/My_research/Papers-0/For-research/Needle/1-Fitness-landscape/smith-ec2002.pdf (free)
 - Stanley, K. O., Miikkulainen, R. (2002). Evolving Neural Networks through Augmenting Topologies. https://nn.cs.utexas.edu/downloads/papers/stanley.ec02.pdf (free)
 - Stanley, K. O., Miikkulainen, R. (2004a). Evolving a Roving Eye for Go. https://nn.cs.utexas.edu/downloads/papers/stanley.gecco04.pdf (free)
+- Stanley, K. O., Miikkulainen, R. (2004b). Competitive Coevolution through Evolutionary Complexification. https://nn.cs.utexas.edu/downloads/papers/stanley.jair04.pdf (free)
 - Such, F. P., et al. (2017). Deep Neuroevolution: Genetic Algorithms are a Competitive Alternative for Training Deep Neural Networks for Reinforcement Learning. https://arxiv.org/pdf/1712.06567 (free)
 - Sudholt, D. (2021). Analysing the Robustness of Evolutionary Algorithms to Noise. https://eprints.whiterose.ac.uk/156911/1/Sudholt2020_Article_AnalysingTheRobustnessOfEvolut.pdf (free)
 - Sung, W., et al. (2012). Drift-barrier hypothesis and mutation-rate evolution. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3494944/ (abstract only)
@@ -564,5 +669,6 @@ This theory is proven only for elitist algorithms on bit strings.
 - Whitaker, T., Whitley, D. (2023). Sparse Mutation Decompositions: Fine Tuning Deep Neural Networks with Subspace Evolution. https://arxiv.org/abs/2302.05832 (free)
 - Wielgoss, S., et al. (2013). Mutation rate dynamics in a bacterial population reflect tension between adaptation and genetic load. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538217/ (abstract only)
 - Wilke, C. O., Wang, J. L., Ofria, C., Lenski, R. E., Adami, C. (2001). Evolution of digital organisms at high mutation rates leads to survival of the flattest. http://wexler.free.fr/library/files/wilke%20(2001)%20evolution%20of%20digital%20organisms%20at%20high%20mutation%20rate%20leads%20to%20survival%20of%20the%20flattest.pdf (third-party copy)
+- Wu, D. J. (2019). Accelerating Self-Play Learning in Go (KataGo). https://arxiv.org/abs/1902.10565 (free)
 - Yao, X., Liu, Y., Lin, G. (1999). Evolutionary Programming Made Faster. https://www.cse.unr.edu/%7Esushil/class/gas/papers/EPMadeFaster.pdf (free)
 - SA-MBEANN authors (2024). Improving the performance of mutation-based evolving artificial neural networks with self-adaptive mutations. https://pmc.ncbi.nlm.nih.gov/articles/PMC11249216/ (free; τ formula not verified)
