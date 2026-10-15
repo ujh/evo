@@ -38,7 +38,7 @@ These are not findings:
 
 In a plan review, a finding is important only if it would plausibly make a step build the wrong behavior or break something the plan says must not change, and a step agent would not settle it anyway while writing the tests the step asks for. Other edge cases are nits: the step's tests settle them.
 
-In docs that record results, a figure or claim the quoted outputs do not support is important, since the next run is chosen from it: an effect called absent where none was detected, a cause where a correlation was measured (the rules are in `docs/orchestration.md`, Analyses and results docs).
+In docs that record results, a figure or claim the quoted outputs do not support is important, since the next run is chosen from it: an effect called absent where none was detected, a cause where a correlation was measured. A pre-run estimate labelled as one, and interpretation in its own labelled paragraph, are not such claims (the rules are in `docs/orchestration.md`, Analyses and results docs).
 
 ### Tests
 
