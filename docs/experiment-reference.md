@@ -248,9 +248,40 @@ It prints one Markdown table per generation, one row per kind of game: network a
 - The games with one move sequence form a group. The first in (round, black, white) order, the `games` key, is the original; of a group of n games with p distinct pairings, the other n − 1 add no new game: p − 1 are **clone repeats** (another pairing played the same game, so those networks move alike) and n − p are **rematches** (a pairing met again and replayed its game).
 - Each game counts in its own kind's row, also in a group of several kinds (a network's game against another network identical to one against AmiGo).
 - **No moves** counts games without a move (a bot that resigned at once); they are no one's repeat.
-- The shares are of the row's games. Clone repeats measure how alike the population plays; rematches depend on the rounds and the pairing (as a share of their row highest against AmiGo and Brown: a network meeting another copy of the bot with the same colour). michi and GNU Go vary through their per-game seeds, so their rows stay near 0.
+- The shares are of the row's games. Clone repeats measure how alike the population plays at a given number of rounds (the share can grow with the rounds counted, since two clones repeat a game only when they meet the same opponent with the same colour, and more rounds give them more chances); rematches depend on the rounds and the pairing (as a share of their row mostly highest, among the network rows, against AmiGo and Brown: a network meeting another copy of the bot with the same colour). michi and GNU Go vary through their per-game seeds, so their rows stay near 0.
 
-`PROJECT_NOTES.md` (item 7, "Measured: repeated games grow…") has the counts for `seed2-rounds20` and `seed2-rounds40`.
+### Self-adaptive and fixed genes
+
+The script at generations 100–500 of the five second-seed runs (14 Oct 2026, at f2e6717): `seed2-rounds10`, `seed2-rounds20` and `seed2-rounds40` with self-adaptive genes and 10, 20 and 40 rounds, and `seed2-meta0` and `seed2-meta0-step015` with fixed genes ("Fixed mutation genes" below) and 20 rounds. Clone repeats + rematches, as shares of the row's games:
+
+    mise exec -- scripts/game-repeats.rb experiments/NAME/experiment.sqlite3 100 200 300 400 500
+
+Network against network (4,853–4,858 games a checkpoint with 10 rounds, 9,720–9,767 with 20, 19,523–19,577 with 40):
+
+| Generation | `seed2-rounds10` | `seed2-rounds20` | `seed2-rounds40` | `seed2-meta0` | `seed2-meta0-step015` |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.7 % + 0.1 % | 0.3 % + 0.8 % | 1.9 % + 1.5 % | 0.0 % + 0.7 % | 0.0 % + 0.5 % |
+| 200 | 0.3 % + 0.1 % | 0.0 % + 0.7 % | 7.0 % + 1.5 % | 0.0 % + 0.6 % | 0.0 % + 0.7 % |
+| 300 | 0.6 % + 0.1 % | 2.7 % + 0.7 % | 19.8 % + 1.8 % | 0.0 % + 0.7 % | 0.0 % + 0.6 % |
+| 400 | 2.5 % + 0.1 % | 11.6 % + 0.6 % | 22.4 % + 1.5 % | 1.8 % + 0.6 % | 0.0 % + 0.6 % |
+| 500 | 0.9 % + 0.2 % | 16.7 % + 0.6 % | 35.8 % + 1.5 % | 0.3 % + 0.6 % | 0.0 % + 0.6 % |
+
+Against AmiGo (93–98 games a checkpoint with 10 rounds, 177–198 with 20, 354–391 with 40):
+
+| Generation | `seed2-rounds10` | `seed2-rounds20` | `seed2-rounds40` | `seed2-meta0` | `seed2-meta0-step015` |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.0 % + 1.1 % | 0.0 % + 10.7 % | 4.9 % + 10.8 % | 0.0 % + 11.2 % | 0.0 % + 6.4 % |
+| 200 | 0.0 % + 4.1 % | 0.5 % + 5.2 % | 10.5 % + 9.7 % | 0.0 % + 7.5 % | 0.0 % + 9.7 % |
+| 300 | 1.1 % + 2.1 % | 6.6 % + 5.6 % | 20.3 % + 11.2 % | 0.0 % + 3.6 % | 0.0 % + 4.7 % |
+| 400 | 5.3 % + 2.1 % | 11.6 % + 5.6 % | 25.0 % + 13.8 % | 8.2 % + 4.6 % | 0.0 % + 10.4 % |
+| 500 | 3.1 % + 0.0 % | 19.7 % + 5.1 % | 35.0 % + 21.2 % | 1.6 % + 6.2 % | 0.0 % + 3.6 % |
+
+- **At 20 rounds, the fixed-gene runs' play stayed more varied from generation 300 on (one seed).** `seed2-meta0-step015` has at most 3 clone repeats among its network games at any checkpoint and none against AmiGo; `seed2-meta0` 0 or 1 up to generation 300, then 174 (1.8 %) at 400 and 32 (0.3 %) at 500, and against AmiGo 16 (8.2 %) at 400 and 3 (1.6 %) at 500. `seed2-rounds20`, the same 20 rounds with self-adaptive genes, has 258 (2.7 %), 1,126 (11.6 %) and 1,630 (16.7 %) at generations 300–500.
+- **At 20 and 40 rounds, the self-adaptive runs bred behavioural clones (one seed; only at 20 rounds is there a fixed-gene run to compare).** With 10, 20 and 40 rounds, 0.9 %, 16.7 % and 35.8 % of the network games at generation 500 are clone repeats. These runs are not directly comparable: the share can grow with the number of rounds counted, since two clones repeat a game only when they meet the same opponent with the same colour, so part of the gradient may be the measure itself. Different networks also repeat each other's games against AmiGo (19.7 % and 35.0 % at generation 500 with 20 and 40 rounds).
+- Interpretation, at most: the rest of the gradient may come from the mutation genes shrinking further the more rounds there are ("10, 20 and 40 rounds" above). The repeats against AmiGo suggest that a lineage keeps winning or losing with one line per colour, which the benchmark's openings do not reward.
+- **Rematches follow the rounds, not the genes (one seed):** 0.1–0.2 % of the network games with 10 rounds, 0.5–0.8 % in all three 20-round runs, 1.5–1.8 % with 40.
+- The other rows: michi's are 0 everywhere, GNU Go's at most 1 game a checkpoint. Against Brown, clone repeats are at most 8 games a checkpoint (none with fixed genes), and rematches are most of its repeats summed over the checkpoints (up to 52.9 %, `seed2-rounds40` at generation 200). Bot against bot has no clone repeats; its rematches reach 19.7 % (`seed2-rounds40` at generation 300) and 19.4 % (`seed2-rounds20` at generation 400).
+- Interpretation: of the three 20-round runs, the most clone-heavy, `seed2-rounds20`, is also the strongest from generation 300 on ("Fixed mutation genes" below), so its clones did not stop it leading, and the more varied fixed-gene runs were not stronger. Whether more variety would help a self-adaptive run (random openings in the tournament, elitism) is untested; `PROJECT_NOTES.md` (item 7) has the proposals.
 
 ## Fixed mutation genes (`meta_rate` 0)
 
@@ -264,9 +295,12 @@ It prints one Markdown table per generation, one row per kind of game: network a
 | 400 | 109 | 81 | 83 | 45, −14, −52 |
 | 500 | 114 | 77 | 80 | 69, −59, −60 |
 
+This section's figures, except the brittleness test's, predate the rule that analysis figures come from a reviewed script (`CLAUDE.md`): they came from one-off queries, re-checked by four review rounds in #119, which the owner shipped as is (14 Oct 2026). A later change to them goes through a script.
+
 - The fixed step 0.5 learns faster at first, then falls behind and declines. `seed2-meta0` leads at generation 100 (73 against 51 wins, about z = 2), is level at generation 200 (102 against 101), and then falls behind while the self-adaptive run keeps rising: 93 against 102 wins at generation 300 and 77 against 114 at 500 (about z = 3.2). `seed2-meta0-step015` is never clearly ahead (56 against 51 at generation 100) and is behind from generation 200 on.
 - The populations agree, so this is not only the champion pick. Averaged over 50 generations, the share of networks scoring above the AmiGo copies' mean tournament score is, for `seed2-rounds20`, `seed2-meta0` and `seed2-meta0-step015`: 11, 6 and 5 % at generations 151–200, 32, 15 and 5 % at 251–300, 41, 22 and 6 % at 351–400, and 40, 23 and 9 % at 451–500. `seed2-meta0`'s share peaks at 27 % (generations 401–450) and then falls: per 25 generations 29.8 % at 401–425, 15.4 % at 526–550 and 8.4 % at 551–575.
-- Up to generation 500 the smaller fixed step is worse: the step-0.15 population trails the step-0.5 one at every window above, although their champions match at generations 400–500. After that the step-0.15 population keeps rising slowly (per 25 generations 7.0 % at 401–425, 11.0 % at 526–550, 9.5 % at 551–570) while the step-0.5 one declines, and from generation 526 on they are level. A rise and fall like step 0.5's is what `docs/literature.md` (section 7, the `meta_rate` 0 control) expects when a step is too big for selection without elitism. So "self-adaptation hurts" does not hold for this seed, and "0.5 is too big a step" is open: it may be too big without elitism.
+- Up to generation 500 the smaller fixed step is worse: the step-0.15 population trails the step-0.5 one at every window above, although their champions match at generations 400–500. After that the step-0.15 population keeps rising slowly (per 25 generations 7.0 % at 401–425, 11.0 % at 526–550, 9.5 % at 551–570) while the step-0.5 one declines, and from generation 526 on they are level. A rise and fall like step 0.5's is what `docs/literature.md` (section 7, the `meta_rate` 0 control) expects when a step is too big for selection without elitism. So "self-adaptation hurts" does not hold for this seed, and "0.5 is too big a step" is open: it may be too big without elitism. The brittleness test ("How brittle a champion is", below) narrows it: children of `seed2-meta0`'s champions of generations 300 and 500 at step 0.5 showed no detectable average loss (losses of a few points are not excluded), and the generation-500 champion is far less sensitive to mutation than the generation-300 one (32 % against 2 % of its children's games at step 0.5 identical to its own, 72 % against 8 % at step 0.1).
+- Interpretation: step-0.5 mutations do not wreck these champions; whether per-mutation losses too small for this test drive the decline is not measured.
 - The share of mutation children that score at least as well as their parent cannot tell whether a step is too big. It is 30.5–31.6 % per 100 generations in all three runs, about the same as for exact copies (30–38 % in every 100 generations with a few hundred copies), whose play is unchanged: it measures how far a parent's lucky score regresses, not the mutation. Measured against its parent's score in the generation before, a mutation child scores on average 0.18, 0.28 and 0.09 wins (of 20 games) less than a copy over generations 1–500 in `seed2-rounds20`, `seed2-meta0` and `seed2-meta0-step015`, and in some 100 generations no less. Strictly better than their parent are 18–21 % of copies and 18–19 % of mutation children in each run.
 - The self-adaptive run did not stop exploring; it moved from weights to shapes. In `seed2-rounds20`, over generations 401–500, the per-generation mean `weight_step` was 0.0035–0.019 and `weight_changes` 14–55, while `structure_rate`, which had fallen from 0.02 to about 0.01 or less by generations 200–250, rose from about generation 255 to about 0.06 at 300 and then ran at per-generation means of 0.04–0.13 (10-generation means 0.05–0.12, highest at 441–500): 2,096 shape changes in generations 201–300, then 6,483 and 8,717 in generations 301–400 and 401–500, against 1,340–1,750 per 100 generations in the fixed runs, and 123–141 distinct shapes among the children per 100 generations against 20–50. At generation 500 its networks have 5–18 hidden layers, 437 of 1,000 at 7–9 and 467 at 12–16, about 198 wide; the fixed runs' networks mostly have 10 (`seed2-meta0`, 966) or 9 (`seed2-meta0-step015`, 868) layers of about 200–204. Whether the shapes are what kept it improving is not measured.
 - One seed only. `PROJECT_NOTES.md` (item 3) has what remains open.
@@ -275,8 +309,10 @@ It prints one Markdown table per generation, one row per kind of game: network a
 
 `scripts/brittleness.rb` asks whether larger weight steps can still improve a late champion, and how much a champion's play changes when only its dense weights change. It makes children of a stored checkpoint champion that differ from it only in their network weights and plays them on the champion's own benchmark games, so a child's result minus the champion's is the mutation's effect alone. It reads the experiment (read-only, open while the experiment runs if need be) and writes only into its output directory.
 
-    mise exec -- scripts/brittleness.rb seed2-rounds20 300 500 --out brittleness --concurrency 3
-    mise exec -- scripts/brittleness.rb --report-only --out brittleness [EXPERIMENT [GEN...]]
+    mise exec -- scripts/brittleness.rb seed2-rounds20 300 500 --out experiments/brittleness --concurrency 3
+    mise exec -- scripts/brittleness.rb --report-only --out experiments/brittleness [EXPERIMENT [GEN...]]
+
+`experiments/` is gitignored, so the output directory does not show up as untracked files.
 
 Options and their defaults: `--steps 0.005,0.02,0.1,0.5` (fixed weight steps, each with `--changes 229` weight changes), `--children 32` (a step), `--opponents AmiGo,MichiWeak,MichiMid` (bots of the benchmark panel), `--retest-games 600` (divisible by 2 × the opponents), `--concurrency 2` (games at once; it may change between resumes), and `--accept-failures` (below). EXPERIMENT is a name under `experiments/` or a directory.
 
@@ -293,9 +329,45 @@ How to read the report. Screen differences are wins of the screen's games (300 a
 - **Screen table**, per step: the mean difference (the step's champion-relative level), its SE, the observed SD of the children's differences, the share of a child's games identical move for move to the replay's, and the discordance (the share of games whose result differs from the champion's) per opponent. Beside it, the **independence approximation** of a null band: where a child as strong as the champion would land if its games were independent of the champion's. Children agree with the champion more than that, so the band is too wide; compare the observed SD.
 - **Between steps**: each pair of steps' difference with its crossed SE, the main comparison.
 - **Re-test**: a re-test game the champion's replay failed is left out of every child's comparison (counted as the champion's loss, it would give each child that won it a discordant win), and the report says how many; the same command replays it. A child's own failed re-test game counts as its loss until the same command replays it, which can only make it look worse, never call it better. Per re-tested child its screen and re-test difference and an exact one-sided sign test (McNemar) on the games where its result and the champion's differ, n_d of them, k won by the child: it is better when P(Bin(n_d, ½) ≥ k) ≤ 0.05 / m, m the champion's re-tested best children (Bonferroni; 20 with `own`, 16 without, at the defaults). Then per step the controls against the champion (a level that is unbiased only as far as the screen does not predict the re-test), the re-tested best minus the controls, and the correlation of screen and re-test differences.
-- **Smallest detectable improvement** per step at 50 % and 80 % power, an estimate in percentage points of the re-test games: an effect δ makes the child win a discordant game with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents. At 600 re-test games the plan's reviews expected about 6–6.5 points (50 %) and 7.5–8.5 (80 %) at steps 0.02–0.5, and 4.5 and 5.5 at `own`; a null result means no child is better by at least that much, not that none is better.
+- **Smallest detectable improvement** per step at 50 % and 80 % power, an estimate in percentage points of the re-test games: an effect δ makes the child win a discordant game with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents. The report's estimates for the four champions are under Results below. A null result means that a re-tested best child better by at least the 80 %-power size would have been found with about 80 % probability; children not re-tested are judged only by the screen.
 
-Cost, an estimate from the plan review's games (0.111 s of wall time per game at concurrency 3, on a machine doing other work): the full test of `seed2-rounds20` and `seed2-meta0` at generations 300 and 500 screens about 174,000 games (161 players of 300 games for each `seed2-rounds20` champion, 129 for each `seed2-meta0` one, which skips `own`), about 5.4 hours, and re-tests about 4 × 600 + 18 step–champion pairs × 8 children × 600 = 88,800, about 2.7 hours. A pilot, `mise exec -- scripts/brittleness.rb seed2-rounds20 500 --children 2 --retest-games 60 --concurrency 2 --out DIR` (interrupted with Ctrl-C once and resumed at concurrency 3), played 3,300 screen and 660 re-test games without a failure and reproduced all 300 stored benchmark games.
+Cost: the full test of `seed2-rounds20` and `seed2-meta0` at generations 300 and 500 screens 174,000 games (161 players of 300 games for each `seed2-rounds20` champion, 129 for each `seed2-meta0` one, which skips `own`) and re-tests 4 × 600 + 18 step–champion pairs × 8 children × 600 = 88,800, the counts the run below played. At the plan review's 0.111 s of wall time per game at concurrency 3, on a machine doing other work, that is an estimated 5.4 hours for the screen and 2.7 hours for the re-test. A pilot, `mise exec -- scripts/brittleness.rb seed2-rounds20 500 --children 2 --retest-games 60 --concurrency 2 --out DIR` (interrupted with Ctrl-C once and resumed at concurrency 3), played 3,300 screen and 660 re-test games without a failure and reproduced all 300 stored benchmark games.
+
+### Results: `seed2-rounds20` and `seed2-meta0` at generations 300 and 500
+
+The owner ran `seed2-rounds20 300 500` and `seed2-meta0 300 500` at the default options (finished 15 Oct 2026, at ec7a7a0, `--out experiments/brittleness`); the figures are from its `--report-only` report. No game failed, and every replay reproduced all 300 of its champion's stored benchmark games. Each `seed2-rounds20` champion played 48,300 screen and 24,600 re-test games, each `seed2-meta0` one 38,700 and 19,800, since its own genes (229.3 changes of 0.5) are the 0.5 step. `seed2-rounds20`'s own genes are 77.61 changes of 0.04142 at generation 300 and 26.25 of 0.0004811 at generation 500. The champions won 102, 114, 93 and 77 of their 300 benchmark games (`seed2-rounds20` at 300 and 500, `seed2-meta0` at 300 and 500), and 215, 224, 195 and 144 of the 600 re-test games.
+
+| Champion | Step | Screen: mean difference ± SE (wins of 300) | Identical games | Re-test: controls − champion ± SE (wins of 600) | Screen–re-test correlation (n 8) | Smallest detectable improvement, 80 % power (points) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `seed2-rounds20` 300 | 0.005 | −0.94 ± 4.29 | 21 % | −7.50 ± 5.34 | +0.53 | 5.9 |
+| | 0.02 | −1.59 ± 4.44 | 18 % | −1.00 ± 7.29 | −0.50 | 5.9 |
+| | 0.1 | −3.47 ± 4.82 | 12 % | −1.75 ± 7.29 | −0.06 | 6.5 |
+| | 0.5 | −2.47 ± 5.78 | 7 % | +0.00 ± 8.04 | +0.28 | 7.2 |
+| | own | +0.16 ± 2.94 | 39 % | +4.25 ± 5.48 | −0.18 | 4.6 |
+| `seed2-rounds20` 500 | 0.005 | +4.28 ± 5.55 | 16 % | −8.25 ± 7.70 | +0.48 | 7.2 |
+| | 0.02 | +2.38 ± 5.61 | 14 % | −6.75 ± 8.59 | −0.16 | 7.4 |
+| | 0.1 | +5.31 ± 5.90 | 12 % | −14.50 ± 8.40 | +0.57 | 7.4 |
+| | 0.5 | +3.12 ± 6.46 | 9 % | −11.00 ± 9.75 | −0.01 | 7.7 |
+| | own | −1.16 ± 1.69 | 72 % | +1.00 ± 1.47 | −0.59 | 3.4 |
+| `seed2-meta0` 300 | 0.005 | +0.66 ± 0.96 | 78 % | −2.00 ± 1.91 | −0.35 | 2.2 |
+| | 0.02 | +0.34 ± 2.42 | 42 % | −3.00 ± 3.81 | +0.29 | 4.2 |
+| | 0.1 | −0.22 ± 5.33 | 8 % | −6.25 ± 8.70 | −0.23 | 6.8 |
+| | 0.5 | +0.50 ± 6.67 | 2 % | −7.00 ± 11.22 | −0.53 | 8.1 |
+| `seed2-meta0` 500 | 0.005 | +0.22 ± 0.25 | 98 % | +0.50 ± 0.50 | −0.18 | n/a |
+| | 0.02 | +0.28 ± 0.59 | 93 % | +0.50 ± 0.87 | −0.47 | n/a |
+| | 0.1 | −0.72 ± 1.57 | 72 % | +0.00 ± 1.83 | +0.47 | 2.1 |
+| | 0.5 | −1.16 ± 3.06 | 32 % | −1.25 ± 3.77 | +0.20 | 4.3 |
+
+Screen differences are over 32 children a step, re-test levels over the step's 4 controls. The smallest detectable improvement is the report's estimate in percentage points of the 600 re-test games; `n/a` where the children's results almost never differed from the champion's on the screen.
+
+- **No re-tested best child was called better, at any step of any champion.** The sign test called none of them better (m = 20 for each `seed2-rounds20` champion, 16 for each `seed2-meta0` one); the smallest P of a best child was 0.1051 (`seed2-rounds20` generation 500, `own`). Some of the screen's best fell far back: `seed2-rounds20` generation 500's step-0.5 child 27, for one, was +18 on the screen and −29 on the re-test. The screen did not detectably predict the re-test: the correlation over every re-tested child is +0.09 and −0.12 (n 40) for `seed2-rounds20` at generations 300 and 500, −0.34 and +0.11 (n 32) for `seed2-meta0`.
+- **No detectable average loss at any step**, up to ±0.5 on 229 weight changes (186–273 weights changed per child at the fixed steps), on any of the four champions: every step's mean screen difference (−3.47 to +5.31 wins of 300) is within one SE of 0. With SEs of up to 6.67 wins of 300, losses of a few points are not excluded.
+- **No step can be told from another.** No pair of steps in the report's between-steps table differs by two SEs; the nearest is 0.02 against 0.1 for `seed2-rounds20` generation 500 (−2.94 ± 1.51).
+- **None of the re-tested best children was detectably better.** The report estimates the size found with 80 % power at 5.9–7.7 points for the fixed steps of `seed2-rounds20`, 4.6 and 3.4 at `own`, and 2.1–8.1 for `seed2-meta0` (no estimate at steps 0.005 and 0.02 for its generation-500 champion, whose children almost never play differently): a re-tested best child better by at least that much would have been found with about 80 % probability. Only a step's 4 best children on the screen, of 32, were tested for improvement, picked by a screen that did not detectably predict the re-test; the other 28 were not tested for improvement (4 of them, the controls, were re-tested only to set the step's re-test level).
+- **The `seed2-meta0` generation-500 champion is far less sensitive to mutation than the generation-300 champion:** 98 %, 93 %, 72 % and 32 % of its children's games are identical to its own at steps 0.005, 0.02, 0.1 and 0.5 (78 %, 42 %, 8 % and 2 % at generation 300). The self-adaptive champions react even to small steps: at step 0.005 only 21 % (generation 300) and 16 % (generation 500) of the games stay identical, and at `own` 39 % and 72 %, although the generation-500 champion's own step is tiny (0.0004811).
+- Interpretation: the step-0.5 lineage evolved robustness to the mutation it gets (`docs/literature.md` section 7 expects this under fixed genes), while the self-adaptive champions' move scores are close enough that a small change flips moves; neither shows a detectable average loss of strength, so they are sensitive rather than, as far as this test can tell, brittle.
+- **A faint hint, not significant on its own:** on the fresh re-test games, `seed2-rounds20` generation 500's controls trail the champion at every fixed step (−8.25 ± 7.70, −6.75 ± 8.59, −14.50 ± 8.40, −11.00 ± 9.75 wins of 600), each within two SEs of 0, while on the benchmark openings the same steps' children are ahead (+2.38 to +5.31 of 300). The four steps share the champion's 600 re-test games, so they are not four independent signs; `seed2-meta0` generation 300's controls are also all below 0 (−2.00 to −7.00). A small loss of children on fresh games cannot be ruled out.
+- One seed, two checkpoints of each run, 32 children a step, and 4 controls a step for the re-test levels.
 
 ## Benchmark
 

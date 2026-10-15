@@ -34,6 +34,7 @@ Use mise: it pins Ruby, Java, and jq and adds the local Go tools to `PATH`. For 
 ## Working conventions
 
 - Fix defects test-first: write a test that fails, then fix.
+- Analyses of experiment data whose numbers go into results docs or decide the next experiment come from a reviewed, merged script, not from one-off queries, and the docs claim only what its output shows, with the exceptions listed in one place, `docs/orchestration.md`, Analyses and results docs, which also says which numbers follow other rules: one-off figures went wrong (owner, 14 Oct 2026).
 - Commit with an imperative, sentence-case subject and a body explaining why. Use `fix/…`, `chore/…`, or `docs/…` branches.
 - For pull requests, follow `docs/pull-requests.md`. For changes larger than one PR, follow `docs/orchestration.md`.
 - Add numbered Sequel migrations for schema changes; never edit a migration that has run.
