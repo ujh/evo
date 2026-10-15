@@ -167,7 +167,7 @@ An analysis here turns experiment data into numbers that go into results docs or
   - A correlation is not a cause. Say what was measured, and label a causal reading as interpretation.
   - A qualifier must match the number beside it: a champion called nearly insensitive to mutation while 68 % of its step-0.5 children's games differed from its own is not.
   - An expected value is not a measured one: 229 weight changes per child was the expected count, and the program's output showed 186 to 273.
-- **The exceptions.** This is the one list of what results docs may hold besides the outputs' figures and what follows from them; `CLAUDE.md` and the severity rule in `docs/pull-requests.md` point here rather than repeat it, so the copies cannot drift apart:
+- **The exceptions.** This is the one list of what results docs may hold, for analyses, besides the outputs' figures and what follows from them; `CLAUDE.md` and the severity rule in `docs/pull-requests.md` point here rather than repeat it, so the copies cannot drift apart:
   - An estimate made before the run (its cost, its expected power), labelled as an estimate. The run's figures replace it where its outputs give them; a cost stays a labelled estimate unless a [quiet] measurement replaces it, since a timing the docs rely on is one.
   - A caveat a reviewer's own query raised, as its mechanism without the query's figure: the clone-repeat share can grow with the rounds counted, since two clones repeat a game only when they meet the same opponent with the same colour.
   - Figures a section marks as predating this rule, from one-off queries the owner shipped after review (the "Fixed mutation genes" figures of #119, 14 Oct 2026); later text may cite them, and a change to them goes through a script.
