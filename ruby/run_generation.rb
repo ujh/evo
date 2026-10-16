@@ -2,6 +2,8 @@ require 'digest'
 require 'open3'
 require_relative 'arena_result'
 require_relative 'checkpoint_benchmark'
+require_relative 'elitism'
+require_relative 'experiment_database'
 require_relative 'feature_groups'
 require_relative 'generation_timings'
 require_relative 'progress_line'
@@ -854,11 +856,14 @@ class RunGeneration
     previous_data = store.state(previous_generation)
     candidates = parent_candidates(previous_data)
     prepare_partial
-    total = settings['population_size']
+    elites = Elitism.count(settings['elite_share'], settings['population_size'])
+    total = settings['population_size'] - elites
     timings.time(:setup_breed) do
       # Every child's parents are drawn first, in child order, so the order
-      # the children finish in cannot change them.
+      # the children finish in cannot change them. The elites take the last
+      # places, so the bred children are those of a run without elitism.
       jobs = Array.new(total) { |i| evolve_job(previous_generation, i, Array.new(2) { select_parent(candidates) }) }
+      elite_births = copy_elites(previous_generation, candidates.first(elites).map { |entry| entry['name'] }, total)
       show("Breeding population ... 0/#{total}")
       jobs.each { |job| pool.submit(job.pool_command, job) }
       births = Array.new(total) do |finished|
@@ -867,10 +872,10 @@ class RunGeneration
         read_child(job, status).tap { show("Breeding population ... #{finished + 1}/#{total}") }
       end
       # One transaction for all, not a commit per birth. A stop before this
-      # stores none; the setup is not saved then either, so a resume breeds
-      # every child again.
+      # stores none; the setup is not saved then either, so a resume copies
+      # the elites and breeds every child again.
       show('Storing births ...')
-      timings.time(:setup_store) { store.record_births(births) }
+      timings.time(:setup_store) { store.record_births(births + elite_births) }
     end
     timings.time(:setup_sync) { publish_networks }
     tournament = setup_tournament
@@ -878,6 +883,33 @@ class RunGeneration
     timings.time(:setup_save) { save_data(tournament) }
     # Only once the new setup is saved: until then a resume breeds again.
     timings.time(:setup_retire) { retire_networks(previous_generation) }
+  end
+
+  # The gene columns of a birth: an elite's are its parent's.
+  BIRTH_GENES = [*ExperimentDatabase::BIRTH_GENE_COLUMNS, :features, :feature_step,
+                 *ExperimentDatabase::BIRTH_FEATURE_WEIGHT_COLUMNS].freeze
+
+  # Copies the elites, `names` (the best first) in networks/N-1/, byte for
+  # byte into networks/N.partial/ from index `first` on, and returns their
+  # births: operator elite, its one parent, the genes of the parent's birth,
+  # and what evolve stores for a copy. No evolve runs, so the birth seed of
+  # the index goes unused.
+  def copy_elites(previous_generation, names, first)
+    return [] if names.empty?
+
+    show("Copying #{names.size} elites ...")
+    parents = store.births(previous_generation).to_h { |birth| [birth[:child], birth] }
+    names.each_with_index.map do |name, i|
+      index = first + i
+      child = "#{index}.ann"
+      path = File.join(partial_dir, child)
+      FileUtils.cp(File.join(network_dir(previous_generation), name), path)
+      genome = timings.time(:setup_hash) { Digest::SHA256.file(path).hexdigest }
+      { generation: generation.to_i, child:, first_parent: name, second_parent: nil, operator: 'elite',
+        differs_from_first: 0, differs_from_second: nil, seed: Seeds.derive(experiment_seed, 'birth', generation.to_i, index),
+        genome:, parent: 'first', structure: 'none', activation_changed: false,
+        **parents.fetch(name).slice(*BIRTH_GENES) }
+    end
   end
 
   # One child's evolve run: `command` breeds `child` from `parents` (names

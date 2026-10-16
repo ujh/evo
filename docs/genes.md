@@ -89,9 +89,11 @@ see section 5.)
 
 ## 2. How `evolve` makes a child
 
-The runner picks two parents by tournament selection (draw
-`tournament_size` networks, keep the best; see `experiment-reference.md`) and calls
-`evolve`. Each child comes about by exactly one of three operators:
+For each child it breeds, the runner picks two parents by tournament
+selection (draw `tournament_size` networks of the previous generation,
+elites included, and keep the best; see `experiment-reference.md`) and
+calls `evolve`. Each bred child comes about by exactly one of three
+operators:
 
 ```
                     draw: crossover? (cross_over_rate)
@@ -110,6 +112,22 @@ A **crossover** child takes the first part of one parent's weights and the
 rest from the other, and nothing else changes (section 4). A **copy** is the
 parent byte for byte: weights, shape, activations, genes, and features. A
 **mutation** is everything below.
+
+With `elite_share` above 0, the last E places of a generation are not
+bred: they are **elites**, the first E networks of the previous
+generation's final ranking (bots skipped, the champion first), which the
+runner copies byte for byte without running `evolve` (operator `elite` in
+`births`). Like a copy, an elite is its parent byte for byte, but chosen
+by rank, not by chance: a copy's parent was picked by tournament
+selection, and its `copy_chance` decided. The places before them are bred as above, with the
+same seeds and parent draws as without elitism.
+
+```
+  population_size P, E = Elitism.count(elite_share, P)
+
+  places 0 … P−E−1      bred: two parents by tournament selection, evolve
+  places P−E … P−1      elites: the top E non-bots of the previous final ranking, copied
+```
 
 ### A mutated child, step by step
 

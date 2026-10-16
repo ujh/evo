@@ -1,7 +1,7 @@
 # Elitism: the top networks of a generation's final ranking enter the next
-# generation unchanged. Its own file, so the runner (run_generation.rb) and
-# the settings (setup_experiment.rb) load the same rule without loading
-# each other.
+# generation unchanged. Its own file, so the runner (run_generation.rb)
+# loads the same rule as the settings (setup_experiment.rb) without loading
+# SetupExperiment, which requires the runner.
 module Elitism
   # E, the networks carried over: the share of the population rounded to
   # the nearest whole number (a half up), and at least 1 for any share

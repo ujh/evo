@@ -88,9 +88,11 @@ class SetupExperiment
   # as strings, and loading parses them again. Board sizes stop at 19, the
   # largest the GNU Go referee plays. The initial_* settings are the genes
   # every generation-0 network starts with, and their ranges are the clamps
-  # in lib/ann.h; evolution changes them from there, at the pace meta_rate
-  # (the tau of self-adaptive mutation) sets. initial_feature_noise is no
-  # gene but the spread of generation 0's feature weights.
+  # in lib/ann.h, except that initial_copy_chance may also be 0 (never
+  # copy), which evolve keeps at 0; evolution changes them from there, at
+  # the pace meta_rate (the tau of self-adaptive mutation) sets.
+  # initial_feature_noise is no gene but the spread of generation 0's
+  # feature weights.
   SETTINGS = {
     'board_size' => ['Board size', nil, integer(2, 19)],
     'population_size' => ['Population size', nil, integer(1)],
