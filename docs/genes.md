@@ -473,6 +473,7 @@ gen  child   first_parent  second_parent  parent  structure     shape  act_hidde
 | `initial_feature_step` | 0.01 | generation 0's `feature_step` (0.0001 to 1) |
 | `initial_feature_noise` | 0.3 | how far generation 0's feature weights spread around their hand-set values: each is multiplied by 1 + u, u uniform within ±this (0 to 1) |
 | `tournament_size` | 3 | selection pressure when picking parents |
+| `elite_share` | 0 | share of the population carried over unchanged (elitism, 0 to 1): E = the share × `population_size`, rounded, at least 1 above 0 and at most `population_size` − 1 (`Elitism.count`) |
 
 With the defaults, shape changes are rare. In a population of 20 with
 `cross_over_rate` 0.5, about 10 children per generation are mutations, and

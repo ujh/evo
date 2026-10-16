@@ -491,6 +491,22 @@ class BrittlenessTest < Minitest::Test
     assert_path_exists database
   end
 
+  # An archived experiment is never migrated, so it lacks every setting
+  # added since (elite_share, migration 018). The script reads only the
+  # settings it uses, so it plays the same games on it.
+  def test_an_experiment_from_before_the_elite_share_plays_the_same_games
+    make_experiment
+    expected = brittleness.commands
+    FileUtils.rm_rf(@out)
+    Sequel.sqlite(File.join(@experiment, 'experiment.sqlite3')) do |db|
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 17)
+      refute db[:settings].where(key: 'elite_share').any?
+    end
+    commands = brittleness.commands
+    refute_empty commands
+    assert_equal expected, commands
+  end
+
   # --- Selection ----------------------------------------------------------
 
   def test_the_best_children_by_screen_difference_then_seeded_controls

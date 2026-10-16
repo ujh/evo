@@ -1,6 +1,7 @@
 require 'fileutils'
 require 'optparse'
 require_relative 'build_dependencies'
+require_relative 'elitism'
 require_relative 'experiment_database'
 require_relative 'experiment_lock'
 require_relative 'feature_groups'
@@ -111,6 +112,10 @@ class SetupExperiment
     # (docs/experiment-reference.md, "10, 20 and 40 rounds").
     'tournament_rounds' => ['Rounds (tournament)', '20', integer(1)],
     'tournament_size' => ['Tournament size for parent selection', '3', integer(1)],
+    # The top Elitism.count(elite_share, population_size) networks of a
+    # generation's final ranking enter the next generation unchanged; at
+    # least one child must be bred.
+    'elite_share' => ['Share of the population carried over unchanged (elitism, 0 for none)', '0', number(0, 1)],
     'keep_every' => ['Keep the SGFs and the champion network of every Nth generation (0 for never)', '10', integer(0)],
     'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }, integer(0, (2**63) - 1)],
     # Half of a benchmark's games are played with each color.
@@ -304,8 +309,15 @@ class SetupExperiment
   end
 
   # Parses settings read as strings, from the database or the options.
-  def self.parse(strings)
-    SETTINGS.each_key.with_object({}) do |key, settings|
+  # `only` restricts it to the given settings, for a reader of an experiment
+  # (scripts/brittleness.rb) that must not refuse one saved before a setting
+  # it does not read existed; it must include the settings each of them is
+  # checked against.
+  def self.parse(strings, only: SETTINGS.keys)
+    unknown = only - SETTINGS.keys
+    raise ArgumentError, "#{unknown.join(', ')} is no setting" if unknown.any?
+
+    (SETTINGS.keys & only).each_with_object({}) do |key, settings|
       raise ArgumentError, "#{key} is missing" unless strings.key?(key)
 
       settings[key] = parse_setting(key, strings[key], settings)
@@ -320,6 +332,7 @@ class SetupExperiment
     # Without hidden layers the width is not used until a layer is added,
     # and that layer is clamped to max_layer_size.
     when 'max_layer_size' then check_bound(key, value, 'layer_size', settings) if settings['hidden_layers'].positive?
+    when 'elite_share' then check_elite_count(value, text, settings)
     when 'initial_weight_changes' then check_weight_changes(value, text, settings)
     end
     value
@@ -330,6 +343,15 @@ class SetupExperiment
     return if value >= settings.fetch(initial)
 
     raise ArgumentError, "#{key} must be at least #{initial} (#{settings.fetch(initial)}), got #{value}"
+  end
+
+  # At least one child of every generation is bred.
+  def self.check_elite_count(value, text, settings)
+    size = settings.fetch('population_size')
+    count = Elitism.count(value, size)
+    return if count < size
+
+    raise ArgumentError, "elite_share #{text} carries #{count} of the #{size} networks over; at most #{size - 1} may be, so one is bred"
   end
 
   def self.check_weight_changes(value, text, settings)

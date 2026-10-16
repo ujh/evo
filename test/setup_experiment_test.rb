@@ -66,7 +66,8 @@ class SetupExperimentTest < Minitest::Test
     %w[--hidden-layers -1], %w[--layer-size 0],
     %w[--cross-over-rate 0,5], %w[--cross-over-rate 1.5], %w[--cross-over-rate -0.1],
     %w[--game-seconds 0], %w[--game-seconds 1000001], %w[--game-seconds 0.5], %w[--game-seconds 20s], %w[--max-moves 2.5], %w[--tournament-rounds ten], %w[--tournament-rounds 0],
-    %w[--tournament-size 0], %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808],
+    %w[--tournament-size 0], %w[--elite-share -0.1], %w[--elite-share 1.1], %w[--elite-share some],
+    %w[--keep-every -1], %w[--seed -3], %w[--seed 9223372036854775808],
     %w[--benchmark-games 21], %w[--benchmark-games 0], %w[--benchmark-games -2], %w[--benchmark-games many],
     %w[--benchmark-games 4.0], %w[--benchmark-bot-games 3], %w[--benchmark-bot-games -2],
     %w[--benchmark-bot-games some], %w[--benchmark-opening-moves -1], %w[--benchmark-opening-moves four],
@@ -237,6 +238,84 @@ class SetupExperimentTest < Minitest::Test
       assert_equal "initial_copy_chance must be 0 or a number from 0.0001 to 0.1, got #{value}", error.message
     end
     assert_includes SetupExperiment.option_parser({}).help, '0 or a number from 0.0001 to 0.1, default 0.01'
+  end
+
+  # Elitism is off unless asked for.
+  def test_the_elite_share_defaults_to_0
+    settings = SetupExperiment.settings_from_arguments(REQUIRED)
+    assert_equal 0.0, settings['elite_share']
+    assert_kind_of Float, settings['elite_share']
+    assert_includes SetupExperiment.option_parser({}).help,
+                    'Share of the population carried over unchanged (elitism, 0 for none) (a number from 0 to 1, default 0)'
+  end
+
+  def test_the_elite_share_comes_after_the_tournament_size
+    keys = SetupExperiment::SETTINGS.keys
+    assert_equal keys.index('tournament_size') + 1, keys.index('elite_share')
+  end
+
+  # E, the networks carried over, is the share of the population rounded
+  # (Elitism.count), and at least one bred child is left.
+  def test_an_elite_share_that_leaves_a_child_is_accepted
+    [['1000', '0.01'], ['12', '0.01'], ['12', '0.2'], ['12', '0.95'], ['100', '0.07'], ['1', '0'], ['4', '0.74']].each do |size, share|
+      settings = SetupExperiment.settings_from_arguments(REQUIRED + ['--population-size', size, '--elite-share', share])
+      assert_equal Float(share), settings['elite_share'], "#{share} of #{size}"
+    end
+  end
+
+  def test_an_elite_share_that_leaves_no_child_is_refused
+    {
+      %w[12 1.0] => 'elite_share 1.0 carries 12 of the 12 networks over; at most 11 may be, so one is bred',
+      %w[4 0.875] => 'elite_share 0.875 carries 4 of the 4 networks over; at most 3 may be, so one is bred',
+      %w[1 0.01] => 'elite_share 0.01 carries 1 of the 1 networks over; at most 0 may be, so one is bred'
+    }.each do |(size, share), message|
+      error = assert_raises(ArgumentError, "#{share} of #{size}") do
+        SetupExperiment.settings_from_arguments(REQUIRED + ['--population-size', size, '--elite-share', share])
+      end
+      assert_equal message, error.message
+    end
+  end
+
+  def test_new_experiment_saves_no_experiment_whose_elite_share_leaves_no_child
+    in_tmpdir do
+      error = assert_raises(ArgumentError) { SetupExperiment.create('experiments/x', REQUIRED + %w[--elite-share 0.875]) }
+      assert_includes error.message, 'elite_share 0.875 carries 4 of the 4 networks over'
+      refute_path_exists 'experiments/x/experiment.sqlite3'
+    end
+  end
+
+  def test_a_prompt_asks_again_for_an_elite_share_that_leaves_no_child
+    answers = prompt_answers('population_size' => '12', 'elite_share' => "1\n0.95")
+    $stdin = StringIO.new("#{answers.join("\n")}\n")
+    settings = nil
+    out, = capture_io { settings = SetupExperiment.prompt_for_settings }
+    assert_equal 0.95, settings['elite_share']
+    assert_includes out, 'elite_share 1 carries 12 of the 12 networks over; at most 11 may be, so one is bred'
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_loading_refuses_an_elite_share_that_leaves_no_child
+    in_tmpdir do
+      database = ExperimentDatabase.new('experiment.sqlite3')
+      database.save_settings(SetupExperiment.settings_from_arguments(REQUIRED).merge('elite_share' => '0.875'))
+      error = assert_raises(ArgumentError) { SetupExperiment.settings(database) }
+      assert_equal 'elite_share 0.875 carries 4 of the 4 networks over; at most 3 may be, so one is bred', error.message
+    end
+  end
+
+  # A reader of an experiment parses only the settings it reads, so an
+  # experiment saved before a later setting existed still reads.
+  def test_parse_can_take_only_the_given_settings
+    strings = SetupExperiment.settings_from_arguments(REQUIRED).transform_values(&:to_s).except('elite_share')
+    assert_raises(ArgumentError) { SetupExperiment.parse(strings) }
+    assert_equal({ 'board_size' => 9, 'komi' => 6.5 }, SetupExperiment.parse(strings, only: %w[komi board_size]))
+    error = assert_raises(ArgumentError) { SetupExperiment.parse(strings, only: %w[komi elite_share]) }
+    assert_equal 'elite_share is missing', error.message
+    error = assert_raises(ArgumentError) { SetupExperiment.parse(strings, only: %w[komi shape]) }
+    assert_equal 'shape is no setting', error.message
+    error = assert_raises(ArgumentError) { SetupExperiment.parse(strings.merge('komi' => '7.25'), only: %w[komi]) }
+    assert_includes error.message, 'komi must be'
   end
 
   # Without the option, weight_changes is the old hard-coded load: 0.0004

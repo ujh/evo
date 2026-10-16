@@ -201,6 +201,22 @@ class ExperimentStatsTest < Minitest::Test
                  'it; an archived experiment cannot be migrated', error.message
   end
 
+  # An archived experiment is never migrated, so it lacks every setting
+  # added since (elite_share, migration 018); stats reads it as before.
+  def test_a_database_from_before_the_elite_share_gives_the_same_figures
+    reopen_writing { |writer| writer.save_settings(writer.settings.merge('elite_share' => '0')) }
+    figures = ->(stats) { stats.generations.map { |g| [stats.generation(g), stats.brief_generation(g)] } }
+    expected = figures.call(@stats)
+    @database.close
+    path = File.join(@dir, 'experiment.sqlite3')
+    Sequel.sqlite(path) do |db|
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 17)
+      refute db[:settings].where(key: 'elite_share').any?
+    end
+    @database = ExperimentDatabase.new(path, readonly: true)
+    assert_equal expected, figures.call(ExperimentStats.new(@database))
+  end
+
   # The runner stores only games that counted, each with its duration.
   def test_tournament_counts_games_draws_and_time
     assert_equal({ games: 4, draws: 1, play_seconds: 3.75 }, @stats.generation(1)[:tournament])
