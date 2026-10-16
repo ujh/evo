@@ -117,7 +117,10 @@ static int in_range(double value, double min, double max) {
 }
 
 const char *ann_genes_invalid(const ann_genes *genes, int total_weights) {
-    if (!in_range(genes->copy_chance, ANN_COPY_CHANCE_MIN, ANN_COPY_CHANCE_MAX)) return "copy_chance";
+    // copy_chance 0 means never copy; no other value below the clamp is valid.
+    if (genes->copy_chance != 0 && !in_range(genes->copy_chance, ANN_COPY_CHANCE_MIN, ANN_COPY_CHANCE_MAX)) {
+        return "copy_chance";
+    }
     if (!in_range(genes->weight_changes, ANN_WEIGHT_CHANGES_MIN, total_weights)) return "weight_changes";
     if (!in_range(genes->weight_step, ANN_WEIGHT_STEP_MIN, ANN_WEIGHT_STEP_MAX)) return "weight_step";
     if (!in_range(genes->activation_rate, ANN_ACTIVATION_RATE_MIN, ANN_ACTIVATION_RATE_MAX)) return "activation_rate";

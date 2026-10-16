@@ -223,6 +223,22 @@ class SetupExperimentTest < Minitest::Test
     assert_equal [10.0, 0.1, 10_652.0, 10.0, 0.5, 0.5], high.values_at('meta_rate', *RunGeneration::INITIAL_GENES)
   end
 
+  # copy_chance 0 means never copy; nothing else below 0.0001 is a copy_chance.
+  def test_the_initial_copy_chance_may_be_0
+    [%w[0 0.0], %w[0.0 0.0], %w[0e0 0.0], %w[-0 0.0]].each do |given, stored|
+      settings = SetupExperiment.settings_from_arguments(REQUIRED + ['--initial-copy-chance', given])
+      assert_equal 0.0, settings['initial_copy_chance'], given
+      assert_equal stored, settings['initial_copy_chance'].to_s, given
+    end
+    %w[0.00009 1e-300 -0.0001 0.11].each do |value|
+      error = assert_raises(ArgumentError, value) do
+        SetupExperiment.settings_from_arguments(REQUIRED + ['--initial-copy-chance', value])
+      end
+      assert_equal "initial_copy_chance must be 0 or a number from 0.0001 to 0.1, got #{value}", error.message
+    end
+    assert_includes SetupExperiment.option_parser({}).help, '0 or a number from 0.0001 to 0.1, default 0.01'
+  end
+
   # Without the option, weight_changes is the old hard-coded load: 0.0004
   # changes per weight of the generation-0 shape, at least 1.
   def test_the_initial_weight_changes_follow_the_generation_0_shape

@@ -35,7 +35,7 @@
 
 // The settings a network passes on to its children, which evolve with it.
 typedef struct {
-    double copy_chance;     // probability that a child is an unchanged copy
+    double copy_chance;     // probability that a child is an unchanged copy (0: never)
     double weight_changes;  // expected number of weights a mutation changes
     double weight_step;     // half-width of a weight's uniform perturbation
     double activation_rate; // probability of switching each activation
@@ -43,7 +43,8 @@ typedef struct {
 } ann_genes;
 
 // The range each gene is clamped to. weight_changes runs from
-// ANN_WEIGHT_CHANGES_MIN to the network's total_weights.
+// ANN_WEIGHT_CHANGES_MIN to the network's total_weights. copy_chance may
+// also be exactly 0, never copy, which mutation keeps at 0.
 #define ANN_COPY_CHANCE_MIN 1e-4
 #define ANN_COPY_CHANCE_MAX 0.1
 #define ANN_WEIGHT_CHANGES_MIN 1.0

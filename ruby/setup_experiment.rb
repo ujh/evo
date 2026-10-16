@@ -19,16 +19,20 @@ class SetupExperiment
   # build its first run copies failed.
   class Refused < StandardError; end
 
-  # A setting's type: a whole number, an even whole number, a number, or a
-  # multiple of 0.5, and its allowed range. Parsing is strict, so a typo is
-  # refused instead of being read as its numeric prefix or as 0.
+  # A setting's type: a whole number, an even whole number, a number, a
+  # number that may also be exactly 0 (0 or one in the range: copy_chance 0
+  # means never copy), or a multiple of 0.5, and its allowed range. Parsing
+  # is strict, so a typo is refused instead of being read as its numeric
+  # prefix or as 0.
   Type = Data.define(:kind, :min, :max) do
     def parse(key, text)
-      value = if %i[number half].include?(kind)
+      value = if %i[number zero_or_number half].include?(kind)
                 Float(text.to_s, exception: false)
               else
                 Integer(text.to_s, 10, exception: false)
               end
+      # -0 is stored as 0.
+      return 0.0 if kind == :zero_or_number && value&.zero?
       return value if value && value >= min && (max.nil? || value <= max) && fits_kind?(value)
 
       raise ArgumentError, "#{key} must be #{description}, got #{text}"
@@ -44,7 +48,7 @@ class SetupExperiment
 
     def description
       name = { integer: 'a whole number', even: 'an even whole number', number: 'a number',
-               half: 'a multiple of 0.5' }.fetch(kind)
+               zero_or_number: '0 or a number', half: 'a multiple of 0.5' }.fetch(kind)
       max ? "#{name} from #{min} to #{max}" : "#{name} of at least #{min}"
     end
   end
@@ -66,6 +70,7 @@ class SetupExperiment
   def self.integer(min, max = nil) = Type.new(:integer, min, max)
   def self.even(min) = Type.new(:even, min, nil)
   def self.number(min, max) = Type.new(:number, min, max)
+  def self.zero_or_number(min, max) = Type.new(:zero_or_number, min, max)
   def self.half(min, max) = Type.new(:half, min, max)
 
   # A default computed from the settings before it when the experiment is
@@ -123,7 +128,9 @@ class SetupExperiment
     # draw, and never prints as W+0.0.
     'komi' => ['Komi', '6.5', half(-50, 50)],
     'meta_rate' => ['Meta rate of self-adaptive mutation', '0.2', number(0, 10)],
-    'initial_copy_chance' => ['Chance a child is a copy (initial gene)', '0.01', number(0.0001, 0.1)],
+    # 0 means never copy, and children keep it.
+    'initial_copy_chance' => ['Chance a child is a copy (initial gene, 0 for never)', '0.01',
+                              zero_or_number(0.0001, 0.1)],
     # The old hard-coded load: 0.0004 changes per weight, at least 1. The count, not
     # the share, is the gene, so growing a network does not raise its load.
     'initial_weight_changes' => [
