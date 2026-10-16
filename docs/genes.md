@@ -37,7 +37,7 @@ A network's `.ann` file holds everything about it:
 
 | Gene | What it does | Starts at (setting, default) | Limits |
 | --- | --- | --- | --- |
-| `copy_chance` | Chance that a mutated child is an exact copy | `initial_copy_chance`, 0.01 | 0.0001 to 0.1 |
+| `copy_chance` | Chance that a mutated child is an exact copy | `initial_copy_chance`, 0.01 | 0.0001 to 0.1, or exactly 0 |
 | `weight_changes` | Average number of weights a mutated child changes | `initial_weight_changes`, 0.0004 × generation 0's weights, at least 1 | 1 to the network's total weights |
 | `weight_step` | Largest change of one weight (the change is uniform in ±step) | `initial_weight_step`, 0.5 | 0.0001 to 10 |
 | `activation_rate` | Chance that each activation switches | `initial_activation_rate`, 0.02 | 0.0001 to 0.5 |
@@ -45,6 +45,11 @@ A network's `.ann` file holds everything about it:
 
 The limits are the clamps in `lib/ann.h`: a gene that evolves past one is
 set back to it. The settings accept the same ranges.
+
+`copy_chance` 0 means "never copy": no child is a copy, and every child
+keeps 0, under any `meta_rate`, while crossover hands on the picked
+parent's 0. An experiment created with `initial_copy_chance` 0 never makes
+copies, and nothing between 0 and 0.0001 is accepted.
 
 - **Features.** Which feature groups the network sees besides the stones
   and komi (shapes, tactics, the last move, chain liberties), a gene
@@ -112,9 +117,13 @@ The parent's genes decide the copy check and are where the nudge starts.
 From then on the child's own, freshly nudged genes drive the rest:
 
 1. **Copy check.** With the parent's `copy_chance` the child is a copy and
-   evolve stops here.
+   evolve stops here. The check draws a number between 0 and 1 even at
+   `copy_chance` 0, which never passes it.
 2. **Nudge the genes.** Each of the five genes moves a little at random
-   (see "meta_rate" below), then is clamped to its limits.
+   (see "meta_rate" below), then is clamped to its limits. A `copy_chance`
+   of 0 stays 0, but its random number is drawn all the same: where the
+   copy check fails, a parent with 0 gets the child it would get with any
+   other `copy_chance`, apart from that gene.
 3. **Nudge the feature weights** (only for a network with move features;
    otherwise nothing is drawn). `feature_step` moves like `weight_step`,
    then **every** feature weight moves by a random amount between
@@ -456,7 +465,7 @@ gen  child   first_parent  second_parent  parent  structure     shape  act_hidde
 | `max_layer_size` | 200 | widest a hidden layer may get |
 | `cross_over_rate` | required | chance of trying crossover (0 to 1) |
 | `meta_rate` | 0.2 | how fast the genes move |
-| `initial_copy_chance` | 0.01 | generation 0's `copy_chance` |
+| `initial_copy_chance` | 0.01 | generation 0's `copy_chance` (0.0001 to 0.1; 0 = never copy) |
 | `initial_weight_changes` | 0.0004 × generation 0's weights (feature inputs included), at least 1 | generation 0's `weight_changes` (at most its total weights) |
 | `initial_weight_step` | 0.5 | generation 0's `weight_step` |
 | `initial_activation_rate` | 0.02 | generation 0's `activation_rate` |

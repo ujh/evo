@@ -234,8 +234,11 @@ static double logit_normal_step(double p, double meta_rate) {
 
 ann_genes mutate_genes(ann_genes genes, double meta_rate, int total_weights) {
   ann_genes child;
-  child.copy_chance = clamp(logit_normal_step(genes.copy_chance, meta_rate),
-                            ANN_COPY_CHANCE_MIN, ANN_COPY_CHANCE_MAX);
+  // copy_chance 0 means never copy and stays 0 under any meta_rate. Its
+  // normal is drawn all the same, so the other genes' draws do not depend
+  // on it.
+  double copy_chance = logit_normal_step(genes.copy_chance, meta_rate);
+  child.copy_chance = genes.copy_chance == 0 ? 0 : clamp(copy_chance, ANN_COPY_CHANCE_MIN, ANN_COPY_CHANCE_MAX);
   child.weight_changes = clamp(log_normal_step(genes.weight_changes, meta_rate),
                                ANN_WEIGHT_CHANGES_MIN, total_weights);
   child.weight_step = clamp(log_normal_step(genes.weight_step, meta_rate),
