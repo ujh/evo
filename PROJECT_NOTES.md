@@ -93,6 +93,10 @@ Many settings rest on assumptions nobody has checked: the tournament size, wheth
 
 **Are the benchmark's fixed openings less informative than fresh ones?** In the brittleness test, `seed2-rounds20` generation 500's children at the fixed steps led the champion on its 50 benchmark openings while their controls trailed it on fresh ones (`docs/experiment-reference.md`, "How brittle a champion is", the faint hint). The benchmark is the progress measure: if its fixed openings separate players poorly, every checkpoint comparison is weaker than it looks, and more or other openings may be the remedy. The hint is not significant on its own; an analysis could compare each step's spread on the benchmark and on fresh openings with the spread per-game noise gives. Needs an analysis script (`docs/orchestration.md`, "Analyses and results docs") (owner, 15 Oct 2026: into these notes).
 
+**With elitism, a checkpoint can benchmark its champion against itself.** An elite can stay first across checkpoints (`elite_share`, #126), so the current champion can be byte for byte a stored `GenNChampion` or `Gen0Champion`; the benchmark then plays them as two rating players and fits them as equal, which reads as "no progress" (`CheckpointBenchmark#opponents_for` and `#past_champions`, `ruby/checkpoint_benchmark.rb`; `docs/experiment-reference.md` does not say it can happen). The script that analyses the elitism arms should flag such pairs by comparing `births.genome` of the champion and each opponent (owner, 19 Oct 2026).
+
+**Count the clones crossover breeds in the baselines, before the no-copy arms are judged.** At `copy_chance` 0, clones still come from crossing a network with itself (see "never cross a network with itself" in section 7), and a crossover child with all its weights from one parent can be one too. Only a figure computed from the selection rule exists (about 0.7 a generation of 1,000). A reviewed script should count, in `seed2-rounds20` and `seed2-meta0`, the crossover children with `first_parent = second_parent` and those with `differs_from_first` or `differs_from_second` 0, so the no-copy arms' "no copies" is not read as "no clones" (owner, 19 Oct 2026).
+
 **Investigate the color gap before tuning around it.** Against AmiGo after generation 0, `bigrun`'s checkpoint champions won 444/1,140 games as Black and 688/1,140 as White; `even-bigger` showed the same direction in its first four checkpoints (11/40 and 20/40). Both runs are deleted, so repeat the check on `even-bigger2` and later runs; in `even-bigger2`'s tournaments White wins 56–63 % of all games (`scripts/ranking-noise.rb`), so the gap is not only against AmiGo. The benchmark pairs colors, so its combined rate is still useful, but these results call for checking outcomes by opening, game length, passing, and komi. Do not assume yet whether the cause is the policy, the openings, or the opponent.
 
 ### 7. Move choice is deterministic
@@ -192,6 +196,23 @@ Owner, 15 Oct 2026: do these together as one small PR.
 - `scripts/brittleness.rb`'s report prints "A null result means no child better by at least this much, not never", which overstates an 80 %-power size (`docs/experiment-reference.md`, "How brittle a champion is", says it right); fix the string and the test strings that pin it.
 - `evolve/Makefile` includes only `evolve.dep`, so `main.o`, `perturb.o` and `test.o` do not rebuild when `evolve.h` changes and stale objects can be linked; list every object's `.dep`. `engine/Makefile` has the same gap: it includes no `main.dep`, so `main.o` (which includes `interface.h`) does not rebuild either; fix both.
 - `initial-population/main.c` has its own copy of `parse_seed` (`evolve/evolve.c`), and its `parse_gene` nearly duplicates `parse_number` without the range check; share them.
+- After #126, `ruby/run_generation.rb`'s comments and its `BreedingFailed` message say "a resume breeds every child again", but a resume also copies the elites again (the comment in `evolve_from_previous_population` says it right); and in `copy_elites` a parent file missing from `networks/N-1/` (only after manual damage) raises a bare `Errno::ENOENT`, and a parent missing from `births` a bare `KeyError`, instead of a `BreedingFailed` report.
+
+### Fold the C program checks into the Minitest suite
+
+`mise run test-c` runs the top-level `Makefile`'s `test` target, which runs the C unit-test programs (`lib/test.c`, `evolve/test.c`, the engine's) and shell checks inside the Makefiles that run the real programs and grep their output (`evolvetest`, `perturbtest`, `arenatest`, `initial-population`'s `test`). It stops at the first failing sub-make, so one failure hides the other suites' results, and agents run `make -C evolve test` and the like by hand to see each (owner, 19 Oct 2026: move away from the Makefile for testing and fold these into the test suite). Let `make` only build; turn each shell check into a Minitest test that runs the built program and asserts on its output, and run each C unit-test binary from a thin Minitest test that fails with its output. Group them by directory (for example `test/c/` and the Ruby tests), since Minitest has no tags, so CI can run the groups as separate jobs as it now runs C and Ruby; `-n /pattern/` selects single tests and `parallelize_me!` runs them in parallel. One run then reports every failure.
+
+### Docs that drift
+
+Owner, 19 Oct 2026: all of these.
+
+- Whole sections of `docs/code-reference.md` and `docs/experiment-reference.md` sit on single lines of 3,500–5,000 characters (for example `docs/code-reference.md:27`, `docs/experiment-reference.md:124`), so a grep returns a whole section and a `file:line` points at a page; reflow them to a sentence or a bullet per line.
+- `docs/genes.md` section 6 copies the settings' defaults and ranges by hand from `SetupExperiment::SETTINGS`, so every settings change has to remember it; pin the table with a test against `SETTINGS`, or replace it with a pointer to `mise run new-experiment`'s help, which prints them.
+- `docs/literature.md:256` ("Evo today … generational without elitism") and `:349` (evo's elitism "None (copy_chance only)") will read as wrong once the elitism arms run; add a clause to each pointing to `elite_share` (#126).
+
+### Watch: a possibly flaky stats test
+
+Once, running `test/experiment_stats_test.rb` and `test/stats_test.rb` together failed; neither alone nor six re-runs failed again. A candidate cause is the `stats --watch` test (`test/stats_test.rb`, around line 511), which waits for the subprocess's output under a 20 s timeout and then sends SIGINT, which a loaded machine can upset. Act only if it fails again (owner, 19 Oct 2026).
 
 ### Replace `stats` with a graphical viewer
 
@@ -216,6 +237,14 @@ GENANN stays: it is small, tested upstream, and does what the experiments need. 
 ## Tooling for agents
 
 **Owner request: check running subagents automatically.** In a planned run the orchestrator checks every running agent by hand for progress (its commits, working tree, worktrees and processes; `docs/orchestration.md`, "Watching running agents"), since an agent once finished its work and never reported. Build tooling that does it without being asked: for example a heartbeat or watchdog script, a Claude Code hook, or a plugin that tracks subagent liveness and prompts the orchestrator when an agent stops making progress. Open questions: what counts as progress for a step that runs a long measurement, and whether a hook can see subagents at all.
+
+**One command for "same results as `main`".** A step that must not change results runs a small seeded experiment at `main` and at its commit (`scripts/profile-workload.sh`) and compares the two databases table by table: births with every column, games and benchmark rows without their time columns, rankings (`docs/orchestration.md`, step 5, "Real runs"). `profile-workload.sh` takes no extra settings, so a check at, say, `--elite-share 0.2` needs a hand-made experiment, and every agent writes the comparison queries again and decides again which columns to ignore. Add a settings pass-through and a `scripts/compare-experiments` that diffs two kept databases by that rule (owner, 19 Oct 2026).
+
+**A mutant helper.** Reviewers run mutants by hand and hit two traps: after a C mutant is reverted its binaries can stay built (a stale `initial-population` kept refusing 0 until a clean rebuild; `docs/code-reference.md` warns only about stale builds of the mutant itself), and a `sed -i ''` mutant whose pattern does not match silently changes nothing. A `scripts/mutant.sh` that applies the change, fails if the source did not change, builds clean, tests, reverts and rebuilds clean would remove both (owner, 19 Oct 2026).
+
+**A fast multi-seed check for `evolve`.** Each `evolve` process start costs about 0.24 s on macOS, so a check that `evolve` gives byte-identical children to `main` over many seeds outruns a foreground command's time limit. A test-only mode that loops over seeds in one process would make it one command (owner, 19 Oct 2026).
+
+**Plans cite method names, not line numbers.** `docs/orchestration.md` step 2 asks a plan to give each fact its `file:line`, but lines drift as the plan's steps land, and the elitism plan had to add that its method names are the reference; say in step 2 to cite the method or symbol, with the line only as a hint (owner, 19 Oct 2026).
 
 ## Proposed sequence
 
