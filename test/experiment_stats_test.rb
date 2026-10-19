@@ -331,6 +331,15 @@ class ExperimentStatsTest < Minitest::Test
     assert_equal 2, population[:unique_genomes]
   end
 
+  # An elite's weights are its first parent's, and an elite has no second
+  # parent: two elites of networks that also have bred children add no
+  # parent.
+  def test_distinct_parents_count_an_elites_first_parent_once
+    assert_equal 1, distinct_parents(['a.ann', nil, 'elite', 0, nil, 'first'], ['a.ann', 'b.ann', 'mutation', 3, 3, 'first'])
+    assert_equal 2, distinct_parents(['a.ann', nil, 'elite', 0, nil, 'first'], ['b.ann', nil, 'elite', 0, nil, 'first'],
+                                     ['a.ann', 'b.ann', 'crossover', 5, 7, 'second'])
+  end
+
   # ElitesStatsFixture's generation 1: ten bred children and two elites,
   # 10.ann (of 0009.ann, the same genome as the bred 7.ann) and 11.ann (of
   # 0005.ann, which selection never picked).

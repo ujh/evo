@@ -54,7 +54,7 @@ exact clones another way: both parents are drawn independently, with
 replacement, so a crossover child can have one network as both parents, and
 since crossover does not mutate, that child is the network itself. With a
 size-3 tournament over N networks whose scores all differ, this happens to
-1.8/N of crossover children (0.18 % of 1,000; ties among the scores make it
+1.8/N of the children drawn for crossover (0.18 % of 1,000; ties among the scores make it
 rarer). Elites (`elite_share`,
 section 2) still carry networks over unchanged: they are no copies, since
 `evolve` never makes them.
