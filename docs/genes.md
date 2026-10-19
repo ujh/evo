@@ -49,7 +49,13 @@ set back to it. The settings accept the same ranges.
 `copy_chance` 0 means "never copy": no child is a copy, and every child
 keeps 0, under any `meta_rate`, while crossover hands on the picked
 parent's 0. An experiment created with `initial_copy_chance` 0 never makes
-copies, and nothing between 0 and 0.0001 is accepted. Elites (`elite_share`,
+copies, and nothing between 0 and 0.0001 is accepted. It can still breed
+exact clones another way: both parents are drawn independently, with
+replacement, so a crossover child can have one network as both parents, and
+since crossover does not mutate, that child is the network itself. With a
+size-3 tournament over N networks whose scores all differ, this happens to
+1.8/N of crossover children (0.18 % of 1,000; ties among the scores make it
+rarer). Elites (`elite_share`,
 section 2) still carry networks over unchanged: they are no copies, since
 `evolve` never makes them.
 
