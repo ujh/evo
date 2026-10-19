@@ -31,7 +31,12 @@ class ExperimentStats
   CHAMPION_SCORES = { 'network' => 1, 'opponent' => 0, nil => 1/2r }.freeze
   BOT_SCORES = { 'black' => 1, 'white' => 0, nil => 1/2r }.freeze
   # Every generation counts each, so the CSV has the same columns for all.
-  OPERATORS = %w[initial crossover mutation copy].freeze
+  # An elite is carried over unchanged, not bred (operator `elite`, from
+  # migration 018); stats tell elites by the operator alone, never by the
+  # elite_share setting, which older experiments lack.
+  OPERATORS = %w[initial crossover mutation copy elite].freeze
+  # Births that no parent selection or evolve run made.
+  UNBRED = %w[initial elite].freeze
   # The genes, the activations, and the structural changes as births store
   # them (evolve's genes and summary lines); each is counted or summarized
   # in every generation that has them, for the same reason.
@@ -196,20 +201,28 @@ class ExperimentStats
     {
       children: births.size,
       operators: OPERATORS.to_h { |operator| [operator, 0] }.merge(births.map { |birth| birth[:operator] }.tally),
-      identical: births.count { |birth| birth[:operator] != 'initial' && identical?(birth, parents) },
+      identical: bred(births).count { |birth| identical?(birth, parents) },
       distinct_parents: births.flat_map { |birth| inherited_from(birth) }.uniq.size,
       unique_genomes: births.map { |birth| birth[:genome] }.uniq.size,
       scores: { min: scores.first, median: median(scores), max: scores.last }
     }
   end
 
+  # The children selection and evolve made: neither the initial
+  # population nor elites.
+  def bred(births)
+    births.reject { |birth| UNBRED.include?(birth[:operator]) }
+  end
+
   # The parents a child has weights from. A mutation or a copy comes from
-  # the parent evolve picked. A crossover that copied one parent has only
-  # its weights. A differs count is nil for a parent of another shape.
+  # the parent evolve picked, an elite from its one parent. A crossover that
+  # copied one parent has only its weights. A differs count is nil for a
+  # parent of another shape.
   def inherited_from(birth)
     first, second = birth.values_at(:first_parent, :second_parent)
     one, two = birth.values_at(:differs_from_first, :differs_from_second)
     case birth[:operator]
+    when 'elite' then [first]
     when 'mutation', 'copy'
       [birth[:parent] == 'second' ? second : first]
     when 'crossover'
@@ -222,7 +235,8 @@ class ExperimentStats
   end
 
   # A bred child equal to a parent: the same weights (differs 0) and the
-  # same activations. A copy always is. A child of another shape than a
+  # same activations. A copy always is. Elites are not bred, so not
+  # counted, though each equals its parent. A child of another shape than a
   # parent has no count for it; one whose activation switched plays
   # differently even with the same weights; and a crossover takes the
   # picked parent's activations, so it can have all of the other parent's
@@ -272,9 +286,10 @@ class ExperimentStats
   end
 
   # How many bred children had each structural change (crossovers and
-  # copies none); nil without bred children.
+  # copies none); nil without bred children. Elites are not bred, so they
+  # do not count as `none`.
   def structure(births)
-    values = births.filter_map { |birth| birth[:structure] }
+    values = bred(births).filter_map { |birth| birth[:structure] }
     values.empty? ? nil : STRUCTURES.to_h { |op| [op, 0] }.merge(values.tally)
   end
 
@@ -282,13 +297,14 @@ class ExperimentStats
   # networks: the most children one parent got, how many got none, and how
   # many got any. A crossover counts for both parents (both were
   # selected and crossed), a mutation or a copy only for the parent evolve
-  # picked. nil for the initial population. Unlike distinct_parents, this
-  # counts selection, not whose weights survive.
+  # picked, an elite not at all (selection did not pick it). nil for the
+  # initial population. Unlike distinct_parents, this counts selection, not
+  # whose weights survive.
   def parents(generation, births)
-    bred = births.reject { |birth| birth[:operator] == 'initial' }
-    return nil if generation.zero? || bred.empty?
+    selected = bred(births)
+    return nil if generation.zero? || selected.empty?
 
-    children = bred.flat_map do |birth|
+    children = selected.flat_map do |birth|
       first, second = birth.values_at(:first_parent, :second_parent)
       # A network crossed with itself (selection draws with replacement)
       # has one child, not two.

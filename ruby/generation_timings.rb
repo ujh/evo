@@ -21,14 +21,14 @@ require_relative 'awake_clock'
 # pairing, queueing, and reading, scoring, and storing each arena record as
 # it arrives, while the arenas play.
 # The parts of setup are within `setup` and, but for setup_hash and
-# setup_store, come one after another: emptying work/, breeding the
-# children or running initial-population, syncing networks/N.partial/ and
-# renaming it to networks/N/, saving the state, deleting network
-# directories no longer needed (stale ones at the start, the parents after
-# the save; the two add up), and, on resume, verifying networks/N/ against
-# the births. They leave small untimed gaps (loading the previous
-# generation's state, pairing round 1), so they add up to a little less
-# than `setup`. setup_hash and setup_store, the summed time of hashing each
+# setup_store, come one after another: emptying work/, copying the elites
+# and breeding the children or running initial-population, syncing
+# networks/N.partial/ and renaming it to networks/N/, saving the state,
+# deleting network directories no longer needed (stale ones at the start,
+# the parents after the save; the two add up), and, on resume, verifying
+# networks/N/ against the births. They leave small untimed gaps (loading
+# the previous generation's state, pairing round 1), so they add up to a
+# little less than `setup`. setup_hash and setup_store, the summed time of hashing each
 # network and of storing the births in one transaction, are within
 # setup_breed. `champion`, at a checkpoint, is reading its champion's file
 # and the last round's save that stores it, within that round's time.

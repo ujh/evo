@@ -897,7 +897,7 @@ class RunGeneration
   def copy_elites(previous_generation, names, first)
     return [] if names.empty?
 
-    show("Copying #{names.size} elites ...")
+    show("Copying #{names.size} #{names.size == 1 ? 'elite' : 'elites'} ...")
     parents = store.births(previous_generation).to_h { |birth| [birth[:child], birth] }
     names.each_with_index.map do |name, i|
       index = first + i

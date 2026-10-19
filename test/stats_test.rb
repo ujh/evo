@@ -9,6 +9,7 @@ require_relative '../ruby/experiment_database'
 require_relative '../ruby/experiment_stats'
 require_relative '../ruby/stats_report'
 require_relative 'stats_fixture'
+require_relative 'elites_stats_fixture'
 
 # Runs the stats script on the experiment in StatsFixture, and tests the
 # watch loop directly.
@@ -383,7 +384,7 @@ class StatsTest < Minitest::Test
     assert_equal %w[
       generation finished tournament.games tournament.draws tournament.play_seconds
       population.children population.operators.initial population.operators.crossover population.operators.mutation
-      population.operators.copy
+      population.operators.copy population.operators.elite
       population.identical population.distinct_parents population.unique_genomes
       population.scores.min population.scores.median population.scores.max
     ] + genome_columns + %w[
@@ -590,5 +591,131 @@ class StatsTest < Minitest::Test
     cache = {}
     2.times { ExperimentStats::Report.figures(fake, cache) }
     assert_equal [0, 1, 1], calls
+  end
+end
+
+# The stats script on an experiment with elites (ElitesStatsFixture): every
+# figure about breeding and selection leaves the elites out, every figure
+# about the generation's networks counts them.
+class ElitesStatsTest < Minitest::Test
+  ROOT = StatsTest::ROOT
+
+  def setup
+    @dir = Dir.mktmpdir('evo-stats-elites')
+    @path = File.join(@dir, 'experiments/x/experiment.sqlite3')
+    ElitesStatsFixture.create(@path)
+  end
+
+  def teardown
+    FileUtils.rm_rf(@dir)
+  end
+
+  def stats(*args)
+    out, err, status = Open3.capture3(StatsTest::ENV_VARS, 'ruby', File.join(ROOT, 'stats'), *args, chdir: @dir)
+    assert status.success?, err
+    out
+  end
+
+  # Generation 1: Copies 4 of the 10 bred children (the copy 2.ann, 4.ann,
+  # 5.ann, 7.ann), not 6 of 12 with the elites; Parents 6 (0005.ann through
+  # its elite 11.ann alone); Genomes 11 (7.ann and 10.ann are both
+  # 0009.ann). Kids 4 and Childless 6: selection picked 0009.ann four times
+  # and six of the twelve networks at all, the elites left out. The genes,
+  # shapes, and activations count every network, the elites too (Output:
+  # 10.ann's relu). Without checkpoints there are no ratings.
+  TEXT = <<~'TEXT'.freeze
+      Generations
+      +-----+------+-------+-------+------+--------+---------+---------+-----+-----+-----+
+      | Gen | Done | Games | Draws | Time | Copies | Parents | Genomes | Min | Med | Max |
+      +-----+------+-------+-------+------+--------+---------+---------+-----+-----+-----+
+      |   0 |  yes |     4 |     1 | 7.5s |      - |       0 |      12 |   0 | 3.5 |   7 |
+      |   1 |  yes |     5 |     1 | 8.0s |    40% |       6 |      11 |   0 |   4 |   8 |
+      +-----+------+-------+-------+------+--------+---------+---------+-----+-----+-----+
+      Done: rounds and benchmark played. Time: of all games. Copies: bred children identical to a parent
+      (elites are not bred). Parents: networks that passed on weights. Genomes: distinct children.
+      Min, Med, Max: network scores.
+      In a terminal, a generation not done is grey and italic where its figures still change.
+
+      Genes (range: generation 1)
+      +-----+-------+---------+-------+------+--------+--------+-------+---------+
+      | Gen | Copy  | Changes | Step  | Act  | Struct | Layers | Width | Weights |
+      +-----+-------+---------+-------+------+--------+--------+-------+---------+
+      |   0 |  0.01 |     1.9 |   0.5 | 0.02 |   0.02 |      1 |    10 |    4162 |
+      |   1 | 0.008 |    2.45 | 0.575 | 0.02 |   0.02 |      1 |    10 |    4162 |
+      +-----+-------+---------+-------+------+--------+--------+-------+---------+
+      | min | 0.007 |     1.1 |  0.44 | 0.02 |   0.02 |      0 |     0 |    4162 |
+      | max | 0.015 |     3.9 |  0.66 | 0.02 |   0.02 |      1 |    11 |   26732 |
+      +-----+-------+---------+-------+------+--------+--------+-------+---------+
+      Medians of the networks' genes, then min and max in one generation. Copy: copy_chance.
+      Changes: weight_changes. Step: weight_step. Act, Struct: activation_rate, structure_rate.
+      Weights: per network.
+
+      Feature weights (range: generation 1)
+      +-----+------+---------+-----------+------------+
+      | Gen | Step | Capture | SelfAtari | SavesAtari |
+      +-----+------+---------+-----------+------------+
+      |   0 | 0.01 |       1 |        -1 |        0.8 |
+      |   1 | 0.01 |       1 |        -1 |      0.785 |
+      +-----+------+---------+-----------+------------+
+      | min | 0.01 |       1 |        -1 |       0.77 |
+      | max | 0.01 |       1 |        -1 |       0.84 |
+      +-----+------+---------+-----------+------------+
+      Medians of feature_step (Step) and of the weight each move feature adds to a point's score, then min
+      and max in one generation. Only the experiment's features.
+
+      Shapes and activations
+      +-----+------------------------+------------------------+-----------------+
+      | Gen | Shapes                 | Hidden                 | Output          |
+      +-----+------------------------+------------------------+-----------------+
+      |   0 | 1x10 12                | sigc 9, tanh 3         | sigc 10, relu 2 |
+      |   1 | 1x10 10, 0x0 1, 1x11 1 | sigc 8, tanh 3, relu 1 | sigc 7, relu 5  |
+      +-----+------------------------+------------------------+-----------------+
+      Networks per shape (hidden layers x width) and per activation, the three most common.
+
+      Breeding and bots
+      +-----+------+-----------+-------+--------+-----+--------+-------+-------+-------+
+      | Gen | Kids | Childless | Widen | Narrow | Add | Remove | Bots  | Brown | AmiGo |
+      +-----+------+-----------+-------+--------+-----+--------+-------+-------+-------+
+      |   0 |    - |         - |     - |      - |   - |      - | 1 (0) | 1 (0) | 2 (0) |
+      |   1 |    4 |         6 |     1 |      0 |   0 |      1 | 2 (1) | 6 (4) | 2 (1) |
+      +-----+------+-----------+-------+--------+-----+--------+-------+-------+-------+
+      Kids: most children of one parent. Childless: parents with none. Widen..Remove: structural changes.
+      Bots, then each bot: the best copy's rank by score, with the networks above it in brackets.
+
+      Networks against bots
+      +-----+---------+----------+
+      | Gen | Brown   | AmiGo    |
+      +-----+---------+----------+
+      |   0 |  0/1 0% | 1/1 100% |
+      |   1 | 1/2 50% | 1/1 100% |
+      +-----+---------+----------+
+      Tournament games between a network and a copy of the bot: the networks' wins of the games played,
+      and their share. Networks meet the bots near their own score.
+  TEXT
+
+  def test_the_whole_report_of_a_generation_with_elites
+    assert_equal TEXT, stats('x')
+  end
+
+  # Besides the text's figures: the elite column, 2 of 12 children;
+  # structure.none 8, of the bred children only; parents.used 6.
+  CSV_TEXT = <<~'CSV'.freeze
+      generation,finished,tournament.games,tournament.draws,tournament.play_seconds,population.children,population.operators.initial,population.operators.crossover,population.operators.mutation,population.operators.copy,population.operators.elite,population.identical,population.distinct_parents,population.unique_genomes,population.scores.min,population.scores.median,population.scores.max,genes.copy_chance.min,genes.copy_chance.median,genes.copy_chance.max,genes.weight_changes.min,genes.weight_changes.median,genes.weight_changes.max,genes.weight_step.min,genes.weight_step.median,genes.weight_step.max,genes.activation_rate.min,genes.activation_rate.median,genes.activation_rate.max,genes.structure_rate.min,genes.structure_rate.median,genes.structure_rate.max,genes.feature_step.min,genes.feature_step.median,genes.feature_step.max,genes.fw_hane.min,genes.fw_hane.median,genes.fw_hane.max,genes.fw_cut.min,genes.fw_cut.median,genes.fw_cut.max,genes.fw_edge.min,genes.fw_edge.median,genes.fw_edge.max,genes.fw_capture.min,genes.fw_capture.median,genes.fw_capture.max,genes.fw_self_atari.min,genes.fw_self_atari.median,genes.fw_self_atari.max,genes.fw_saves_atari.min,genes.fw_saves_atari.median,genes.fw_saves_atari.max,genes.fw_near_last.min,genes.fw_near_last.median,genes.fw_near_last.max,shape.layers.min,shape.layers.median,shape.layers.max,shape.width.min,shape.width.median,shape.width.max,shape.weights.min,shape.weights.median,shape.weights.max,activation.hidden.sigmoid,activation.hidden.sigmoid_cached,activation.hidden.threshold,activation.hidden.linear,activation.hidden.tanh,activation.hidden.relu,activation.output.sigmoid,activation.output.sigmoid_cached,activation.output.threshold,activation.output.linear,activation.output.tanh,activation.output.relu,structure.none,structure.widen,structure.narrow,structure.add_layer,structure.remove_layer,parents.max_children,parents.childless,parents.used,bots.best_rank,bots.networks_above,bots.Brown.best_rank,bots.Brown.networks_above,bots.AmiGo.best_rank,bots.AmiGo.networks_above,against_bots.Brown.games,against_bots.Brown.wins,against_bots.Brown.draws,against_bots.AmiGo.games,against_bots.AmiGo.wins,against_bots.AmiGo.draws,benchmark.network,benchmark.complete,benchmark.Brown.black.win,benchmark.Brown.black.loss,benchmark.Brown.black.draw,benchmark.Brown.black.failure,benchmark.Brown.white.win,benchmark.Brown.white.loss,benchmark.Brown.white.draw,benchmark.Brown.white.failure
+      0,true,4,1,7.5,12,12,0,0,0,0,0,0,12,0,3.5,7,0.007,0.01,0.015,1.0,1.9,4.0,0.4,0.5,0.62,0.02,0.02,0.02,0.02,0.02,0.02,0.01,0.01,0.01,,,,,,,,,,1.0,1,1.0,-1.0,-1,-1.0,0.77,0.8,0.84,,,,1,1,1,10,10,10,4162,4162,4162,0,9,0,0,3,0,0,10,0,0,0,2,,,,,,,,,1,0,1,0,2,0,1,0,0,1,1,0,,,,,,,,,,
+      1,true,5,1,8.0,12,0,3,6,1,2,4,6,11,0,4,8,0.007,0.008,0.015,1.1,2.45,3.9,0.44,0.575,0.66,0.02,0.02,0.02,0.02,0.02,0.02,0.01,0.01,0.01,,,,,,,,,,1.0,1,1.0,-1.0,-1,-1.0,0.77,0.785,0.84,,,,0,1,1,0,10,11,4162,4162,26732,0,8,0,0,3,1,0,7,0,0,0,5,8,1,0,0,1,4,6,6,2,1,6,4,2,1,2,1,0,1,1,0,,,,,,,,,,
+  CSV
+
+  def test_the_whole_csv_of_a_generation_with_elites
+    assert_equal CSV_TEXT, stats('--csv', 'x')
+  end
+
+  # --watch shows the same breeding and bot tables.
+  def test_watch_shows_the_same_breeding_figures
+    database = ExperimentDatabase.new(@path, readonly: true)
+    stats = ExperimentStats.new(database)
+    brief = ExperimentStats::Report.brief_text(ExperimentStats::Report.figures(stats, brief: true),
+                                               ratings: ExperimentStats::Report.ratings(stats))
+    database.close
+    assert_equal "#{ExperimentStats::Report::BRIEF_NOTE}\n#{TEXT[TEXT.index('Breeding and bots')..]}", brief
   end
 end

@@ -49,7 +49,9 @@ set back to it. The settings accept the same ranges.
 `copy_chance` 0 means "never copy": no child is a copy, and every child
 keeps 0, under any `meta_rate`, while crossover hands on the picked
 parent's 0. An experiment created with `initial_copy_chance` 0 never makes
-copies, and nothing between 0 and 0.0001 is accepted.
+copies, and nothing between 0 and 0.0001 is accepted. Elites (`elite_share`,
+section 2) still carry networks over unchanged: they are no copies, since
+`evolve` never makes them.
 
 - **Features.** Which feature groups the network sees besides the stones
   and komi (shapes, tactics, the last move, chain liberties), a gene
@@ -202,7 +204,9 @@ share of the weights". That matters once shapes change:
 It is an average, not an exact number. With `weight_changes` 3.3 a child may
 change 1, 3, or 6 weights. With 1, about 37% of mutated children change no
 weight at all, and unless an activation or the shape changed, they equal
-their parent. The Copies column in `stats` counts those too.
+their parent. The Copies column in `stats` counts those too. It leaves the
+elites out, which equal their parents but are not bred: its share is of the
+bred children only, so it compares with runs without elitism.
 
 ## 3. Shape changes
 
@@ -390,13 +394,16 @@ passes on a tie, so they pass a lot: selection's problem, not a bug.
 ```
 
 - **Kids:** most children of one parent of the previous generation. A
-  crossover counts for both parents, a mutation or copy for the picked one.
-- **Childless:** previous-generation networks with no child. High Kids and
+  crossover counts for both parents, a mutation or copy for the picked one,
+  an elite for none: Kids and Childless count selection, and rank, not
+  selection, chose the elites.
+- **Childless:** previous-generation networks with no bred child, so an
+  elite's parent without one too. High Kids and
   many Childless mean strong selection pressure: a few networks take over.
   Low Kids and few Childless mean weak pressure. `tournament_size` is the
   knob.
 - **Widen, Narrow, Add, Remove:** shape changes that made this generation's
-  children.
+  bred children (`structure.none` in the CSV leaves the elites out too).
 - **Bots, Brown, AmiGo:** the rank of the best bot (and of each bot's best
   copy) by score, with the number of networks above it in brackets. `1 (0)`
   means the bot tops the ranking. Progress looks like the bracket numbers
@@ -430,7 +437,8 @@ experiment's feature set lacks that feature, so experiments with different
 feature sets have the same columns;
 `shape.layers|width|weights.min|median|max`, `activation.hidden|output.NAME`
 (counts for all six), `structure.none|widen|narrow|add_layer|remove_layer`,
-`population.operators.initial|crossover|mutation|copy`,
+`population.operators.initial|crossover|mutation|copy|elite` (`elite` 0
+in a run without elitism),
 `parents.max_children|childless|used` (`used`: parents with a child), and
 `bots.best_rank`, `bots.networks_above`, and the same per bot
 (`bots.Brown.best_rank`), and per bot `against_bots.BOT.games|wins|draws`
@@ -440,7 +448,8 @@ feature sets have the same columns;
 
 Each network has a row in `births` in `experiments/NAME/experiment.sqlite3`:
 `first_parent`, `second_parent` (the same name when selection drew one
-network twice), `operator` (`initial`, `crossover`, `mutation`, `copy`),
+network twice), `operator` (`initial`, `crossover`, `mutation`, `copy`,
+`elite`; an elite has its one parent as `first_parent`),
 `parent` (`first` or `second`: the one mutated or copied, or whose weights
 come first in a crossover), `structure`, `activation_changed`, and the
 genome: `layers`, `width`, `act_hidden`, `act_output`, the five genes, and

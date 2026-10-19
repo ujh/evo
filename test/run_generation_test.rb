@@ -3128,6 +3128,14 @@ class ElitesTest < Minitest::Test
                    out.split(/[\r\n]/).map(&:rstrip).reject(&:empty?).first(6)
     end
   end
+
+  def test_the_progress_line_shows_one_elite
+    in_experiment(generation: '2') do
+      finished_generation_one
+      out = set_up(generation_two(settings: { 'elite_share' => 0.1 }))
+      assert_equal 'Copying 1 elite ...', out.split(/[\r\n]/).map(&:rstrip).reject(&:empty?).first
+    end
+  end
 end
 
 # The progress line: every step between two games, and every step of setup
