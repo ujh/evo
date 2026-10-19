@@ -726,17 +726,28 @@ void binary_genes() {
     second = read_bytes_all(&b, &back, NULL);
     lok(second != NULL && back.weight_changes == ann->total_weights && back.structure_rate == 0.5);
     if (second) genann_free(second);
+    // copy_chance 0, "never copy", is valid too.
+    ann_genes never = GENES;
+    never.copy_chance = 0;
+    lok(ann_genes_invalid(&never, ann->total_weights) == NULL);
+    lok(written_bytes_genes(ann, &never, &b) == 0);
+    back.copy_chance = 1;
+    second = read_bytes_all(&b, &back, NULL);
+    lok(second != NULL && back.copy_chance == 0 && back.weight_step == GENES.weight_step);
+    if (second) genann_free(second);
     genann_free(ann);
 }
 
 // Genes outside their clamps, or not finite, make the file unreadable, and
 // the writer refuses to produce such a file (or one without genes).
+// copy_chance may be exactly 0 but nothing else below its clamp.
 void binary_read_rejects_bad_genes() {
     const double inf = INFINITY, not_a_number = NAN;
     // A 2x2 network with one hidden neuron has 16 weights, so weight_changes
     // may be 1 to 16.
     struct { int gene; double value; } bad[] = {
         {0, 0.9e-4}, {0, 0.11}, {0, not_a_number}, {0, inf}, {0, -inf},
+        {0, 4.9e-324}, {0, -4.9e-324}, {0, -1e-4},
         {1, 0.999}, {1, 16.001}, {1, not_a_number}, {1, inf},
         {2, 0.9e-4}, {2, 10.01}, {2, not_a_number}, {2, -inf},
         {3, 0.9e-4}, {3, 0.51}, {3, not_a_number},

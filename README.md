@@ -152,8 +152,9 @@ experiment does:
 The first table shows whether evolution is healthy: the games and draws of
 each generation's tournament (a game the arena cannot finish stops the run, so
 none is stored as failed) and their total time, the share
-of bred children identical to a parent, the distinct networks that passed on
-weights (a mutation or a copy comes from one parent only), the distinct genomes, and the
+of bred children identical to a parent (elites, carried over unchanged under
+`elite_share`, are not bred and left out), the distinct networks that passed on
+weights (a mutation, a copy, or an elite comes from one parent only), the distinct genomes, and the
 lowest, median, and highest network score. A generation is done once its
 rounds and, at a checkpoint, its benchmark are played (the champion's games;
 the bots' games against each other do not count). The last table shows
@@ -198,7 +199,7 @@ with the range in the latest generation), Feature weights (the same for
 `feature_step` and each move feature's weight; not shown without move
 features), Shapes and activations (the most
 common of each), and Breeding and bots (the most children of one parent,
-parents without children, the structural changes, and where the best copy of
+parents with no bred child, the structural changes, and where the best copy of
 each bot ranks among the networks), and Networks against bots (per bot, the
 networks' wins of their tournament games against it).
 

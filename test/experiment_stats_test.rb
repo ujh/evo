@@ -4,6 +4,7 @@ require 'tmpdir'
 require_relative '../ruby/experiment_database'
 require_relative '../ruby/experiment_stats'
 require_relative 'stats_fixture'
+require_relative 'elites_stats_fixture'
 
 # ExperimentStats on the experiment in StatsFixture.
 class ExperimentStatsTest < Minitest::Test
@@ -21,6 +22,7 @@ class ExperimentStatsTest < Minitest::Test
 
   def teardown
     @database.close
+    @elites_database&.close
     FileUtils.rm_rf(@dir)
   end
 
@@ -201,6 +203,22 @@ class ExperimentStatsTest < Minitest::Test
                  'it; an archived experiment cannot be migrated', error.message
   end
 
+  # An archived experiment is never migrated, so it lacks every setting
+  # added since (elite_share, migration 018); stats reads it as before.
+  def test_a_database_from_before_the_elite_share_gives_the_same_figures
+    reopen_writing { |writer| writer.save_settings(writer.settings.merge('elite_share' => '0')) }
+    figures = ->(stats) { stats.generations.map { |g| [stats.generation(g), stats.brief_generation(g)] } }
+    expected = figures.call(@stats)
+    @database.close
+    path = File.join(@dir, 'experiment.sqlite3')
+    Sequel.sqlite(path) do |db|
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 17)
+      refute db[:settings].where(key: 'elite_share').any?
+    end
+    @database = ExperimentDatabase.new(path, readonly: true)
+    assert_equal expected, figures.call(ExperimentStats.new(@database))
+  end
+
   # The runner stores only games that counted, each with its duration.
   def test_tournament_counts_games_draws_and_time
     assert_equal({ games: 4, draws: 1, play_seconds: 3.75 }, @stats.generation(1)[:tournament])
@@ -214,7 +232,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_of_a_bred_generation
     population = @stats.generation(1)[:population]
     assert_equal 3, population[:children]
-    assert_equal({ 'initial' => 0, 'crossover' => 2, 'mutation' => 1, 'copy' => 0 }, population[:operators])
+    assert_equal({ 'initial' => 0, 'crossover' => 2, 'mutation' => 1, 'copy' => 0, 'elite' => 0 }, population[:operators])
     assert_equal 1, population[:identical]
     # a.ann and c.ann; b.ann's only child copied c.ann.
     assert_equal 2, population[:distinct_parents]
@@ -226,7 +244,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_of_the_initial_generation
     population = @stats.generation(0)[:population]
     assert_equal 3, population[:children]
-    assert_equal({ 'initial' => 3, 'crossover' => 0, 'mutation' => 0, 'copy' => 0 }, population[:operators])
+    assert_equal({ 'initial' => 3, 'crossover' => 0, 'mutation' => 0, 'copy' => 0, 'elite' => 0 }, population[:operators])
     assert_equal 0, population[:identical]
     assert_equal 0, population[:distinct_parents]
     assert_equal 3, population[:unique_genomes]
@@ -237,7 +255,7 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_without_births
     population = @stats.generation(2)[:population]
     assert_equal 0, population[:children]
-    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 0, 'copy' => 0 }, population[:operators])
+    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 0, 'copy' => 0, 'elite' => 0 }, population[:operators])
     assert_equal 0, population[:unique_genomes]
     assert_equal({ min: 0, median: 2, max: 7 }, population[:scores])
   end
@@ -294,9 +312,67 @@ class ExperimentStatsTest < Minitest::Test
   def test_population_counts_copies_and_children_without_differs_counts
     population = population_of(['a.ann', 'b.ann', 'copy', 0, 4, 'first'], ['a.ann', 'b.ann', 'copy', nil, 0, 'second'],
                                ['a.ann', 'b.ann', 'mutation', nil, nil, 'first'], ['a.ann', 'b.ann', 'mutation', 2, 3, 'first'])
-    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 2, 'copy' => 2 }, population[:operators])
+    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 2, 'copy' => 2, 'elite' => 0 }, population[:operators])
     assert_equal 2, population[:identical]
     assert_equal 2, population[:distinct_parents]
+  end
+
+  # An elite is its parent byte for byte (differs 0, the same
+  # activations), but not bred: it is not counted as identical, while its
+  # parent passed on its weights.
+  def test_an_elite_is_no_identical_child_but_its_parent_passed_on_weights
+    reopen_writing do |writer|
+      writer.record_birth(generation: 3, child: 'a.ann', operator: 'initial', seed: 0, genome: 'x', **SHAPE_AND_GENES)
+    end
+    population = population_of(['a.ann', nil, 'elite', 0, nil, 'first'], ['b.ann', 'c.ann', 'mutation', 3, 3, 'first'])
+    assert_equal({ 'initial' => 0, 'crossover' => 0, 'mutation' => 1, 'copy' => 0, 'elite' => 1 }, population[:operators])
+    assert_equal 0, population[:identical]
+    assert_equal 2, population[:distinct_parents]
+    assert_equal 2, population[:unique_genomes]
+  end
+
+  # An elite's weights are its first parent's, and an elite has no second
+  # parent: two elites of networks that also have bred children add no
+  # parent.
+  def test_distinct_parents_count_an_elites_first_parent_once
+    assert_equal 1, distinct_parents(['a.ann', nil, 'elite', 0, nil, 'first'], ['a.ann', 'b.ann', 'mutation', 3, 3, 'first'])
+    assert_equal 2, distinct_parents(['a.ann', nil, 'elite', 0, nil, 'first'], ['b.ann', nil, 'elite', 0, nil, 'first'],
+                                     ['a.ann', 'b.ann', 'crossover', 5, 7, 'second'])
+  end
+
+  # ElitesStatsFixture's generation 1: ten bred children and two elites,
+  # 10.ann (of 0009.ann, the same genome as the bred 7.ann) and 11.ann (of
+  # 0005.ann, which selection never picked).
+  def test_population_of_a_generation_with_elites
+    population = elites_stats.generation(1)[:population]
+    assert_equal 12, population[:children]
+    assert_equal({ 'initial' => 0, 'crossover' => 3, 'mutation' => 6, 'copy' => 1, 'elite' => 2 }, population[:operators])
+    # 2.ann, 4.ann, 5.ann and 7.ann; not the elites.
+    assert_equal 4, population[:identical]
+    # 0009, 0002, 0007, 0003, 0011, and 0005 through its elite.
+    assert_equal 6, population[:distinct_parents]
+    assert_equal 11, population[:unique_genomes]
+    assert_equal({ min: 0, median: 4, max: 8 }, population[:scores])
+  end
+
+  # Structural changes are the bred children's: the two elites are no
+  # `none`. Selection picked 0009.ann for four bred children (its elite
+  # would make five) and six networks at all (0005.ann only for its elite).
+  def test_structure_and_selection_leave_the_elites_out
+    figures = elites_stats.generation(1)
+    assert_equal({ 'none' => 8, 'widen' => 1, 'narrow' => 0, 'add_layer' => 0, 'remove_layer' => 1 }, figures[:structure])
+    assert_equal({ max_children: 4, childless: 6, used: 6 }, figures[:parents])
+    assert_equal figures.slice(:structure, :parents), elites_stats.brief_generation(1).slice(:structure, :parents)
+  end
+
+  # The genes, shapes, and activations are the generation's networks', the
+  # elites included: 0009.ann's relu output and 0005.ann's weight_changes
+  # 2.5, the middle of the twelve with 2.4.
+  def test_the_networks_figures_count_the_elites
+    figures = elites_stats.generation(1)
+    assert_equal({ min: 1.1, median: 2.45, max: 3.9 }, figures[:genes]['weight_changes'])
+    assert_equal 5, figures[:activation][:output]['relu']
+    assert_equal({ '1x10' => 10, '0x0' => 1, '1x11' => 1 }, figures[:shape][:counts])
   end
 
   # Every opponent the checkpoint plays, in panel order, whether played yet
@@ -571,6 +647,16 @@ class ExperimentStatsTest < Minitest::Test
 
   def distinct_parents(*births)
     population_of(*births)[:distinct_parents]
+  end
+
+  # ExperimentStats on ElitesStatsFixture, closed in teardown.
+  def elites_stats
+    @elites ||= begin
+      path = File.join(@dir, 'elites/experiment.sqlite3')
+      ElitesStatsFixture.create(path)
+      @elites_database = ExperimentDatabase.new(path, readonly: true)
+      ExperimentStats.new(@elites_database)
+    end
   end
 
   # Replaces @database and @stats after the block has written to the
