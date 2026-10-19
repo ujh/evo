@@ -540,6 +540,12 @@ module Brittleness
   class Run
     include ProgressLine
 
+    # The experiment's settings the run reads: its games' (as
+    # CheckpointBenchmark.twogtp_command plays them), openings and seeds.
+    # Only these are parsed, so an archived experiment, which is never
+    # migrated, is read although it lacks settings added since.
+    SETTINGS = %w[board_size max_moves game_seconds komi seed benchmark_games benchmark_opening_moves].freeze
+
     # `pool` runs the games (a WorkerPool of --concurrency threads);
     # `perturb` is the program that makes a child.
     def initialize(options, pool:, perturb: PERTURB)
@@ -590,7 +596,7 @@ module Brittleness
       raise Refused, "#{options.experiment} has no evo" unless File.exist?(File.join(options.experiment, 'evo'))
 
       @store = ExperimentDatabase.new(database, readonly: true)
-      @settings = SetupExperiment.parse(@store.settings)
+      @settings = SetupExperiment.parse(@store.settings, only: SETTINGS)
       @panel = @store.benchmark_opponents.to_h { |row| [row[:name], row] }
       options.opponents.each do |name|
         raise Refused, "#{name} is not a bot of the benchmark panel" unless @panel.dig(name, :kind) == 'bot'

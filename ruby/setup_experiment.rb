@@ -1,6 +1,7 @@
 require 'fileutils'
 require 'optparse'
 require_relative 'build_dependencies'
+require_relative 'elitism'
 require_relative 'experiment_database'
 require_relative 'experiment_lock'
 require_relative 'feature_groups'
@@ -19,16 +20,20 @@ class SetupExperiment
   # build its first run copies failed.
   class Refused < StandardError; end
 
-  # A setting's type: a whole number, an even whole number, a number, or a
-  # multiple of 0.5, and its allowed range. Parsing is strict, so a typo is
-  # refused instead of being read as its numeric prefix or as 0.
+  # A setting's type: a whole number, an even whole number, a number, a
+  # number that may also be exactly 0 (0 or one in the range: copy_chance 0
+  # means never copy), or a multiple of 0.5, and its allowed range. Parsing
+  # is strict, so a typo is refused instead of being read as its numeric
+  # prefix or as 0.
   Type = Data.define(:kind, :min, :max) do
     def parse(key, text)
-      value = if %i[number half].include?(kind)
+      value = if %i[number zero_or_number half].include?(kind)
                 Float(text.to_s, exception: false)
               else
                 Integer(text.to_s, 10, exception: false)
               end
+      # -0 is stored as 0.
+      return 0.0 if kind == :zero_or_number && value&.zero?
       return value if value && value >= min && (max.nil? || value <= max) && fits_kind?(value)
 
       raise ArgumentError, "#{key} must be #{description}, got #{text}"
@@ -44,7 +49,7 @@ class SetupExperiment
 
     def description
       name = { integer: 'a whole number', even: 'an even whole number', number: 'a number',
-               half: 'a multiple of 0.5' }.fetch(kind)
+               zero_or_number: '0 or a number', half: 'a multiple of 0.5' }.fetch(kind)
       max ? "#{name} from #{min} to #{max}" : "#{name} of at least #{min}"
     end
   end
@@ -66,6 +71,7 @@ class SetupExperiment
   def self.integer(min, max = nil) = Type.new(:integer, min, max)
   def self.even(min) = Type.new(:even, min, nil)
   def self.number(min, max) = Type.new(:number, min, max)
+  def self.zero_or_number(min, max) = Type.new(:zero_or_number, min, max)
   def self.half(min, max) = Type.new(:half, min, max)
 
   # A default computed from the settings before it when the experiment is
@@ -82,9 +88,11 @@ class SetupExperiment
   # as strings, and loading parses them again. Board sizes stop at 19, the
   # largest the GNU Go referee plays. The initial_* settings are the genes
   # every generation-0 network starts with, and their ranges are the clamps
-  # in lib/ann.h; evolution changes them from there, at the pace meta_rate
-  # (the tau of self-adaptive mutation) sets. initial_feature_noise is no
-  # gene but the spread of generation 0's feature weights.
+  # in lib/ann.h, except that initial_copy_chance may also be 0 (never
+  # copy), which evolve keeps at 0; evolution changes them from there, at
+  # the pace meta_rate (the tau of self-adaptive mutation) sets.
+  # initial_feature_noise is no gene but the spread of generation 0's
+  # feature weights.
   SETTINGS = {
     'board_size' => ['Board size', nil, integer(2, 19)],
     'population_size' => ['Population size', nil, integer(1)],
@@ -106,6 +114,10 @@ class SetupExperiment
     # (docs/experiment-reference.md, "10, 20 and 40 rounds").
     'tournament_rounds' => ['Rounds (tournament)', '20', integer(1)],
     'tournament_size' => ['Tournament size for parent selection', '3', integer(1)],
+    # The top Elitism.count(elite_share, population_size) networks of a
+    # generation's final ranking enter the next generation unchanged; at
+    # least one child must be bred.
+    'elite_share' => ['Share of the population carried over unchanged (elitism, 0 for none)', '0', number(0, 1)],
     'keep_every' => ['Keep the SGFs and the champion network of every Nth generation (0 for never)', '10', integer(0)],
     'seed' => ['Seed', -> { Seeds.new_experiment_seed.to_s }, integer(0, (2**63) - 1)],
     # Half of a benchmark's games are played with each color.
@@ -123,7 +135,9 @@ class SetupExperiment
     # draw, and never prints as W+0.0.
     'komi' => ['Komi', '6.5', half(-50, 50)],
     'meta_rate' => ['Meta rate of self-adaptive mutation', '0.2', number(0, 10)],
-    'initial_copy_chance' => ['Chance a child is a copy (initial gene)', '0.01', number(0.0001, 0.1)],
+    # 0 means never copy, and children keep it.
+    'initial_copy_chance' => ['Chance a child is a copy (initial gene, 0 for never)', '0.01',
+                              zero_or_number(0.0001, 0.1)],
     # The old hard-coded load: 0.0004 changes per weight, at least 1. The count, not
     # the share, is the gene, so growing a network does not raise its load.
     'initial_weight_changes' => [
@@ -297,8 +311,15 @@ class SetupExperiment
   end
 
   # Parses settings read as strings, from the database or the options.
-  def self.parse(strings)
-    SETTINGS.each_key.with_object({}) do |key, settings|
+  # `only` restricts it to the given settings, for a reader of an experiment
+  # (scripts/brittleness.rb) that must not refuse one saved before a setting
+  # it does not read existed; it must include the settings each of them is
+  # checked against.
+  def self.parse(strings, only: SETTINGS.keys)
+    unknown = only - SETTINGS.keys
+    raise ArgumentError, "#{unknown.join(', ')} is no setting" if unknown.any?
+
+    (SETTINGS.keys & only).each_with_object({}) do |key, settings|
       raise ArgumentError, "#{key} is missing" unless strings.key?(key)
 
       settings[key] = parse_setting(key, strings[key], settings)
@@ -313,6 +334,7 @@ class SetupExperiment
     # Without hidden layers the width is not used until a layer is added,
     # and that layer is clamped to max_layer_size.
     when 'max_layer_size' then check_bound(key, value, 'layer_size', settings) if settings['hidden_layers'].positive?
+    when 'elite_share' then check_elite_count(value, text, settings)
     when 'initial_weight_changes' then check_weight_changes(value, text, settings)
     end
     value
@@ -323,6 +345,15 @@ class SetupExperiment
     return if value >= settings.fetch(initial)
 
     raise ArgumentError, "#{key} must be at least #{initial} (#{settings.fetch(initial)}), got #{value}"
+  end
+
+  # At least one child of every generation is bred.
+  def self.check_elite_count(value, text, settings)
+    size = settings.fetch('population_size')
+    count = Elitism.count(value, size)
+    return if count < size
+
+    raise ArgumentError, "elite_share #{text} carries #{count} of the #{size} networks over; at most #{size - 1} may be, so one is bred"
   end
 
   def self.check_weight_changes(value, text, settings)

@@ -2950,6 +2950,194 @@ class NetworksOnDiskTest < Minitest::Test
   end
 end
 
+# Elitism: the first E networks of the previous generation's final ranking,
+# bots skipped, go byte for byte into the last E places of the new
+# generation, without evolve; the other places are bred as they would be
+# without elitism, with the same seeds and parent draws.
+class ElitesTest < Minitest::Test
+  include RunGenerationHelpers
+
+  NAMES = %w[0001.ann 0002.ann 0003.ann 0004.ann 0005.ann 0006.ann].freeze
+  # Generation 1's final ranking as stored: ties shuffled, so tied players
+  # are not in name order, and bots among the networks.
+  RANKING = [['Brown1', 9], ['0005.ann', 7], ['GnuGo1', 7], ['0003.ann', 7], ['0001.ann', 3], ['Brown2', 3],
+             ['0006.ann', 3], ['0004.ann', 1], ['0002.ann', 0]].freeze
+  BOTS = { 'Brown1' => 'Brown', 'GnuGo1' => 'GnuGo', 'Brown2' => 'Brown' }.freeze
+  # Six networks, E = 3: three are bred (0-2), three carried over (3-5).
+  SETTINGS = { 'population_size' => 6, 'elite_share' => 0.5, 'features' => 'tactics', 'keep_every' => 0 }.freeze
+  GENES_LINE = EvolveFromPreviousPopulationTest::GENES_LINE
+               .sub('features=none feature_step=0.01',
+                    'features=tactics feature_step=0.02 fw_capture=1.25 fw_self_atari=-1 fw_saves_atari=0.75')
+  SUMMARY = "summary operator=mutation parent=second structure=widen activation_changed=1 " \
+            "differs_from_first=-1 differs_from_second=12\n#{GENES_LINE}".freeze
+
+  def network(name) = "network #{name}\n"
+
+  # A bred network's birth in generation 1, each with genes of its own.
+  def parent_birth(name)
+    i = NAMES.index(name) + 1
+    { generation: 1, child: name, first_parent: '0007.ann', second_parent: '0008.ann', operator: 'mutation',
+      differs_from_first: 40 + i, differs_from_second: nil, seed: 100 + i,
+      genome: Digest::SHA256.hexdigest(network(name)), parent: 'second', structure: 'widen', activation_changed: true,
+      layers: 1, width: 10 + i, act_hidden: 'tanh', act_output: 'relu', copy_chance: 0.01 * i,
+      weight_changes: 1.5 * i, weight_step: 0.1 * i, activation_rate: 0.02 * i, structure_rate: 0.03 * i,
+      features: 'tactics', feature_step: 0.001 * i, fw_capture: 1.0 * i, fw_self_atari: -1.0 * i,
+      fw_saves_atari: 0.5 * i }
+  end
+
+  # Generation 1 finished, its networks in networks/1/.
+  def finished_generation_one
+    FileUtils.mkdir_p('networks/1')
+    NAMES.each do |name|
+      File.binwrite(File.join('networks/1', name), network(name))
+      database.record_birth(**parent_birth(name))
+    end
+    players = NAMES.to_h { |name| [name, { 'command' => "../evo ../networks/1/#{name}" }] }
+                   .merge(BOTS.to_h { |bot, opponent| [bot, { 'command' => 'bot', 'external' => true, 'opponent' => opponent }] })
+    write_data({ 'round' => 1, 'setup_complete' => true, 'players' => players, 'games' => [],
+                 'ranking' => RANKING.map { |name, score| { 'name' => name, 'score' => score } } }, generation: 1)
+  end
+
+  # Generation 2, whose evolve writes each child from its seed and parents;
+  # the commands go to @evolved, and what networks/2.partial/ held when the
+  # first evolve ran to @partial. `interrupt` is the evolve run (from 1) that
+  # Ctrl-C stops.
+  def generation_two(settings: {}, interrupt: nil)
+    @evolved = []
+    @partial = nil
+    gen = build_generation(generation: '2', settings: SETTINGS.merge(settings))
+    gen.instance_variable_set(:@pool, evolve_pool do |cmd|
+      @evolved << cmd
+      @partial ||= files_in('../networks/2.partial')
+      if @evolved.size == interrupt
+        $stop_now = true
+        next [false, '']
+      end
+      File.write(cmd.split[-2], "child #{cmd.split[-1]} of #{cmd.split[6, 2].map { |path| File.basename(path) }.join(' ')}")
+      [true, SUMMARY]
+    end)
+    gen
+  end
+
+  def set_up(gen)
+    capture_io { gen.send(:setup) {} }.first
+  end
+
+  def outcome
+    [files_in('networks/2'), database.births(2), database.state(2)]
+  end
+
+  def run_generation_two(settings = {})
+    @database = nil
+    in_experiment(generation: '2') do
+      finished_generation_one
+      set_up(generation_two(settings:))
+      [*outcome, @evolved]
+    end
+  ensure
+    @database = nil
+  end
+
+  def elite_birth(child, name)
+    ExperimentDatabase::BIRTH_COLUMNS.to_h { |column| [column, nil] }.merge(
+      parent_birth(name).slice(*ExperimentDatabase::BIRTH_GENE_COLUMNS, :features, :feature_step,
+                               :fw_capture, :fw_self_atari, :fw_saves_atari),
+      generation: 2, child:, first_parent: name, second_parent: nil, operator: 'elite', differs_from_first: 0,
+      differs_from_second: nil, seed: Seeds.derive(1, 'birth', 2, child.to_i),
+      genome: Digest::SHA256.hexdigest(network(name)), parent: 'first', structure: 'none', activation_changed: false
+    )
+  end
+
+  def test_the_top_networks_go_unchanged_into_the_last_places
+    networks, births, state, evolved = run_generation_two
+    assert_equal %w[0.ann 1.ann 2.ann], evolved.map { |cmd| File.basename(cmd.split[-2]) }
+    assert_equal({ '3.ann' => network('0005.ann'), '4.ann' => network('0003.ann'), '5.ann' => network('0001.ann') },
+                 networks.slice('3.ann', '4.ann', '5.ann'))
+    assert_equal (0..5).map { |i| "#{i}.ann" }, networks.keys
+    assert_equal [elite_birth('3.ann', '0005.ann'), elite_birth('4.ann', '0003.ann'), elite_birth('5.ann', '0001.ann')],
+                 births.last(3)
+    assert_equal %w[mutation] * 3, births.first(3).map { |birth| birth[:operator] }
+    # They play generation 2 as ordinary networks.
+    assert_equal '../evo ../networks/2/3.ann', state['players']['3.ann']['command']
+    assert_equal [0] * 6, state['ranking'].select { |entry| entry['name'].end_with?('.ann') }.map { |entry| entry['score'] }
+  end
+
+  # They are in networks/2.partial/ before any evolve runs.
+  def test_the_elites_are_copied_before_breeding
+    in_experiment(generation: '2') do
+      finished_generation_one
+      set_up(generation_two)
+      assert_equal({ '3.ann' => network('0005.ann'), '4.ann' => network('0003.ann'), '5.ann' => network('0001.ann') },
+                   @partial)
+    end
+  end
+
+  # With the same previous generation, the first P - E children are those
+  # of a run without elitism: the same seeds and the same parent draws.
+  def test_the_bred_children_are_those_of_a_run_without_elites
+    without = run_generation_two('elite_share' => 0.0)
+    with = run_generation_two
+    assert_equal 6, without[3].size
+    refute_includes without[1].map { |birth| birth[:operator] }, 'elite'
+    assert_equal without[3].first(3), with[3]
+    assert_equal without[0].slice('0.ann', '1.ann', '2.ann'), with[0].slice('0.ann', '1.ann', '2.ann')
+    assert_equal without[1].first(3), with[1].first(3)
+  end
+
+  def test_one_elite
+    networks, births, = run_generation_two('elite_share' => 0.1)
+    assert_equal network('0005.ann'), networks['5.ann']
+    assert_equal [%w[5.ann elite 0005.ann]], births.select { |birth| birth[:operator] == 'elite' }
+                                                   .map { |birth| birth.values_at(:child, :operator, :first_parent) }
+  end
+
+  # Ctrl-C during breeding: nothing is stored, and the resume copies the
+  # elites again and breeds every child again, ending as if uninterrupted;
+  # a later session's check of networks/2/ passes.
+  def test_ctrl_c_during_breeding_resumes_to_the_same_generation
+    expected = run_generation_two.first(3)
+    in_experiment(generation: '2') do
+      finished_generation_one
+      assert_raises(SystemExit) { set_up(generation_two(interrupt: 2)) }
+      $stop_now = false
+      assert_equal %w[1 2.partial], Dir.children('networks').sort
+      assert_empty database.births(2)
+      assert_nil database.state(2)
+      set_up(generation_two)
+      assert_equal expected, outcome
+      assert_equal %w[2], Dir.children('networks')
+      gen = generation_two
+      gen.define_singleton_method(:verify_networks) do
+        @verified = true
+        super()
+      end
+      set_up(gen)
+      assert gen.instance_variable_get(:@verified)
+      assert_empty @evolved
+    end
+  ensure
+    $stop_now = false
+  end
+
+  def test_the_progress_line_shows_the_elites
+    in_experiment(generation: '2') do
+      finished_generation_one
+      out = set_up(generation_two)
+      assert_equal ['Copying 3 elites ...', 'Breeding population ... 0/3', 'Breeding population ... 1/3',
+                    'Breeding population ... 2/3', 'Breeding population ... 3/3', 'Storing births ...'],
+                   out.split(/[\r\n]/).map(&:rstrip).reject(&:empty?).first(6)
+    end
+  end
+
+  def test_the_progress_line_shows_one_elite
+    in_experiment(generation: '2') do
+      finished_generation_one
+      out = set_up(generation_two(settings: { 'elite_share' => 0.1 }))
+      assert_equal 'Copying 1 elite ...', out.split(/[\r\n]/).map(&:rstrip).reject(&:empty?).first
+    end
+  end
+end
+
 # The progress line: every step between two games, and every step of setup
 # that can take a while, shows what it is doing, each status overwriting
 # the one before on the same line, so the terminal never sits silent.

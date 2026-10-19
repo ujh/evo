@@ -191,9 +191,10 @@ class ExperimentDatabaseTest < Minitest::Test
     { '1' => '60', '10' => '600' }.each do |minutes, seconds|
       with_settings_at_13('board_size' => '9', 'game_length' => minutes) do |path|
         store = ExperimentDatabase.new(path)
-        # Migrations 015 and 016 add benchmark_champions and benchmark_bot_games, which 017 raises to 100.
+        # Migrations 015 and 016 add benchmark_champions and benchmark_bot_games, which 017 raises to 100,
+        # and 018 adds elite_share.
         assert_equal({ 'board_size' => '9', 'game_seconds' => seconds, 'benchmark_champions' => '10',
-                       'benchmark_bot_games' => '100' }, store.settings)
+                       'benchmark_bot_games' => '100', 'elite_share' => '0' }, store.settings)
         store.close
       end
     end
@@ -259,7 +260,8 @@ class ExperimentDatabaseTest < Minitest::Test
   def test_migration_turns_the_previous_checkpoint_into_past_champions
     with_benchmark_at_14 do |path|
       store = ExperimentDatabase.new(path)
-      assert_equal({ 'keep_every' => '100', 'benchmark_champions' => '10', 'benchmark_bot_games' => '100' }, store.settings)
+      assert_equal({ 'keep_every' => '100', 'benchmark_champions' => '10', 'benchmark_bot_games' => '100', 'elite_share' => '0' },
+                   store.settings)
       assert_equal [%w[Brown bot], %w[Gen0Champion initial_champion], %w[PastChampions past_champions]],
                    store.benchmark_opponents.map { |o| o.values_at(:name, :kind) }
       assert_equal [[200, 'Gen0Champion', '0:4.ann'], [200, 'Gen100Champion', '100:3.ann'],
@@ -336,7 +338,7 @@ class ExperimentDatabaseTest < Minitest::Test
   def test_migration_adds_the_bot_games_and_their_setting
     with_settings_at_15('keep_every' => '10') do |path|
       store = ExperimentDatabase.new(path)
-      assert_equal({ 'keep_every' => '10', 'benchmark_bot_games' => '100' }, store.settings)
+      assert_equal({ 'keep_every' => '10', 'benchmark_bot_games' => '100', 'elite_share' => '0' }, store.settings)
       assert_empty store.benchmark_bot_games
       store.close
     end
@@ -345,7 +347,7 @@ class ExperimentDatabaseTest < Minitest::Test
   def test_migration_keeps_a_bot_games_setting_that_is_there
     with_settings_at_15('keep_every' => '10', 'benchmark_bot_games' => '2') do |path|
       store = ExperimentDatabase.new(path)
-      assert_equal({ 'keep_every' => '10', 'benchmark_bot_games' => '2' }, store.settings)
+      assert_equal({ 'keep_every' => '10', 'benchmark_bot_games' => '2', 'elite_share' => '0' }, store.settings)
       store.close
     end
   end
@@ -388,7 +390,8 @@ class ExperimentDatabaseTest < Minitest::Test
   def test_migration_raises_the_old_benchmark_defaults
     with_settings_at_16('keep_every' => '100', 'benchmark_games' => '20', 'benchmark_bot_games' => '40') do |path|
       store = ExperimentDatabase.new(path)
-      assert_equal({ 'keep_every' => '100', 'benchmark_games' => '100', 'benchmark_bot_games' => '100' }, store.settings)
+      assert_equal({ 'keep_every' => '100', 'benchmark_games' => '100', 'benchmark_bot_games' => '100', 'elite_share' => '0' },
+                   store.settings)
       store.close
     end
   end
@@ -396,7 +399,7 @@ class ExperimentDatabaseTest < Minitest::Test
   def test_migration_keeps_benchmark_settings_that_are_not_the_old_defaults
     with_settings_at_16('benchmark_games' => '2', 'benchmark_bot_games' => '0') do |path|
       store = ExperimentDatabase.new(path)
-      assert_equal({ 'benchmark_games' => '2', 'benchmark_bot_games' => '0' }, store.settings)
+      assert_equal({ 'benchmark_games' => '2', 'benchmark_bot_games' => '0', 'elite_share' => '0' }, store.settings)
       store.close
     end
   end
@@ -408,6 +411,54 @@ class ExperimentDatabaseTest < Minitest::Test
       Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 16)
       assert_equal({ 'benchmark_games' => '20', 'benchmark_bot_games' => '40' }, db[:settings].to_hash(:key, :value))
       db.disconnect
+    end
+  end
+
+  # Migration 018: an experiment with settings gets elite_share 0, no
+  # elitism, so it runs on as before; down deletes the setting.
+  def with_settings_at_17(settings)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'experiment.sqlite3')
+      db = Sequel.sqlite(path)
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 17)
+      db[:settings].multi_insert(settings.map { |key, value| { key:, value: } })
+      db.disconnect
+      yield path
+    end
+  end
+
+  def migrate_down_to_17(path)
+    Sequel.sqlite(path) do |db|
+      Sequel::Migrator.run(db, ExperimentDatabase::MIGRATIONS, target: 17)
+      db[:settings].to_hash(:key, :value)
+    end
+  end
+
+  def test_migration_gives_an_experiment_with_settings_no_elitism
+    with_settings_at_17('population_size' => '1000', 'tournament_size' => '3') do |path|
+      store = ExperimentDatabase.new(path)
+      assert_equal({ 'population_size' => '1000', 'tournament_size' => '3', 'elite_share' => '0' }, store.settings)
+      store.close
+      assert_equal({ 'population_size' => '1000', 'tournament_size' => '3' }, migrate_down_to_17(path))
+    end
+  end
+
+  def test_migration_keeps_an_elite_share_that_is_there
+    with_settings_at_17('population_size' => '1000', 'elite_share' => '0.01') do |path|
+      store = ExperimentDatabase.new(path)
+      assert_equal({ 'population_size' => '1000', 'elite_share' => '0.01' }, store.settings)
+      store.close
+      assert_equal({ 'population_size' => '1000' }, migrate_down_to_17(path))
+    end
+  end
+
+  # A fresh database is migrated before its settings are saved.
+  def test_migration_gives_an_empty_database_no_elite_share
+    with_settings_at_17({}) do |path|
+      store = ExperimentDatabase.new(path)
+      assert_empty store.settings
+      store.close
+      assert_empty migrate_down_to_17(path)
     end
   end
 

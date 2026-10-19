@@ -220,6 +220,94 @@ void test_mutate_copies_with_copy_chance() {
   genann_free(parent);
 }
 
+// copy_chance 0 means never copy: no child is a copy, and every child keeps
+// copy_chance 0 and is valid, whatever meta_rate, over many seeds.
+void test_mutate_never_copies_at_copy_chance_0() {
+  genann *parent = genann_init(82, 1, 3, 82);
+  ann_genes genes = middle_genes();
+  genes.copy_chance = 0;
+  lok(ann_genes_invalid(&genes, parent->total_weights) == NULL);
+  ann_features features = ann_default_features(ANN_GROUPS_ALL);
+  shape_bounds bounds = {.max_hidden_layers = 2, .max_layer_size = 4, .add_layer_size = 3};
+  const double meta_rates[] = {META_RATE, 0};
+  int copies = 0, nonzero = 0, invalid = 0;
+  for (int m = 0; m < 2; m++) {
+    for (uint64_t seed = 0; seed < 2000; seed++) {
+      pcg32_srandom(seed, 54u);
+      ann_genes child_genes;
+      ann_features child_features;
+      mutation_outcome outcome;
+      genann *child = mutate(parent, &genes, &features, meta_rates[m], &bounds, &child_genes, &child_features,
+                             &outcome);
+      if (outcome.copy) copies++;
+      if (child_genes.copy_chance != 0) nonzero++;
+      if (ann_genes_invalid(&child_genes, child->total_weights)) invalid++;
+      genann_free(child);
+    }
+  }
+  lequal(copies, 0);
+  lequal(nonzero, 0);
+  lequal(invalid, 0);
+  // However far the other genes step, copy_chance stays 0.
+  for (int k = 0; k < 1000; k++) {
+    ann_genes child = mutate_genes(genes, 10, 1000);
+    if (child.copy_chance != 0) nonzero++;
+  }
+  lequal(nonzero, 0);
+  genann_free(parent);
+}
+
+// The copy_chance gene's normal is drawn even when it is 0, so a parent with
+// copy_chance 0 gives the child the same parent with copy_chance > 0 gives
+// at a seed where the copy check fails: the same weights, shape,
+// activations, other genes, and features.
+void test_mutate_draws_the_copy_chance_step_at_0() {
+  genann *parent = genann_init(82, 1, 3, 82);
+  ann_genes some = middle_genes();
+  some.activation_rate = 0.3;
+  some.structure_rate = 0.3;
+  ann_genes never = some;
+  never.copy_chance = 0;
+  ann_features features = ann_default_features(ANN_GROUPS_ALL);
+  shape_bounds bounds = {.max_hidden_layers = 2, .max_layer_size = 4, .add_layer_size = 3};
+  int compared = 0, differ = 0, structure = 0, activation = 0;
+  for (uint64_t seed = 0; seed < 200; seed++) {
+    ann_genes a_genes, b_genes;
+    ann_features a_features, b_features;
+    mutation_outcome a_outcome, b_outcome;
+    pcg32_srandom(seed, 54u);
+    genann *a = mutate(parent, &some, &features, META_RATE, &bounds, &a_genes, &a_features, &a_outcome);
+    pcg32_srandom(seed, 54u);
+    genann *b = mutate(parent, &never, &features, META_RATE, &bounds, &b_genes, &b_features, &b_outcome);
+    if (!a_outcome.copy) {
+      compared++;
+      if (a_outcome.structure != STRUCTURE_NONE) structure++;
+      if (a_outcome.activation_changed) activation++;
+      bool same = b_outcome.activation_changed == a_outcome.activation_changed
+        && b_outcome.structure == a_outcome.structure && !b_outcome.copy
+        && a->hidden_layers == b->hidden_layers && a->hidden == b->hidden
+        && a->total_weights == b->total_weights
+        && a->activation_hidden == b->activation_hidden && a->activation_output == b->activation_output
+        && memcmp(a->weight, b->weight, sizeof(double) * a->total_weights) == 0
+        && a_genes.weight_changes == b_genes.weight_changes && a_genes.weight_step == b_genes.weight_step
+        && a_genes.activation_rate == b_genes.activation_rate
+        && a_genes.structure_rate == b_genes.structure_rate
+        && memcmp(&a_features, &b_features, sizeof a_features) == 0
+        && b_genes.copy_chance == 0 && a_genes.copy_chance > 0;
+      if (!same) differ++;
+    }
+    genann_free(a);
+    genann_free(b);
+  }
+  // About 190 of 200 seeds pass the copy check; the structure and the
+  // activations change in some of them.
+  lok(compared > 170);
+  lok(structure > 20);
+  lok(activation > 20);
+  lequal(differ, 0);
+  genann_free(parent);
+}
+
 // With meta_rate 0 the genes stay as they are, so the weights follow the
 // parent's genes: each weight changes with probability weight_changes /
 // total_weights, by a uniform amount in [-weight_step, +weight_step].
@@ -1469,6 +1557,8 @@ int main(int argc, char **argv) {
   lrun("mutate_copy", test_mutate_copies_the_parent);
   lrun("mutate_seed", test_mutate_is_deterministic_for_a_seed);
   lrun("mutate_copy_chance", test_mutate_copies_with_copy_chance);
+  lrun("mutate_never_copy", test_mutate_never_copies_at_copy_chance_0);
+  lrun("mutate_copy_chance_0_draws", test_mutate_draws_the_copy_chance_step_at_0);
   lrun("mutate_weights", test_mutate_changes_weights_by_the_genes);
   lrun("mutate_every_weight", test_mutate_changes_every_weight_at_most);
   lrun("mutate_weights_pinned", test_mutate_weights_are_pinned);

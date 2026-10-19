@@ -155,7 +155,8 @@ double standard_normal(void);
 // The genes mutated by meta rate τ: weight_changes and weight_step
 // log-normally, g·exp(τ·N(0,1)), the probabilities on the logit scale,
 // logit⁻¹(logit(p) + τ·N(0,1)), in the struct's order, then clamped to their
-// ranges (weight_changes to at most total_weights).
+// ranges (weight_changes to at most total_weights), except that a copy_chance
+// of 0 stays 0 (its normal is still drawn).
 ann_genes mutate_genes(ann_genes genes, double meta_rate, int total_weights);
 // The features mutated by meta rate τ, when the groups have move features:
 // feature_step log-normally, then every feature weight by a uniform amount

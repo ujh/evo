@@ -24,6 +24,7 @@ module RunGenerationHelpers
     'max_moves' => 200,
     'tournament_rounds' => 1,
     'tournament_size' => 3,
+    'elite_share' => 0.0,
     'seed' => 1,
     'keep_every' => 10,
     'benchmark_games' => 20,

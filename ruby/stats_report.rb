@@ -16,8 +16,9 @@ class ExperimentStats
     GENERATION_ROWS = 50
     GENERATION_HEADINGS = %w[Gen Done Games Draws Time Copies Parents Genomes Min Med Max].freeze
     GENERATION_NOTE = <<~NOTE.freeze
-      Done: rounds and benchmark played. Time: of all games. Copies: bred children identical to a parent.
-      Parents: networks that passed on weights. Genomes: distinct children. Min, Med, Max: network scores.
+      Done: rounds and benchmark played. Time: of all games. Copies: bred children identical to a parent
+      (elites are not bred). Parents: networks that passed on weights. Genomes: distinct children.
+      Min, Med, Max: network scores.
       In a terminal, a generation not done is grey and italic where its figures still change.
     NOTE
     RATINGS_HEADINGS = %w[Rank Player Rating ± Games Score].freeze
@@ -65,7 +66,8 @@ class ExperimentStats
                          'tanh' => 'tanh', 'relu' => 'relu' }.freeze
     BREEDING_HEADINGS = %w[Gen Kids Childless Widen Narrow Add Remove Bots].freeze
     BREEDING_NOTE = <<~NOTE.freeze
-      Kids: most children of one parent. Childless: parents with none. Widen..Remove: structural changes.
+      Kids: most children of one parent. Childless: parents with no bred child.
+      Widen..Remove: structural changes.
       Bots, then each bot: the best copy's rank by score, with the networks above it in brackets.
     NOTE
     AGAINST_BOTS_NOTE = <<~NOTE.freeze
@@ -226,10 +228,10 @@ class ExperimentStats
        population[:unique_genomes], *scores.values_at(:min, :median, :max).map { |s| s.nil? ? '-' : s }]
     end
 
-    # The share of bred children (not the initial population) that copy a
-    # parent unchanged.
+    # The share of bred children (not the initial population, not elites)
+    # that copy a parent unchanged.
     def identical_share(population)
-      bred = population[:children] - population[:operators].fetch('initial', 0)
+      bred = population[:children] - population[:operators].values_at(*ExperimentStats::UNBRED).sum
       bred.zero? ? '-' : "#{(100.0 * population[:identical] / bred).round}%"
     end
 
