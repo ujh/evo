@@ -66,7 +66,8 @@ class ExperimentStats
                          'tanh' => 'tanh', 'relu' => 'relu' }.freeze
     BREEDING_HEADINGS = %w[Gen Kids Childless Widen Narrow Add Remove Bots].freeze
     BREEDING_NOTE = <<~NOTE.freeze
-      Kids: most children of one parent. Childless: parents with none. Widen..Remove: structural changes.
+      Kids: most children of one parent. Childless: parents with no bred child.
+      Widen..Remove: structural changes.
       Bots, then each bot: the best copy's rank by score, with the networks above it in brackets.
     NOTE
     AGAINST_BOTS_NOTE = <<~NOTE.freeze

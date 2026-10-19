@@ -18,8 +18,10 @@ class ElitismTest < Minitest::Test
     # in floating point: ceil would give 8 and floor 28.
     assert_equal 7, Elitism.count(0.07, 100)
     assert_equal 29, Elitism.count(0.29, 100)
-    # A half rounds up: 0.125 x 12 is 1.5.
+    # A half rounds up, also from an even floor, where rounding half to
+    # even would round down: 0.125 x 12 is 1.5 and 0.25 x 10 is 2.5.
     assert_equal 2, Elitism.count(0.125, 12)
+    assert_equal 3, Elitism.count(0.25, 10)
     assert_equal 3, Elitism.count(0.2, 14)
   end
 

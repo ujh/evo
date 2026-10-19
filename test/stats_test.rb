@@ -679,7 +679,8 @@ class ElitesStatsTest < Minitest::Test
       |   0 |    - |         - |     - |      - |   - |      - | 1 (0) | 1 (0) | 2 (0) |
       |   1 |    4 |         6 |     1 |      0 |   0 |      1 | 2 (1) | 6 (4) | 2 (1) |
       +-----+------+-----------+-------+--------+-----+--------+-------+-------+-------+
-      Kids: most children of one parent. Childless: parents with none. Widen..Remove: structural changes.
+      Kids: most children of one parent. Childless: parents with no bred child.
+      Widen..Remove: structural changes.
       Bots, then each bot: the best copy's rank by score, with the networks above it in brackets.
 
       Networks against bots
