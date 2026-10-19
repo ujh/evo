@@ -199,7 +199,7 @@ with the range in the latest generation), Feature weights (the same for
 `feature_step` and each move feature's weight; not shown without move
 features), Shapes and activations (the most
 common of each), and Breeding and bots (the most children of one parent,
-parents without children, the structural changes, and where the best copy of
+parents with no bred child, the structural changes, and where the best copy of
 each bot ranks among the networks), and Networks against bots (per bot, the
 networks' wins of their tournament games against it).
 

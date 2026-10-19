@@ -445,7 +445,7 @@ feature sets have the same columns;
 (counts for all six), `structure.none|widen|narrow|add_layer|remove_layer`,
 `population.operators.initial|crossover|mutation|copy|elite` (`elite` 0
 in a run without elitism),
-`parents.max_children|childless|used` (`used`: parents with a child), and
+`parents.max_children|childless|used` (`used`: parents with a bred child; an elite is no bred child), and
 `bots.best_rank`, `bots.networks_above`, and the same per bot
 (`bots.Brown.best_rank`), and per bot `against_bots.BOT.games|wins|draws`
 (empty where no network played it).
