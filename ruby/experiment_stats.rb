@@ -31,9 +31,9 @@ class ExperimentStats
   CHAMPION_SCORES = { 'network' => 1, 'opponent' => 0, nil => 1/2r }.freeze
   BOT_SCORES = { 'black' => 1, 'white' => 0, nil => 1/2r }.freeze
   # Every generation counts each, so the CSV has the same columns for all.
-  # An elite is carried over unchanged, not bred (operator `elite`, from
-  # migration 018); stats tell elites by the operator alone, never by the
-  # elite_share setting, which older experiments lack.
+  # An elite is carried over unchanged, not bred (operator `elite`, which
+  # the runner stores); stats tell elites by the operator alone, never by
+  # the elite_share setting, which older experiments lack.
   OPERATORS = %w[initial crossover mutation copy elite].freeze
   # Births that no parent selection or evolve run made.
   UNBRED = %w[initial elite].freeze
