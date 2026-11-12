@@ -994,7 +994,7 @@ class BrittlenessTest < Minitest::Test
 
       ## Smallest detectable improvement (estimate, percentage points of the 8 re-test games)
 
-      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 3. A null result means no child better by at least this much, not never.
+      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 3. A null result means that a re-tested best child better by at least the 80 %-power size would have been found with about 80 % probability; children not re-tested are judged only by the screen.
 
       | Step | d | 50 % power | 80 % power |
       | --- | ---: | ---: | ---: |
@@ -1059,7 +1059,7 @@ class BrittlenessTest < Minitest::Test
 
       ## Smallest detectable improvement (estimate, percentage points of the 8 re-test games)
 
-      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means no child better by at least this much, not never.
+      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means that a re-tested best child better by at least the 80 %-power size would have been found with about 80 % probability; children not re-tested are judged only by the screen.
 
       | Step | d | 50 % power | 80 % power |
       | --- | ---: | ---: | ---: |
@@ -1214,7 +1214,7 @@ class BrittlenessTest < Minitest::Test
 
       ## Smallest detectable improvement (estimate, percentage points of the 8 re-test games)
 
-      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means no child better by at least this much, not never.
+      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means that a re-tested best child better by at least the 80 %-power size would have been found with about 80 % probability; children not re-tested are judged only by the screen.
 
       | Step | d | 50 % power | 80 % power |
       | --- | ---: | ---: | ---: |
@@ -1255,7 +1255,7 @@ class BrittlenessTest < Minitest::Test
 
       ## Smallest detectable improvement (estimate, percentage points of the 8 re-test games)
 
-      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means no child better by at least this much, not never.
+      Model: an effect δ makes the child win a game its result differs from the champion's with probability (1 + δ/d) / 2, d the step's screen discordance averaged over the opponents, n_d = d × 8; the sign test at 0.05 / 2. A null result means that a re-tested best child better by at least the 80 %-power size would have been found with about 80 % probability; children not re-tested are judged only by the screen.
 
       | Step | d | 50 % power | 80 % power |
       | --- | ---: | ---: | ---: |

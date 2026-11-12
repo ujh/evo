@@ -9,7 +9,9 @@ default: evolve perturb
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
-include $(OBJS:.o=.dep)
+# Every source's .dep, so an object is rebuilt when any header it includes
+# changes, whichever program it goes into.
+include $(patsubst %.c,%.dep,$(wildcard *.c))
 
 evolve: $(OBJS) main.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
@@ -42,6 +44,7 @@ evolvetest: evolve
 	  eval "! ./evolve $$args ../engine/example.ann ../engine/example.ann child-dir.ann 1" || exit 1; \
 	  test ! -e child-dir.ann || exit 1; \
 	done
+	./evolve 0.5 nan 1 5 5 ../engine/example.ann ../engine/example.ann child-dir.ann 1 2>&1 | grep -qx 'meta_rate must be a number from 0 to inf, got nan'
 	! ./evolve 0.5 $(BOUNDS) ../engine/example.ann child.ann child-dir.ann not-a-seed
 	test ! -e child-dir.ann
 	rm -rf parents && mkdir parents

@@ -84,8 +84,10 @@ class RunGeneration
   # that matches its birth. Its parents are gone, so it cannot be bred again.
   NetworksDamaged = Class.new(Stopped)
 
-  # Raised when evolve or initial-population did not breed the population.
-  # The setup is not saved, so a resume breeds it again with the same seeds.
+  # Raised when evolve or initial-population did not breed the population,
+  # or an elite could not be copied (its file or birth missing). The setup is
+  # not saved, so a resume sets the generation up again with the same seeds;
+  # a missing elite stops it again until the damage is repaired.
   BreedingFailed = Class.new(Stopped)
 
   def setup
@@ -893,7 +895,8 @@ class RunGeneration
   # byte into networks/N.partial/ from index `first` on, and returns their
   # births: operator elite, its one parent, the genes of the parent's birth,
   # and what evolve stores for a copy. No evolve runs, so the birth seed of
-  # the index goes unused.
+  # the index goes unused. An elite whose file or birth is missing (only
+  # damage by hand leaves that) stops the run before any evolve runs.
   def copy_elites(previous_generation, names, first)
     return [] if names.empty?
 
@@ -903,13 +906,22 @@ class RunGeneration
       index = first + i
       child = "#{index}.ann"
       path = File.join(partial_dir, child)
-      FileUtils.cp(File.join(network_dir(previous_generation), name), path)
+      source = File.join(network_dir(previous_generation), name)
+      elite_failed("Elite #{name} is missing from networks/#{previous_generation}/.") unless File.file?(source)
+      unless parents.key?(name)
+        elite_failed("Elite #{name} has no birth in generation #{previous_generation}, so its genes are unknown.")
+      end
+      FileUtils.cp(source, path)
       genome = timings.time(:setup_hash) { Digest::SHA256.file(path).hexdigest }
       { generation: generation.to_i, child:, first_parent: name, second_parent: nil, operator: 'elite',
         differs_from_first: 0, differs_from_second: nil, seed: Seeds.derive(experiment_seed, 'birth', generation.to_i, index),
         genome:, parent: 'first', structure: 'none', activation_changed: false,
         **parents.fetch(name).slice(*BIRTH_GENES) }
     end
+  end
+
+  def elite_failed(reason)
+    raise BreedingFailed, "#{reason}\nThe run stopped; resume after fixing the cause."
   end
 
   # One child's evolve run: `command` breeds `child` from `parents` (names
@@ -970,7 +982,8 @@ class RunGeneration
   # sends SIGTERM to the other evolves still running (exec'd, so the signal
   # reaches them), whose children would not be recorded, then raises with
   # the command, its exit status, and its stderr. The setup is not saved,
-  # so a resume breeds every child again, with the same seeds; the job's
+  # so a resume copies any elites again and breeds every child again, with
+  # the same seeds; the job's
   # files stay in work/ until then.
   def breeding_failed(job, status, reason)
     pool.terminate
@@ -978,7 +991,7 @@ class RunGeneration
     raise BreedingFailed, "#{reason}: #{job.command}\n" \
                           "evolve #{exit_reason(status)}. " \
                           "#{stderr.empty? ? 'Its stderr is empty.' : "Its stderr:\n#{stderr.chomp}"}\n" \
-                          'The run stopped; a resume breeds every child again.'
+                          'The run stopped; a resume copies any elites again and breeds every child again.'
   end
 
   # evolve's summary line. differs is -1 when the child's shape differs from
@@ -1009,7 +1022,8 @@ class RunGeneration
 
   # Ctrl-C reaches the running evolves too. Stop as the tournament does,
   # without an error: the generation's setup is saved only after the last
-  # child, so a resume breeds every child again, with the same seeds. An
+  # child, so a resume copies any elites again and breeds every child again,
+  # with the same seeds. An
   # evolve can be back before the trap has set the flag; its status tells.
   def stop_breeding(job, status)
     exit if $stop_now

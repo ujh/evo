@@ -8,7 +8,10 @@ default: libann.a
 ann.o: ann.c ann.h genann.c genann.h
 	$(CC) $(CFLAGS) -o $@ -c ann.c
 
-libann.a: ann.o
+args.o: args.c args.h
+	$(CC) $(CFLAGS) -o $@ -c args.c
+
+libann.a: ann.o args.o
 	$(AR) rcs $@ $^
 
 # GENANN's own tests, and the .ann round trip. Then a network loaded for
