@@ -19,6 +19,8 @@ For the genome, mutation, and features as the owner reads them, see [The evolvin
 - `lib/`: the network code every program links, built once as `lib/libann.a`.
   `genann.c` and `genann.h` are upstream GENANN v1.1.1, unchanged (license in `lib/GENANN-LICENSE`); to update GENANN, copy the new upstream files over them.
   Evo's additions live in `ann.h` and `ann.c`; programs include `ann.h`, never `genann.h`.
+  GENANN stays: it is small, tested upstream, and does what the experiments need; inference is negligible next to adjudication, so batching is not needed.
+  Its hidden layers all have one width; revisit that only if an experiment needs different widths.
   `args.c` holds the strict number parsing that `evolve`, `perturb`, and `initial-population` share.
   `lib/minctest.h` is the test framework for `lib/` and `evolve/`.
 - `ruby/` and `runner`: the runner, the tournament, the benchmark (`ruby/checkpoint_benchmark.rb`), and `stats` (`ruby/experiment_stats.rb`, `ruby/stats_report.rb`); [Experiment reference](experiment-reference.md) describes them.
