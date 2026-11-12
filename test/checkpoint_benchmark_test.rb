@@ -263,12 +263,12 @@ class CheckpointBenchmarkTest < Minitest::Test
         copy_dat('black_wins', game.prefix)
         File.write("#{game.prefix}-0.sgf", '(;SZ[9])')
       end
-      settings = SETTINGS.merge('benchmark_games' => 6, 'benchmark_bot_games' => 2)
+      settings = SETTINGS.merge('benchmark_games' => 2, 'benchmark_bot_games' => 6)
       capture_io { CheckpointBenchmark.new(0, settings, pool, database).call }
-      # Openings 0 to 2 for the champion's games; the bot games use 0 alone.
+      # The champion's games use opening 0 alone; the bot games use 0 to 2.
       expected = (0..2).to_h { |i| ["benchmark/openings/#{i}/opening.sgf", Openings.sgf(9, Openings.moves(1, i, 9, 4))] }
       assert_equal expected, pool.openings_at_first_game
-      assert_equal 3 * 6 + 3 * 2, pool.commands.size
+      assert_equal 3 * 2 + 3 * 6, pool.commands.size
       expected.each_key { |path| assert_equal 'in use', File.read(path), "#{path} was written again during the games" }
     end
   end
