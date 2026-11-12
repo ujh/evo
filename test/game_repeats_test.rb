@@ -176,8 +176,9 @@ class GameRepeatsTest < Minitest::Test
 end
 
 # scripts/game-repeats.rb --without-elites on two fixture runs: elite, with
-# elites (births with operator elite) as the runner stores them, and plain,
-# at schema 17 (no elite_share setting) without elites.
+# elites (births with operator elite) stored as RunGeneration#copy_elites
+# stores them, and plain, at schema 17 (no elite_share setting) without
+# elites.
 class GameRepeatsWithoutElitesTest < Minitest::Test
   SCRIPT = GameRepeatsTest::SCRIPT
   HEAD = GameRepeatsTest::HEAD
@@ -248,12 +249,15 @@ class GameRepeatsWithoutElitesTest < Minitest::Test
     @elite = database('elite', nil, { 'elite_share' => '0.2' },
                       10 => GENERATION_10, 20 => GENERATION_20, 30 => GENERATION_20)
     @plain = database('plain', 17, {}, 10 => PLAIN)
-    # Births: elite's elites as the runner stores them (the network carried
-    # over in first_parent), every other network bred; elite's generation
-    # 30 has games but no births.
-    births(@elite, 10, %w[28.ann 29.ann])
-    births(@elite, 20, %w[3.ann 29.ann])
-    births(@plain, 10, [])
+    # Births: elite's elites as RunGeneration#copy_elites stores them, a
+    # new name (child) in their generation and the carried network's name
+    # in the generation before (first_parent), mostly another name, which
+    # here is that of a bred network playing in the elite's generation;
+    # every other network bred; elite's generation 30 has games but no
+    # births.
+    births(@elite, 10, { '28.ann' => '7.ann', '29.ann' => '29.ann' })
+    births(@elite, 20, { '3.ann' => '28.ann', '29.ann' => '12.ann' })
+    births(@plain, 10, {})
   end
 
   def teardown
@@ -283,13 +287,19 @@ class GameRepeatsWithoutElitesTest < Minitest::Test
     path
   end
 
+  # `elites` maps each elite's name to the name it had in the generation
+  # before.
   def births(path, generation, elites)
     db = Sequel.sqlite(path)
     operators = %w[mutation crossover copy mutation crossover mutation]
     db[:births].multi_insert(NETWORKS.each_with_index.map do |child, i|
-      elite = elites.include?(child)
-      { generation:, child:, first_parent: elite ? child : NETWORKS[i - 1], second_parent: elite ? nil : NETWORKS[i - 2],
-        operator: elite ? 'elite' : operators[i], seed: i, genome: "g#{generation}-#{child}" }
+      if elites.key?(child)
+        { generation:, child:, first_parent: elites[child], second_parent: nil, operator: 'elite', parent: 'first',
+          differs_from_first: 0, structure: 'none', seed: i, genome: "g#{generation}-#{child}" }
+      else
+        { generation:, child:, first_parent: NETWORKS[i - 1], second_parent: NETWORKS[i - 2], operator: operators[i],
+          parent: 'first', differs_from_first: 1, structure: 'none', seed: i, genome: "g#{generation}-#{child}" }
+      end
     end)
     db.disconnect
   end
