@@ -289,7 +289,7 @@ Against AmiGo (93–98 games a checkpoint with 10 rounds, 177–198 with 20, 354
 - Interpretation, at most: the rest of the gradient may come from the mutation genes shrinking further the more rounds there are ("10, 20 and 40 rounds" above). The repeats against AmiGo suggest that a lineage keeps winning or losing with one line per colour, which the benchmark's openings do not reward.
 - **Rematches follow the rounds, not the genes (one seed):** 0.1–0.2 % of the network games with 10 rounds, 0.5–0.8 % in all three 20-round runs, 1.5–1.8 % with 40.
 - The other rows: michi's are 0 everywhere, GNU Go's at most 1 game a checkpoint. Against Brown, clone repeats are at most 8 games a checkpoint (none with fixed genes), and rematches are most of its repeats summed over the checkpoints (up to 52.9 %, `seed2-rounds40` at generation 200). Bot against bot has no clone repeats; its rematches reach 19.7 % (`seed2-rounds40` at generation 300) and 19.4 % (`seed2-rounds20` at generation 400).
-- Interpretation: of the three 20-round runs, the most clone-heavy, `seed2-rounds20`, is also the strongest from generation 300 on ("Fixed mutation genes" below), so its clones did not stop it leading, and the more varied fixed-gene runs were not stronger. Whether more variety would help a self-adaptive run (random openings in the tournament, elitism) is untested; `PROJECT_NOTES.md` (item 7) has the proposals.
+- Interpretation: of the three 20-round runs, the most clone-heavy, `seed2-rounds20`, is also the strongest from generation 300 on ("Fixed mutation genes" below), so its clones did not stop it leading, and the more varied fixed-gene runs were not stronger. Whether more variety would help a self-adaptive run is untested for random openings in the tournament, and the first elitism runs cannot tell ("Elitism (`elite_share`)" below); `PROJECT_NOTES.md` (item 7) has the proposals.
 
 ## Fixed mutation genes (`meta_rate` 0)
 
@@ -416,10 +416,163 @@ It leaves out every generation whose tournament did not finish (`generations.rou
 - **Where the runs diverge**, per pair of runs over the finished generations both have: the first generation whose births differ (a child with another `genome`, or a child in one run only) and how many births the two still share there, the last generation with any shared birth, and the first generation whose rankings differ. `genome` hashes the network file, genes included, so runs with different stored genes share no birth even where their networks play alike.
 - **Champions benchmarked against themselves**: per run, each checkpoint champion's operator, and the checkpoints whose champion has the same `genome` as a network it was benchmarked against.
 
+## Elitism (`elite_share`)
+
+Six runs to generation 1000 (finished between 24 Oct and 12 Nov 2026) describe elitism (`elite_share`, #126: the first E networks of a generation's final ranking carried unchanged into the next, `docs/genes.md`), with `meta_rate` 0.2 and 0, and with `initial_copy_chance` 0.01 and 0 (never copy, #124). All six have `seed2-rounds20`'s seed and other settings (9×9, 1,000 networks starting at 10 hidden layers of 200, 20 rounds). The two without elitism repeat `seed2-rounds20` (which ends at generation 500) and `seed2-meta0` (finished generations to 576) up to generation 1000. At `elite_share` 0.01, every generation from 1 on holds 10 elites, 10,000 a run (B, C).
+
+| Run | `elite_share` | `meta_rate` | `initial_copy_chance` |
+| --- | ---: | ---: | ---: |
+| `seed2-elite` | 0.01 | 0.2 | 0.01 |
+| `seed2-elite-meta0` | 0.01 | 0 | 0.01 |
+| `seed2-elite-nocopy` | 0.01 | 0.2 | 0 |
+| `seed2-elite-meta0-nocopy` | 0.01 | 0 | 0 |
+| `seed2-rounds20-b` | 0 | 0.2 | 0.01 |
+| `seed2-meta0-b` | 0 | 0 | 0.01 |
+
+The runs predate #132, so their GNU Go, in the tournament and the benchmark, is the unpinned one ("The default panels and the michi ladder" above). The wins below are against AmiGo, MichiWeak and MichiMid only. All six runs' 1,500 bot-against-bot benchmark games had the same results (A).
+
+The figures come from four scripts at their defaults: A `scripts/compare-runs.rb`, B `scripts/gene-trajectories.rb` and C `scripts/population-strength.rb`, all at 7e4b5a6, and D `scripts/game-repeats.rb` at 5be3d2b. These are the invocations, from the repository root; each table names the outputs it comes from ("A six" is A on the six runs, "A pairs" A on the two one-setting pairs, and so on). Every other window, the bred children and the elites alone, the other genes and the shapes are in the same outputs.
+
+    for script in compare-runs gene-trajectories population-strength; do
+      mise exec -- scripts/$script.rb experiments/{seed2-elite,seed2-elite-meta0,seed2-elite-nocopy,seed2-elite-meta0-nocopy,seed2-rounds20-b,seed2-meta0-b}/experiment.sqlite3
+      mise exec -- scripts/$script.rb experiments/{seed2-meta0,seed2-meta0-b}/experiment.sqlite3
+      mise exec -- scripts/$script.rb experiments/{rounds20,seed2-rounds20}/experiment.sqlite3
+    done
+    mise exec -- scripts/compare-runs.rb experiments/{seed2-rounds20,seed2-rounds20-b}/experiment.sqlite3
+    for run in seed2-elite seed2-elite-meta0 seed2-elite-nocopy seed2-elite-meta0-nocopy seed2-rounds20-b seed2-meta0-b; do
+      mise exec -- scripts/game-repeats.rb experiments/$run/experiment.sqlite3 100 300 500 700 1000
+      mise exec -- scripts/game-repeats.rb --without-elites experiments/$run/experiment.sqlite3 100 300 500 700 1000
+    done
+    mise exec -- scripts/game-repeats.rb experiments/seed2-meta0/experiment.sqlite3 100 300 500
+    mise exec -- scripts/game-repeats.rb experiments/rounds20/experiment.sqlite3 100 200 300
+    mise exec -- scripts/game-repeats.rb experiments/seed2-rounds20/experiment.sqlite3 100 200 300
+
+**Each setting has one run, so nothing here is attributed to a setting.** Whether a difference between these runs comes from their settings cannot be told. Each table also gives the figures of two runs of one setting, or says there are none. One pair is `seed2-meta0` and `seed2-meta0-b`: no elitism, `meta_rate` 0, the same seed, diverging at generation 33 (below). The other is `rounds20` and `seed2-rounds20`: no elitism, `meta_rate` 0.2, other seeds. With another seed they also played other benchmark openings and bot seeds, so their win differences also include another draw of openings and bot seeds, which the six runs share. Neither pair has elites, and the generations both runs of a pair have end at 576 and 302, their shared checkpoints at 500 and 300.
+
+**How the runs relate** (A six, A pairs, "Where the runs diverge"). In every pair of the six, the rankings first differ at generation 1, so all six share generation 0's ranking and champion (6 of 300 wins, rating −513). Runs with the same `initial_copy_chance` share generation 0's births and some of generation 1's, and none later. `seed2-elite` and `seed2-rounds20-b` share 990 births at generation 1, as do `seed2-elite-meta0` and `seed2-meta0-b`; runs with different `meta_rate` share 385–395. Runs with different `initial_copy_chance` share no birth, since `genome` hashes the stored genes too. Even the pairs that share 990 births rank differently from generation 1, whose tournament in an elite run already holds its elites (`RunGeneration#evolve_from_previous_population`). From generation 1 on, the six are separate runs. `seed2-meta0` and `seed2-meta0-b` rank alike through generation 32 and have identical births through 33; at 34 they still share 20 births, later none. Their figures below therefore start at checkpoint 100 and window 51–100. `rounds20` and `seed2-rounds20` differ from generation 0, and 164 of their 1,500 bot-against-bot games had another result. `seed2-rounds20` and `seed2-rounds20-b` never differ over generations 0–500: A gives their champions identical wins and ratings there, and B, C and D print the same figures for both at every window and checkpoint both outputs hold, so `rounds20`'s partner has `seed2-rounds20-b`'s figures in the tables below up to 500.
+
+**Windows.** Where a table below shows 50-generation windows, it shows every window that ends at a multiple of 100 (51–100, 151–200, …, 951–1000) and no other. Where it gives a range, the range is over every window the row names.
+
+**Champions** (A six; the pair columns from A pairs, "Differences"). Each checkpoint champion's wins of 300 against AmiGo, MichiWeak and MichiMid, and in brackets its rating in Elo above AmiGo from the six-run fit. These ratings compare only within that fit, and each is ±42–55 at checkpoints 100–1000 with the other ratings held fixed. Over another sample of openings and bot seeds, one champion's wins would move by ±12–16 (95 %, A's binomial half-width at checkpoints 100–1000). The last two columns are the one-setting pairs' differences in wins. Checkpoint 0 is the same in every run: 6 wins, rating −513.
+
+| Checkpoint | `seed2-elite` | `seed2-elite-meta0` | `seed2-elite-nocopy` | `seed2-elite-meta0-nocopy` | `seed2-rounds20-b` | `seed2-meta0-b` | `seed2-meta0` − `seed2-meta0-b` | `rounds20` − `seed2-rounds20` |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 116 (48) | 85 (−46) | 67 (−113) | 66 (−117) | 51 (−204) | 78 (−74) | −5 | +70 |
+| 200 | 121 (48) | 88 (−55) | 64 (−124) | 73 (−93) | 101 (−2) | 79 (−55) | +23 | +19 |
+| 300 | 123 (62) | 78 (−74) | 74 (−86) | 69 (−103) | 102 (1) | 92 (−28) | +1 | +26 |
+| 400 | 117 (51) | 106 (10) | 85 (−55) | 73 (−93) | 109 (21) | 76 (−107) | +5 | none |
+| 500 | 119 (48) | 129 (78) | 74 (−93) | 76 (−80) | 114 (29) | 80 (−61) | −3 | none |
+| 600 | 99 (−4) | 126 (67) | 71 (−96) | 86 (−49) | 120 (56) | 113 (29) | none | none |
+| 700 | 111 (35) | 116 (37) | 72 (−93) | 86 (−46) | 109 (29) | 118 (51) | none | none |
+| 800 | 120 (45) | 113 (32) | 82 (−64) | 94 (−25) | 111 (35) | 125 (64) | none | none |
+| 900 | 97 (−4) | 118 (51) | 77 (−83) | 95 (−16) | 107 (18) | 135 (91) | none | none |
+| 1000 | 125 (59) | 134 (91) | 78 (−67) | 107 (15) | 118 (51) | 118 (51) | none | none |
+
+In the pairs' own fits, `seed2-meta0` and `seed2-meta0-b` are rated −101 and −92, −19 and −74, −50 and −47, −80 and −124, −89 and −80 at checkpoints 100–500. `rounds20` and `seed2-rounds20` are rated 48 and −202, 48 and −6, 61 and −3 at checkpoints 100–300.
+
+**Champions over a window** (A six). Two windows, fixed before the scripts ran: per run, the mean wins, the least-squares slope in wins per 100 generations, and the residual SD around the line over the window's checkpoints. A slope describes a straight line over the window, not its shape; set the residual SD beside one champion's game noise, whose SD is the ± above divided by 1.96 (about 6–8 wins). One-setting figures: none (A pairs prints "does not cover" for `seed2-meta0`, `rounds20` and `seed2-rounds20` in both windows).
+
+| Run | 500..1000: mean, slope, SD | 200..1000: mean, slope, SD |
+| --- | ---: | ---: |
+| `seed2-elite` | 111.8, +0.9, 12.9 | 114.7, −1.1, 10.5 |
+| `seed2-elite-meta0` | 122.7, −0.1, 9.2 | 112.0, +5.1, 13.3 |
+| `seed2-elite-nocopy` | 75.7, +1.4, 3.6 | 75.2, +1.0, 6.0 |
+| `seed2-elite-meta0-nocopy` | 90.7, +5.4, 3.1 | 84.3, +4.4, 3.9 |
+| `seed2-rounds20-b` | 113.2, −0.5, 5.6 | 110.1, +1.4, 5.7 |
+| `seed2-meta0-b` | 114.8, +7.5, 13.8 | 104.0, +7.0, 12.2 |
+
+**Population against the bots** (C six, C pairs, all networks). Per window, the share of networks (%) that scored strictly above the mean of the AmiGo / MichiWeak / MichiMid copies in their tournament. The last two columns are the pairs: `seed2-meta0`'s partner is `seed2-meta0-b`, `rounds20`'s is `seed2-rounds20` (equal to `seed2-rounds20-b` to 500). `seed2-meta0`'s 551–600 holds 26 generations.
+
+| Window | `seed2-elite` | `seed2-elite-meta0` | `seed2-elite-nocopy` | `seed2-elite-meta0-nocopy` | `seed2-rounds20-b` | `seed2-meta0-b` | `seed2-meta0` | `rounds20` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 51–100 | 56.9 / 49.0 / 0.4 | 5.3 / 3.3 / 0.1 | 3.0 / 2.3 / 0.1 | 3.3 / 2.0 / 0.1 | 2.9 / 3.9 / 0.2 | 6.2 / 8.2 / 0.2 | 4.7 / 6.7 / 0.1 | 10.3 / 19.7 / 0.2 |
+| 151–200 | 70.3 / 53.4 / 0.4 | 8.4 / 7.7 / 0.2 | 3.9 / 4.7 / 0.1 | 3.4 / 3.9 / 0.1 | 10.7 / 10.7 / 0.2 | 19.1 / 25.1 / 0.3 | 5.9 / 15.4 / 0.1 | 30.2 / 53.3 / 0.4 |
+| 251–300 | 64.2 / 55.2 / 0.4 | 13.0 / 15.0 / 0.2 | 6.7 / 5.2 / 0.1 | 4.9 / 4.6 / 0.1 | 32.4 / 37.2 / 0.3 | 21.0 / 32.6 / 0.3 | 15.2 / 25.7 / 0.3 | 26.2 / 64.6 / 0.5 |
+| 351–400 | 63.7 / 50.7 / 0.5 | 23.3 / 23.0 / 0.3 | 9.5 / 6.5 / 0.1 | 6.7 / 4.7 / 0.1 | 41.0 / 46.8 / 0.5 | 29.9 / 33.8 / 0.3 | 21.6 / 30.2 / 0.3 | none |
+| 451–500 | 80.4 / 45.8 / 0.5 | 55.8 / 46.8 / 0.4 | 12.2 / 7.4 / 0.2 | 9.5 / 4.4 / 0.2 | 40.3 / 49.4 / 0.4 | 45.0 / 38.7 / 0.3 | 22.9 / 32.2 / 0.3 | none |
+| 551–600 | 72.4 / 45.0 / 0.5 | 75.1 / 43.8 / 0.5 | 10.6 / 7.0 / 0.2 | 10.9 / 6.9 / 0.2 | 51.7 / 56.0 / 0.5 | 13.8 / 43.4 / 0.3 | 8.5 / 36.8 / 0.4 | none |
+| 651–700 | 79.7 / 53.8 / 0.5 | 76.8 / 51.3 / 0.4 | 9.7 / 7.4 / 0.1 | 8.0 / 9.2 / 0.2 | 60.0 / 62.2 / 0.5 | 43.7 / 42.7 / 0.4 | none | none |
+| 751–800 | 88.8 / 47.7 / 0.5 | 54.3 / 60.7 / 0.6 | 13.1 / 8.3 / 0.1 | 11.4 / 9.3 / 0.1 | 52.7 / 49.4 / 0.5 | 52.4 / 52.0 / 0.6 | none | none |
+| 851–900 | 85.8 / 56.6 / 0.4 | 52.0 / 60.1 / 0.6 | 17.1 / 8.8 / 0.2 | 21.3 / 12.0 / 0.2 | 71.0 / 50.7 / 0.5 | 64.2 / 57.8 / 0.7 | none | none |
+| 951–1000 | 80.6 / 54.0 / 0.5 | 41.4 / 63.1 / 0.6 | 14.0 / 8.1 / 0.1 | 27.7 / 27.7 / 0.3 | 66.3 / 49.5 / 0.5 | 62.2 / 53.8 / 0.5 | none | none |
+
+**Genes** (B six, B pairs, all networks). The median of the per-generation medians per window. At `meta_rate` 0 every window of all four runs (`seed2-elite-meta0`, `seed2-elite-meta0-nocopy`, `seed2-meta0-b`, `seed2-meta0`) prints generation 0's values, `weight_step` 0.5 and `copy_chance` 0.01 (0 in the no-copy run), so the `seed2-meta0` pair has no gene spread to show. The no-copy runs' `copy_chance` is exactly 0 in every window. The `meta_rate` 0.2 runs, with `rounds20` for the pair (its partner `seed2-rounds20` equals `seed2-rounds20-b` to 500):
+
+| Window | `weight_step`: `seed2-elite` | `seed2-elite-nocopy` | `seed2-rounds20-b` | `rounds20` | `copy_chance`: `seed2-elite` | `seed2-rounds20-b` | `rounds20` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 51–100 | 1.21 | 1.2 | 0.154 | 0.00712 | 0.00317 | 0.0123 | 0.00693 |
+| 151–200 | 0.872 | 0.398 | 0.143 | 0.00178 | 0.00435 | 0.00019 | 0.00195 |
+| 251–300 | 1.02 | 0.0458 | 0.0647 | 0.000297 | 0.0126 | 0.00033 | 0.000618 |
+| 351–400 | 0.571 | 0.00318 | 0.00678 | none | 0.017 | 0.000465 | none |
+| 451–500 | 0.612 | 0.00497 | 0.0056 | none | 0.00465 | 0.00132 | none |
+| 551–600 | 0.601 | 0.00182 | 0.0155 | none | 0.00114 | 0.000902 | none |
+| 651–700 | 1.81 | 0.00194 | 0.181 | none | 0.000393 | 0.00197 | none |
+| 751–800 | 1.27 | 0.00391 | 2.65 | none | 0.00141 | 0.00434 | none |
+| 851–900 | 1.17 | 0.00482 | 0.118 | none | 0.000566 | 0.0079 | none |
+| 951–1000 | 0.978 | 0.000591 | 0.034 | none | 0.000598 | 0.00204 | none |
+
+**Clones** (B six, B pairs; the owner asked for these counts on 19 Oct 2026). Per run, the range of each count over the 50-generation windows the row names: copies; self-crossovers (a network crossed with itself); crossovers whose differs count against the picked parent is 0; crossovers whose `genome` equals a parent's; exact clones (copies plus the last). The three crossover columns nest, so they are never added. The last column is apart from the clones: mutation children with no network weight changed, whose feature weights and genes may differ from the parent's and whose play is not measured, so they count neither as clones nor as not clones. The pairs' rows cover only the full windows both runs of the pair have, from the first after their divergence.
+
+| Run | Windows | Copies | Self-crossovers | Differs 0 | A parent's genome | Exact clones | No network weight changed |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `seed2-elite` | 1–50 to 951–1000 | 35–1,308 | 19–49 | 34–93 | 34–93 | 128–1,357 | 0–5,777 |
+| `seed2-elite-meta0` | 1–50 to 951–1000 | 325–452 | 21–44 | 22–49 | 23–49 | 361–496 | 0 |
+| `seed2-elite-nocopy` | 1–50 to 951–1000 | 0 | 20–50 | 32–65 | 32–66 | 32–66 | 0–3,121 |
+| `seed2-elite-meta0-nocopy` | 1–50 to 951–1000 | 0 | 24–41 | 25–41 | 25–42 | 25–42 | 0 |
+| `seed2-rounds20-b` | 1–50 to 951–1000 | 3–858 | 22–50 | 36–197 | 36–199 | 56–934 | 0–6,345 |
+| `seed2-meta0-b` | 1–50 to 951–1000 | 340–442 | 24–54 | 28–54 | 29–55 | 385–481 | 0 |
+| Pair: `seed2-meta0` | 51–100 to 501–550 | 320–404 | 22–43 | 23–44 | 24–47 | 367–449 | 0 |
+| Pair: `seed2-meta0-b` | 51–100 to 501–550 | 340–442 | 24–51 | 28–51 | 29–51 | 385–481 | 0 |
+| Pair: `rounds20` | 1–50 to 251–300 | 68–582 | 28–40 | 28–40 | 28–41 | 109–612 | 0 |
+| Pair: `seed2-rounds20` | 1–50 to 251–300 | 3–858 | 28–43 | 36–58 | 36–58 | 56–895 | 0–556 |
+
+**Repeats** (D). Network-against-network clone repeats per checkpoint, of 9,712–9,767 games. After the slash, with `--without-elites`, of the 9,531–9,556 games left; in the runs without elites the option leaves out nothing, and D prints the same figures. Read them across checkpoints, not from one. The last three columns are the pairs (`seed2-meta0`'s partner is `seed2-meta0-b`). — means D did not run at that checkpoint; none means the run has no such generation.
+
+| Generation | `seed2-elite` | `seed2-elite-meta0` | `seed2-elite-nocopy` | `seed2-elite-meta0-nocopy` | `seed2-rounds20-b` | `seed2-meta0-b` | `seed2-meta0` | `rounds20` | `seed2-rounds20` |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 34 / 34 | 0 / 0 | 5 / 5 | 6 / 6 | 29 | 2 | 0 | 20 | 29 |
+| 200 | — | — | — | — | — | — | — | 66 | 3 |
+| 300 | 145 / 140 | 1 / 1 | 63 / 59 | 3 / 3 | 258 | 0 | 1 | 11 | 258 |
+| 500 | 362 / 342 | 1 / 1 | 191 / 184 | 0 / 0 | 1,630 | 406 | 32 | none | — |
+| 700 | 390 / 380 | 12 / 12 | 176 / 165 | 0 / 0 | 855 | 11 | none | none | none |
+| 1000 | 627 / 589 | 11 / 11 | 465 / 450 | 0 / 0 | 813 | 4 | none | none | none |
+
+**Elites** (C six). Facts within each elite run, as ranges over its windows 1–50 to 951–1000; no one-setting pair has elites, so there is no one-setting figure. Rank percentile: among the networks of the tournament an elite is carried into, 0 the first and 1 the last, the window's mean and median. Stay elite: the share carried again into the next generation. Children: bred children in the next generation per elite, and per non-elite network among its generation's first 10 %. Score: in the tournament that chose them (their parents' score, the same networks) and in the next one, the window's mean and the mean change. The longest chain is the most generations in a row one network was carried as an elite. No checkpoint champion of any run was an elite (A).
+
+| Run | Mean percentile | Median percentile | Longest chain | Stay elite | Children per elite | Children per top-10 % non-elite | Score before | Score after | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `seed2-elite` | 0.343–0.457 | 0.265–0.431 | 2–3 | 0.8–3.4 % | 1.23–1.85 | 2.83–3.35 | 14.4–14.9 | 10.3–11.1 | −4.53 to −3.35 |
+| `seed2-elite-meta0` | 0.403–0.464 | 0.356–0.446 | 2–3 | 1.0–3.0 % | 1.29–1.64 | 2.92–3.48 | 14.4–14.9 | 10.2–10.7 | −4.45 to −3.77 |
+| `seed2-elite-nocopy` | 0.407–0.503 | 0.37–0.505 | 2–3 | 0.2–2.0 % | 1.15–1.62 | 2.9–3.74 | 14.3–14.7 | 9.86–10.5 | −4.76 to −3.71 |
+| `seed2-elite-meta0-nocopy` | 0.382–0.497 | 0.334–0.521 | 2–3 | 0.6–2.4 % | 0.98–1.72 | 2.8–3.46 | 14.3–14.8 | 9.97–10.8 | −4.71 to −3.52 |
+
+**Score retest of the exact clones** (C six, C pairs). Copies, and crossovers with a parent's genome, against that parent's score in the generation before, as ranges over the windows the row names: the clones a window, the mean score before and after, the mean change, and the correlation of the scores before and after. Like the elites' score above, both tournaments have different fields (the next generation's), so neither the change nor the correlation is a reliability coefficient of one tournament.
+
+| Run | Windows | Exact clones | Score before | Score after | Change | Correlation |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `seed2-elite` | 1–50 to 951–1000 | 128–1,357 | 11.7–12 | 9.94–10.3 | −1.93 to −1.56 | 0.0129 to 0.308 |
+| `seed2-elite-meta0` | 1–50 to 951–1000 | 361–496 | 11.6–11.9 | 10–10.3 | −1.81 to −1.32 | 0.0163 to 0.184 |
+| `seed2-elite-nocopy` | 1–50 to 951–1000 | 32–66 | 11.7–12.4 | 9.18–10.4 | −2.76 to −1.37 | −0.078 to 0.29 |
+| `seed2-elite-meta0-nocopy` | 1–50 to 951–1000 | 25–42 | 11.8–12.5 | 9.48–10.9 | −2.69 to −1.22 | −0.397 to 0.343 |
+| `seed2-rounds20-b` | 1–50 to 951–1000 | 56–934 | 11.5–12.2 | 9.87–10.5 | −2.16 to −1.39 | −0.0656 to 0.227 |
+| `seed2-meta0-b` | 1–50 to 951–1000 | 385–481 | 11.6–11.9 | 9.98–10.3 | −1.8 to −1.36 | −0.00972 to 0.203 |
+| Pair: `seed2-meta0` | 51–100 to 501–550 | 367–449 | 11.7–11.9 | 9.86–10.3 | −1.9 to −1.41 | −0.0316 to 0.198 |
+| Pair: `seed2-meta0-b` | 51–100 to 501–550 | 385–481 | 11.6–11.9 | 9.98–10.3 | −1.8 to −1.36 | −0.00972 to 0.173 |
+| Pair: `rounds20` | 1–50 to 251–300 | 109–612 | 11.6–11.8 | 9.92–10.2 | −1.85 to −1.58 | 0.0526 to 0.161 |
+| Pair: `seed2-rounds20` | 1–50 to 251–300 | 56–895 | 11.5–12.2 | 9.95–10.5 | −1.76 to −1.54 | −0.0656 to 0.181 |
+
+**The 16 Oct hypothesis** (`docs/literature.md` section 7, experiment 2): with elitism, `weight_step` and `copy_chance` shrink less at `meta_rate` 0.2, and the plateau is higher at `meta_rate` 0. With one run per setting, the runs **cannot tell**. The Genes table gives each run's medians, the two Champions tables each run's champions; telling it needs more seeds of each setting.
+
+**Step 0.5's rise and fall** (`PROJECT_NOTES.md` item 3): does elitism change it? The runs **cannot tell** that either, with one run of each elitist setting at `meta_rate` 0. The Population and Champions tables give each run, and the `seed2-meta0` pair's figures as far as both runs reach.
+
+**Self-benchmark check** (A six and pairs, owner 19 Oct 2026). In none of the runs above did a checkpoint champion have the genome of a network it was benchmarked against.
+
+**Interpretation** (what the outputs cannot separate). In every window, the elites of the four elite runs and the exact clones of every run scored less on average in the next tournament than they or their parent had in the one that chose them (the Elites and exact-clone retest tables). The outputs cannot tell how much of either fall is a stronger next field and how much a lucky score that selection picked, since the two tournaments have different fields. Nor can they separate a setting's effect on the `meta_rate` 0.2 gene trajectories from the spread between runs of one setting: the only pair at 0.2, `rounds20` and `seed2-rounds20`, is in the Genes table, up to generation 300 (its outputs to 302).
+
 ## Benchmark
 
 - `CheckpointBenchmark` (`ruby/checkpoint_benchmark.rb`) measures progress apart from the tournament. Tournament games use the arena; checkpoint games use `gogui-twogtp`, one game per run (the command from `CheckpointBenchmark.game_command`, which `scripts/brittleness.rb` uses too), with the GNU Go referee (`GameResult::REFEREE`), and are read from its `.dat` file by `GameResult`. `RunGeneration#call` runs it after the tournament of every `keep_every`-th generation (the checkpoints, whose networks are kept); with `keep_every` 0 it never runs.
-- It plays the top network of the generation's final ranking (the first entry that is not a bot) against the stored panel `benchmark_opponents`, in order. `kind` is `bot` (run by `command`), `initial_champion` (generation 0's top network), or `past_champions`: the top networks of the last `benchmark_champions` checkpoints before this one (setting, default 10), oldest first, each a separate opponent named `GenNChampion` for the checkpoint N, so older ones drop out as the run goes on. Generation 0 plays the bots only, and `past_champions` never holds generation 0, which `initial_champion` always covers. `CheckpointBenchmark.opponents_for` expands the panel. Migration 015 turned the earlier `previous_checkpoint` row (the checkpoint before only) into `past_champions`, renamed its games to `GenNChampion` from their `opponent_network`, and gave existing experiments `benchmark_champions` 10.
+- It plays the top network of the generation's final ranking (the first entry that is not a bot) against the stored panel `benchmark_opponents`, in order. `kind` is `bot` (run by `command`), `initial_champion` (generation 0's top network), or `past_champions`: the top networks of the last `benchmark_champions` checkpoints before this one (setting, default 10), oldest first, each a separate opponent named `GenNChampion` for the checkpoint N, so older ones drop out as the run goes on. Generation 0 plays the bots only, and `past_champions` never holds generation 0, which `initial_champion` always covers. `CheckpointBenchmark.opponents_for` expands the panel. With elitism (`elite_share` above 0) an elite can stay first across checkpoints, so a checkpoint's champion can be byte for byte a stored `GenNChampion` or `Gen0Champion` (the `past_champions` and `initial_champion` opponents `CheckpointBenchmark.opponents_for` expands), and the benchmark then plays that network against itself. `scripts/compare-runs.rb` flags such pairs by `births.genome` ("Comparing runs' champions", above); the first elitism runs had none ("Elitism (`elite_share`)", above). Migration 015 turned the earlier `previous_checkpoint` row (the checkpoint before only) into `past_champions`, renamed its games to `GenNChampion` from their `opponent_network`, and gave existing experiments `benchmark_champions` 10.
 - Each opponent gets `benchmark_games` games (setting, even, default 100; 20 before migration 017), half with each color: opening `k` is played once with each. The openings (`Openings.moves`) have `benchmark_opening_moves` stones (setting, default 4), drawn from the experiment seed and `k`, never orthogonally adjacent, so they are the same at every checkpoint and checkpoints compare. They go to twogtp as `-openings work/benchmark/openings/k/`.
 - twogtp counts opening stones as moves, so the runner passes `-maxmoves` as `max_moves` plus the opening's stones, and the stored `length` includes them.
 - Each player gets `game_seconds` of main time as `-time Ns` (GoGui 1.6.0 reads a bare `-time N` as minutes and takes only whole numbers). It is always passed: without `-time`, GNU Go plays a different, faster game.
