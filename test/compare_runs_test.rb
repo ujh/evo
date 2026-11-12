@@ -222,7 +222,7 @@ class CompareRunsTest < Minitest::Test
 
       ## Ratings from the games against the bots
 
-      One rating fit (BenchmarkRatings) over every run's champion-against-bot games and base's bot-against-bot games, AmiGo rated 0. Each bot is one player in all runs; each run's champions are players of their own. Games against Gen0Champion and the GenNChampion opponents are left out, so a champion's rating does not depend on its run's other champions. ± is the 95 % half-width with the other ratings held fixed. The bots are rated from all given runs' champions, so ratings compare only within one invocation of this script.
+      One rating fit (BenchmarkRatings) over every run's champion-against-bot games and base's bot-against-bot games, AmiGo rated 0. Each bot is one player in all runs; each run's champions are players of their own. Games against Gen0Champion and the GenNChampion opponents are left out, so champions are linked only through the bots. The bots are rated from all given runs' champions, so a champion's rating still moves with the other champions given, and ratings compare only within one invocation of this script. ± is the 95 % half-width with the other ratings held fixed; a checkpoint missing some of its games against the bots is marked incomplete.
 
       Bot-against-bot games with another result than in base: copy 0 of 12, twin 0 of 12, elite 1 of 12.
 
@@ -234,7 +234,7 @@ class CompareRunsTest < Minitest::Test
       | 300 | 66 ± 192 | 66 ± 192 | 66 ± 192 | 121 ± 191 |
       | 400 | 121 ± 191 | 121 ± 191 | 121 ± 191 | 177 ± 194 |
       | 500 | 121 ± 191 | 121 ± 191 | 66 ± 192 | 235 ± 201 |
-      | 600 | 177 ± 194 | — | 220 ± 217 | 235 ± 201 |
+      | 600 | 177 ± 194 | — | 220 ± 217, incomplete | 235 ± 201 |
       | 700 | 121 ± 191 | — | — | 262 ± 215 |
       | 800 | 235 ± 201 | — | — | 235 ± 201 |
       | 900 | 235 ± 201 | — | — | 299 ± 213 |
@@ -249,7 +249,7 @@ class CompareRunsTest < Minitest::Test
 
       ## Wins against AmiGo, MichiWeak, MichiMid
 
-      Per checkpoint, the champion's wins against these bots (games a checkpoint: base 12, copy 12, twin 12, elite 12). After ±, how far one champion's wins would move over another sample of openings and bot seeds: the 95 % half-width of the binomial spread, summed over the bots at the champion's own win rate against each. Replaying the same games would not move them: the openings repeat at every checkpoint and AmiGo plays deterministically.
+      Per checkpoint, the champion's wins against these bots (games a checkpoint: base 12, copy 12, twin 12, elite 12). After ±, how far one champion's wins would move over another sample of openings and bot seeds: the 95 % half-width of the binomial spread, summed over the bots at the champion's own win rate against each. Replaying the same games would not move them: the openings repeat at every checkpoint, AmiGo plays deterministically, and the michi levels repeat for their seed.
 
       Failed games against these bots (no winner, so not wins; left out of the ratings): elite 1.
 
@@ -313,7 +313,7 @@ class CompareRunsTest < Minitest::Test
 
       ## Ratings from the games against the bots
 
-      One rating fit (BenchmarkRatings) over every run's champion-against-bot games and twin's bot-against-bot games, AmiGo rated 0. Each bot is one player in all runs; each run's champions are players of their own. Games against Gen0Champion and the GenNChampion opponents are left out, so a champion's rating does not depend on its run's other champions. ± is the 95 % half-width with the other ratings held fixed. The bots are rated from all given runs' champions, so ratings compare only within one invocation of this script.
+      One rating fit (BenchmarkRatings) over every run's champion-against-bot games and twin's bot-against-bot games, AmiGo rated 0. Each bot is one player in all runs; each run's champions are players of their own. Games against Gen0Champion and the GenNChampion opponents are left out, so champions are linked only through the bots. The bots are rated from all given runs' champions, so a champion's rating still moves with the other champions given, and ratings compare only within one invocation of this script. ± is the 95 % half-width with the other ratings held fixed; a checkpoint missing some of its games against the bots is marked incomplete.
 
       Bot-against-bot games with another result than in twin: base 0 of 12.
 
@@ -325,7 +325,7 @@ class CompareRunsTest < Minitest::Test
       | 300 | 58 ± 191 | 58 ± 191 |
       | 400 | 113 ± 191 | 113 ± 191 |
       | 500 | 58 ± 191 | 113 ± 191 |
-      | 600 | 211 ± 217 | 169 ± 195 |
+      | 600 | 211 ± 217, incomplete | 169 ± 195 |
       | 700 | — | 113 ± 191 |
       | 800 | — | 228 ± 202 |
       | 900 | — | 228 ± 202 |
@@ -340,7 +340,7 @@ class CompareRunsTest < Minitest::Test
 
       ## Wins against AmiGo, MichiWeak, MichiMid
 
-      Per checkpoint, the champion's wins against these bots (games a checkpoint: twin 12, base 12). After ±, how far one champion's wins would move over another sample of openings and bot seeds: the 95 % half-width of the binomial spread, summed over the bots at the champion's own win rate against each. Replaying the same games would not move them: the openings repeat at every checkpoint and AmiGo plays deterministically.
+      Per checkpoint, the champion's wins against these bots (games a checkpoint: twin 12, base 12). After ±, how far one champion's wins would move over another sample of openings and bot seeds: the 95 % half-width of the binomial spread, summed over the bots at the champion's own win rate against each. Replaying the same games would not move them: the openings repeat at every checkpoint, AmiGo plays deterministically, and the michi levels repeat for their seed.
 
       | Checkpoint | twin | base |
       | --- | ---: | ---: |
@@ -419,6 +419,28 @@ class CompareRunsTest < Minitest::Test
     assert_includes games, ['MichiWeak', 'MichiMid', 1]
     refute_includes games, ['MichiWeak', 'MichiMid', 0]
     assert_includes games, ['elite:Gen300', 'AmiGo', 1]
+  end
+
+  # A failed game has no winner; it is no loss either, so the spread
+  # leaves it out: AmiGo 1 of 2 and MichiMid 1 of 1 give 1.96 * sqrt(0.5),
+  # where counting the failed game as a loss would give 1.96.
+  def test_the_spread_leaves_failed_games_out
+    elite, = runs('elite')
+    games = [{ opponent: 'AmiGo', winner: 'network' }, { opponent: 'AmiGo', winner: 'opponent' },
+             { opponent: 'MichiMid', winner: 'network' }, { opponent: 'MichiMid', winner: nil, failure: 'crash (white)' }]
+    run = elite.with(champion_games: games.map { |game| { failure: nil, generation: 0 }.merge(game) })
+    result = C.wins(run, %w[AmiGo MichiMid]).fetch(0)
+    assert_equal [2, 4, 1], [result.wins, result.games, result.failures]
+    assert_in_delta 1.96 * Math.sqrt(0.5), result.spread, 1e-9
+  end
+
+  # The sentence on replays holds for the default bots only: AmiGo plays
+  # deterministically and michi repeats for its seed, which a bot outside
+  # them, such as an unpinned GNU Go, need not.
+  def test_the_replay_sentence_only_for_the_default_bots
+    base, elite = runs('base', 'elite')
+    assert_includes C.report([base, elite]), 'Replaying the same games would not move them'
+    refute_includes C.report([base, elite], %w[AmiGo Brown]), 'Replaying the same games'
   end
 
   def test_bot_agreement_compares_game_by_game

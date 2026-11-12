@@ -37,6 +37,10 @@ require_relative '../ruby/benchmark_ratings'
 
 module CompareRuns
   DEFAULT_BOTS = %w[AmiGo MichiWeak MichiMid].freeze
+  # True of the default bots only: a bot outside them, such as an unpinned
+  # GNU Go, need not replay its games alike (#132).
+  REPLAYS = ' Replaying the same games would not move them: the openings repeat at every checkpoint, AmiGo plays ' \
+            'deterministically, and the michi levels repeat for their seed.'.freeze
   # Fixed before any run was compared (plans: the elitism analysis).
   WINDOWS = [500..1000, 200..1000].freeze
   # A game's score for the ratings, as ExperimentStats scores it: 1 for the
@@ -316,22 +320,28 @@ module CompareRuns
       "#{run.name} #{another} of #{matched}#{"; #{unmatched} not in #{first.name}" if unmatched.positive?}"
     end
     checkpoints = runs.flat_map { |run| run.champion_games.map { |game| game[:generation] } }.uniq.sort
-    cell = lambda do |row|
+    panel_bots = bots(runs).keys
+    complete = runs.to_h { |run| [run.name, wins(run, panel_bots).transform_values(&:complete)] }
+    cell = lambda do |row, incomplete = false|
       next '—' unless row
 
-      row.margin ? "#{row.rating} ± #{row.margin}" : row.rating.to_s
+      text = row.margin ? "#{row.rating} ± #{row.margin}" : row.rating.to_s
+      incomplete ? "#{text}, incomplete" : text
     end
-    bots = bots(runs).keys.filter_map { |bot| rows[bot] }.sort_by { |row| [-row.rating, row.player] }
+    bots = panel_bots.filter_map { |bot| rows[bot] }.sort_by { |row| [-row.rating, row.player] }
     ['## Ratings from the games against the bots', '',
      "One rating fit (BenchmarkRatings) over every run's champion-against-bot games and #{first.name}'s " \
      "bot-against-bot games, #{BenchmarkRatings.anchor(first.panel)} rated 0. Each bot is one player in all runs; " \
      "each run's champions are players of their own. Games against Gen0Champion and the GenNChampion opponents " \
-     "are left out, so a champion's rating does not depend on its run's other champions. ± is the 95 % " \
-     'half-width with the other ratings held fixed. The bots are rated from all given runs\' champions, so ' \
-     'ratings compare only within one invocation of this script.',
+     'are left out, so champions are linked only through the bots. The bots are rated from all given runs\' ' \
+     "champions, so a champion's rating still moves with the other champions given, and ratings compare only " \
+     'within one invocation of this script. ± is the 95 % half-width with the other ratings held fixed; a ' \
+     'checkpoint missing some of its games against the bots is marked incomplete.',
      *(['', "Bot-against-bot games with another result than in #{first.name}: #{agreement.join(', ')}."] unless agreement.empty?),
      '', *table(['Checkpoint', *runs.map(&:name)],
-                checkpoints.map { |generation| [generation, *runs.map { |run| cell[rows[player(run, generation)]] }] }),
+                checkpoints.map do |generation|
+                  [generation, *runs.map { |run| cell[rows[player(run, generation)], complete[run.name][generation] == false] }]
+                end),
      '', *table(%w[Bot Rating], bots.map { |row| [row.player, cell[row]] })]
   end
 
@@ -361,8 +371,7 @@ module CompareRuns
      "Per checkpoint, the champion's wins against these bots (games a checkpoint: " \
      "#{runs.map { |run| "#{run.name} #{chosen.size * run.benchmark_games}" }.join(', ')}). After ±, how far one " \
      "champion's wins would move over another sample of openings and bot seeds: the 95 % half-width of the binomial " \
-     "spread, summed over the bots at the champion's own win rate against each. Replaying the same games would not " \
-     'move them: the openings repeat at every checkpoint and AmiGo plays deterministically.',
+     "spread, summed over the bots at the champion's own win rate against each.#{REPLAYS if (chosen - DEFAULT_BOTS).empty?}",
      *(['', "Failed games against these bots (no winner, so not wins; left out of the ratings): #{failed.join(', ')}."] unless failed.empty?),
      '', *table(['Checkpoint', *runs.map(&:name)],
                 checkpoints.map { |generation| [generation, *runs.map { |run| cell[wins[run.name][generation]] }] }),
