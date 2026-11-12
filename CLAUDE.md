@@ -32,6 +32,7 @@ Build from the repository root.
 
 - [Code reference](docs/code-reference.md): engine rules, network format, breeding programs, build and test details, CI, and external tools.
 - [Experiment reference](docs/experiment-reference.md): tournament and benchmark rules, game results, the runner, SQLite storage, stats, and recovery.
+- [Analysis scripts](docs/analysis-scripts.md): what each analysis script prints and how to read it.
 - [Performance measurements](docs/performance.md): how to measure, the fixed workloads, and the measured costs that set a default or a design.
   Read before optimizing.
 - [Go features](docs/features.md): feature design, groups, weights, and comparison results.

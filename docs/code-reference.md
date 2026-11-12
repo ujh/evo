@@ -118,7 +118,7 @@ Its tests and smoke checks:
 
 `evolve/perturb NET OUT WEIGHT_CHANGES WEIGHT_STEP SEED` (usage in `evolve/perturb.c`):
 
-- It writes a child that differs from NET only in its network weights, for `scripts/brittleness.rb` (`docs/experiment-reference.md`, "How brittle a champion is").
+- It writes a child that differs from NET only in its network weights, for `scripts/brittleness.rb` (`docs/analysis-scripts.md`, "How brittle a champion is").
 - It replaces OUT through a temporary file, so OUT is either as it was or the whole child, and prints `differs=N`.
 - It is a tool, not an experiment program: `mise run build` builds it, but the runner neither needs nor copies it (`SetupExperiment::EXECUTABLES`).
 

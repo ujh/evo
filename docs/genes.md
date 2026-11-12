@@ -190,7 +190,7 @@ The tournament pairs players of similar scores, so these are the networks near t
 The Generations table's Copies column is the share of bred children identical to a parent by network weights and activations (`ExperimentStats#identical?`): every copy, and any mutation or crossover child with a parent's activations and a differs count of 0 against it.
 It compares neither genes nor feature weights, so it counts the mutation children that changed no network weight, whose feature weights and genes may differ from the parent's ([Why `weight_changes` is a count, not a rate](#why-weight_changes-is-a-count-not-a-rate)).
 It leaves out the elites, which are not bred.
-`docs/experiment-reference.md`, "Gene trajectories and clones", tells the exact clones apart.
+`docs/analysis-scripts.md`, "Gene trajectories and clones", tells the exact clones apart.
 
 ### CSV columns
 

@@ -272,7 +272,7 @@ Prefer new opponents over rematches, since repeating a pairing is "an inefficaci
   - The first remedy listed is "Not using the reproduction operator". Others are smaller tournaments, a generational instead of a steady-state model, and demes.
   - A footnote to the remedy of removing individuals at random: "it may be worthwhile to protect the best individual(s) to preserve the elitism".
   - As a warning sign, it suggests watching *variety*, the share of distinct individuals: below 90% may indicate a problem. "Measuring phenotypic variation (i.e., diversity of behaviour) may also be useful."
-  - For evo (our inference): `copy_chance` is a reproduction operator, the clone-repeat share (`experiment-reference.md`, "How often tournament games repeat") is a behavioural measure, and evo is already generational.
+  - For evo (our inference): `copy_chance` is a reproduction operator, the clone-repeat share (`analysis-scripts.md`, "How often tournament games repeat") is a behavioural measure, and evo is already generational.
 
 ### 4.6 How many elites
 
