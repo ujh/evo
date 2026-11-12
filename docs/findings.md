@@ -80,9 +80,9 @@ Each seed has one run per round count; `tournament_rounds` defaults to 20 since 
 - Second seed, wins of 300 against the same three bots: the 10-round run led at about 20 summed hours; from about 36 h on the 20-round run led at every equal-compute point (101 against 67 at 36–42 h, 102 against 83 at 52–55 h).
   The 40-round run trailed the 20-round run at equal compute and, from generation 200 on, at equal generations (78 against 101 at generation 200, 94 against 114 at 500); it led only at generation 100 (75 against 51), at twice the cost.
 - `weight_step`'s median fell from 0.5 to 0.018 in `seed2-rounds10`, 0.006 in `seed2-rounds20` and 0.0004 in `seed2-rounds40` by generation 500.
-  It did not stay down in every run: `seed2-rounds20-b`, the same as `seed2-rounds20` to generation 500, had a median of 0.0056 in generations 451–500, 0.181 in 651–700 and 2.65 in 751–800 (`scripts/gene-trajectories.rb` at 7e4b5a6, [Elitism](#elitism-elite_share)).
+  `seed2-rounds20-b`, the same as `seed2-rounds20` to generation 500, went on to 1000; its median per window (generations 51–100, 151–200, … 951–1000) was 0.154, 0.143, 0.0647, 0.00678, 0.0056, 0.0155, 0.181, 2.65, 0.118 and 0.034 (`scripts/gene-trajectories.rb` at 7e4b5a6, [Elitism](#elitism-elite_share)).
 - Whether the round count caused these differences: cannot tell, with one run per round count and seed.
-  Two runs of 20 rounds with different seeds differ about as much: `rounds20` won 70, 19 and 26 more of 300 than `seed2-rounds20` at checkpoints 100, 200 and 300 (which also include another draw of benchmark openings and bot seeds; `scripts/compare-runs.rb` at 7e4b5a6, [Elitism](#elitism-elite_share)).
+  Two runs of 20 rounds with different seeds also differ: `rounds20` won 70, 19 and 26 more of 300 than `seed2-rounds20` at checkpoints 100, 200 and 300 (which also include another draw of benchmark openings and bot seeds; `scripts/compare-runs.rb` at 7e4b5a6, [Elitism](#elitism-elite_share)).
 
 Source: each experiment's own `stats` (first seed 2 Oct 2026, second seed 9 Oct 2026) and the summed `games.duration`; no script.
 

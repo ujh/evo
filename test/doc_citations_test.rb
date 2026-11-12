@@ -64,14 +64,16 @@ class DocCitationsTest < Minitest::Test
     MD
     in_repo('docs/guide.md' => TARGET, 'NOTES.md' => citing,
             'docs/pull-requests.md' => "# PRs\n\n1. Fetch.\n",
-            'run.sh' => "# docs/pull-requests.md step 7\n") do |out, status|
+            'docs/orchestration.md' => "# Workflow\n\n### 1. Agree\n",
+            'run.sh' => "# docs/pull-requests.md step 7, docs/orchestration.md step 5\n") do |out, status|
       refute status.success?, out
       assert_match(/^FAIL\s+link\s+NOTES\.md:1\s+docs\/guide\.md#missing$/, out)
       assert_match(/^FAIL\s+link\s+NOTES\.md:1\s+docs\/none\.md$/, out)
       assert_match(/^FAIL\s+section\s+NOTES\.md:2\s+docs\/guide\.md "Renamed section"$/, out)
       assert_match(/^FAIL\s+number\s+NOTES\.md:2\s+docs\/guide\.md section 4$/, out)
       assert_match(/^FAIL\s+step\s+run\.sh:1\s+docs\/pull-requests\.md step 7$/, out)
-      assert_match(/^5 citations checked, 5 broken; 1 code lines to read\.$/, out)
+      assert_match(/^FAIL\s+step\s+run\.sh:1\s+docs\/orchestration\.md step 5$/, out)
+      assert_match(/^6 citations checked, 6 broken; 1 code lines to read\.$/, out)
     end
   end
 

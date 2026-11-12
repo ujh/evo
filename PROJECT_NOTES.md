@@ -70,7 +70,7 @@ With one run per setting, the fixed-gene runs (`meta_rate` 0) cannot tell whethe
 **Open question: do the shrinking mutation genes limit progress?**
 Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies.
 In the 500-generation runs `weight_step`'s median fell from 0.5 to between 0.018 and 0.0004 (`docs/findings.md`, "10, 20 and 40 rounds"), and in `seed2-rounds40` `copy_chance` rose to 0.02–0.07; with one run per round count, whether the rounds set that order cannot tell.
-Past generation 500 the median rose again in `seed2-rounds20-b` (to 2.65 in generations 751–800, same finding), so the shrinking need not last.
+Past generation 500, `seed2-rounds20-b`'s median rose in some windows and fell in others up to generation 1000 (same finding, every window).
 The `weight_step` clamp (0.0001) is reached: the generation's minimum sits at it in `rounds20` from generation 200 and in `seed2-rounds40` from generation 337, and touches it in many generations of `seed2-rounds10` (from 352) and `seed2-rounds20`.
 `seed2-rounds20-b` and `seed2-meta0-b`, second runs of `seed2-rounds20`'s and `seed2-meta0`'s settings, reach generation 1000 (`docs/findings.md`, "Elitism (`elite_share`)", has the commands that print their genes and population strength).
 Still open:
