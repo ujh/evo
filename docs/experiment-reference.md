@@ -330,7 +330,7 @@ michi used 0.05 s (80 playouts) to 1.05 s (1200) of CPU a game; GNU Go games too
 - Ctrl-C during generation 0's `initial-population` stops the same way, with nothing stored, so a resume runs it again.
 - The benchmark passes `-force` to twogtp, which deletes an existing `PREFIX.dat`, so a replayed benchmark game's `.err` is rewritten too; how the benchmark resumes is under [Benchmark](#benchmark).
 - A seeded run gives the same settings, players, births (every column), networks (by SHA-256), rankings, games (every column but `duration`, `time_black`, and `time_white`; SGFs included) and benchmark rows (every column but those three and `stderr`) at any concurrency, and an interrupted and resumed run gives the same as an uninterrupted one.
-  Compare those when checking a change that must not alter results.
+  Compare those when checking a change that must not alter results; the exceptions (a game lost on time, an unpinned GNU Go) are in `docs/code-reference.md`, "Engine and network files" (Seeds and reproducibility).
 
 ### Timings
 

@@ -104,7 +104,7 @@ What such docs may hold besides the outputs' figures is listed in one place, `do
 The loop has no round limit (owner, 28 Sep 2026): go on until only nits are left, without asking, since later rounds still find real defects.
 Ask the owner only when a finding needs a decision only the owner can make, such as changing scope or approach.
 A finding of a kind whose whole class the round before swept (loop step 1) is the sign of such a decision: ask the first time the kind comes back, with the options (sweep once more, or change the approach, and how), not after more sweeps.
-One owner answer can end such a kind where sweeps have not (owner, 12 Nov 2026, on claims stronger than one run per setting allows: "Descriptive only", "Slim it down").
+One owner answer can end such a kind where sweeps have not (owner, 12 Nov 2026: "Descriptive only" on claims stronger than one run per setting allows, "Slim it down" on one-sided summaries).
 
 ### Where the reviewer works
 

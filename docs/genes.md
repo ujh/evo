@@ -104,7 +104,7 @@ At `meta_rate` 0 without move features, such a child with no activation or shape
 GENANN networks have one width for all hidden layers, so a shape change acts on every hidden layer at once.
 A mutated child gets at most one of four changes, chosen uniformly among those the limits allow (`max_hidden_layers` defaults to 4, `max_layer_size` to 200):
 
-- **Widen** (while width < `max_layer_size`) adds a neuron to every hidden layer, with random incoming weights but weights of 0 into the next layer: it computes something, but nothing listens yet, so the outputs stay the same until later weight mutations connect it.
+- **Widen** (while there are hidden layers and width < `max_layer_size`) adds a neuron to every hidden layer, with random incoming weights but weights of 0 into the next layer: it computes something, but nothing listens yet, so the outputs stay the same until later weight mutations connect it.
 - **Narrow** (while width > 1) removes one neuron per hidden layer, picked at random, with its weights, and changes play by as much as those neurons mattered.
 - **Add a layer** (while layers < `max_hidden_layers`) puts a pass-through layer of the same width after the last one: neuron *i* copies neuron *i* of the layer before (weight 1 from it, 0 from the others, bias 0), so the bigger child starts out playing like its parent.
   That is exact for linear, relu and threshold, close for tanh (about 180 of 200 test moves stay the same), and close for the sigmoids, whose squeeze the output layer compensates (sigmoid(x) ≈ 0.5 + x/4 near 0, so its weights from the new layer are multiplied by 4 and its biases adjusted).

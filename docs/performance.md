@@ -36,7 +36,7 @@ The results file holds, per invocation, the hardware, the runner's `timings` lin
 
 ## Measured costs
 
-Each figure names the revision and concurrency it was measured at; one run each unless stated.
+Each figure names the revision and concurrency it was measured at where the measurement recorded them; one run each unless stated.
 
 ### The default panel on the large workload
 
@@ -82,8 +82,8 @@ The default panel then had six bots in the benchmark (120 / 140 games); GNU Go l
 
 The runner starts a fresh arena for every chunk; arenas kept alive across rounds and read-only mapped `.ann` files were not built.
 
-- Loading a large network for play (`ann_binary_read_for_play`, without `genann_init`'s random fill) takes about 0.7 ms, against about 2.3 ms with the fill (a rough timing, machine not quiet).
-- Persistent arenas, measured on a throwaway branch at 2.3 ms loads (large workload's generation 1, concurrency 3, two runs each), saved 4.7 s a generation (8.2 % of the tournament) for about 4 GiB an arena instead of about 373 MiB a chunk, so about 12 GiB for 3.
+- Loading a large network for play (`ann_binary_read_for_play`, without `genann_init`'s random fill) takes about 0.7 ms, against about 2.3 ms with the fill (a rough timing taken while building `9bc3ab5`, one arena, machine not quiet).
+- Persistent arenas, measured on a throwaway branch never merged (`measure/persistent-arena`) at 2.3 ms loads (large workload's generation 1, concurrency 3, two runs each), saved 4.7 s a generation (8.2 % of the tournament) for about 4 GiB an arena instead of about 373 MiB a chunk, so about 12 GiB for 3.
 - With 0.7 ms loads they would save roughly 1.5–2 s a generation (an estimate, not measured) for about 11 GiB more memory and the complexity of arenas that outlive a round (interruption, resume, the pool's contract), so they were not built.
 - Mapping the `.ann` files read-only (considered, not measured) would need a padded format v3 and GENANN's single allocation split so the weights are a separate pointer; not worth it unless loading matters again.
 
