@@ -61,6 +61,7 @@ Docs hold what an agent needs to build, run, or decide the next step and cannot 
 
 - No history: no past behaviour, no measurements that no longer hold, no stories of how a defect or rule was found.
   When a change makes text stale, rewrite or delete it; never append an update.
+- For what the code holds, a doc names the symbol to read rather than restating it, since a copy goes stale.
 - A rule keeps one clause of why.
   Owner decisions keep the owner's words and date.
 - Results go in `docs/findings.md` and follow `docs/orchestration.md`, "Analyses and results docs".

@@ -133,7 +133,7 @@ The orchestrator runs a short one itself in a worktree at that revision, passing
 A long run goes to the owner as a command, to start at the concurrency they choose, since the machine is theirs, and the plan goes on when it has finished ([While the owner is away](#while-the-owner-is-away) says when the orchestrator may start it).
 Keep the raw outputs, then build the results PR like any other.
 
-**Whole-process review.** The plan's last step before cleanup gives a fresh step agent the learnings log; it reviews the process as one system and edits this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions.
+**Whole-process review.** The plan's last step before cleanup gives a fresh step agent the learnings log; it reviews the process as one system and edits this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions and Docs rules.
 It folds in what generalizes as a rule with its reason, drops one-offs, and restructures where parts no longer fit rather than patching lines, since rules added one at a time drift apart; repository quirks go into the relevant reference doc.
 Useful changes go into a final docs PR (for an analysis, possibly the results PR), reviewed and checked like the others, so it is in the report (owner, 29 Sep 2026: plans now always have a learnings log, so go over the process as a whole at the end of each plan and open a final PR if there are useful changes; this replaced a review every third run).
 
