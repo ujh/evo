@@ -54,11 +54,12 @@ which shrinks a finished experiment to its kept generations' champions
 2. Restart an interrupted experiment with the same command.
 3. View results with `mise run stats EXPERIMENT_NAME` (see [Statistics](#statistics)).
 
-The networks play each other and a ladder of bots, weakest first: Brown,
-AmiGo, three levels of michi-c2 calibrated between AmiGo and GNU Go level 0,
-and GNU Go level 0 (`docs/experiment-reference.md` has the commands and the
-calibration). The michi levels were calibrated on 9×9 only, so an experiment
-with them refuses every other board size.
+The networks play each other and a ladder of bots: Brown, AmiGo, three levels
+of michi-c2 calibrated between AmiGo and GNU Go, and GNU Go at levels 0 and
+10, pinned so that its clock cannot change its level
+(`docs/experiment-reference.md` has the commands and the calibration). The
+michi levels were calibrated on 9×9 only, so an experiment with them refuses
+every other board size.
 
 Each network carries its own settings as genes, and they evolve with its
 weights: its hidden and output activations, its shape (hidden layers and
@@ -93,11 +94,11 @@ Tournament scores only compare the networks of one generation, so they cannot
 show whether evolution makes progress. At every checkpoint (every
 `keep_every`-th generation, including generation 0; none when `keep_every` is
 0), after the tournament, the generation's top network plays a fixed panel:
-Brown, AmiGo, the three michi levels, GNU Go level 0, the top network of
+Brown, AmiGo, the three michi levels, GNU Go levels 0 and 10, the top network of
 generation 0, and the top networks of the last `benchmark_champions`
 checkpoints before it (a rolling set: older ones drop out, generation 0's
 stays). Each past champion is a separate opponent, `GenNChampion` for the
-checkpoint N. Generation 0 plays only the bots. The six bots also play each
+checkpoint N. Generation 0 plays only the bots. The seven bots also play each
 other, once per experiment: the first checkpoint plays those games along with
 its own (a resume re-enters that checkpoint and finishes them). On every start,
 before it resumes, the runner has each earlier checkpoint play the benchmark
@@ -111,8 +112,8 @@ Four settings control it:
 - `benchmark_champions` (default 10): how many past checkpoints' champions
   each checkpoint plays, besides generation 0's.
 - `benchmark_bot_games` (default 100): games per pair of bots, an even number,
-  half with each bot as Black; 0 for none. The 15 pairs of the six bots play
-  1,500 games in all.
+  half with each bot as Black; 0 for none. The 21 pairs of the seven bots
+  play 2,100 games in all.
 - `benchmark_opening_moves` (default 4): stones in each seeded opening. Every
   checkpoint plays the same openings, each once with each color, so
   checkpoints can be compared. With 0, the games against Brown, AmiGo, and

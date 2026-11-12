@@ -9,7 +9,8 @@ set -eu
 # The tournament's bots, with the default opponents' commands
 # (ruby/setup_experiment.rb): Brown, AmiGoGtp, michi-c2 at MichiStrong's
 # playouts (the most of the three levels), and GNU Go level 0 with
-# --capture-all-dead play GAMES (default 20) relayed 9x9 games through
+# --capture-all-dead (level 10 is the same program and answers setup, play
+# and quit alike) play GAMES (default 20) relayed 9x9 games through
 # engine/botdriver for each ordered pairing (12 pairings), LANES (default
 # 4) games at a time, as a tournament runs several chunks at once, each
 # michi and GNU Go game with its own seed. It prints, per bot, the
@@ -42,7 +43,7 @@ command_of() {
     brown) printf 'brown' ;;
     amigo) printf 'amigogtp' ;;
     michi) printf 'michi gtp --sims 1200 --play-until-end --seed %s' "$2" ;;
-    gnugo0) printf 'gnugo --level 0 --mode gtp --capture-all-dead --seed %s' "$2" ;;
+    gnugo0) printf 'gnugo --level 0 --min-level 0 --max-level 0 --mode gtp --capture-all-dead --seed %s' "$2" ;;
   esac
 }
 bots='brown amigo michi gnugo0'

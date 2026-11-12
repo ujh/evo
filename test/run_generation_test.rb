@@ -868,15 +868,19 @@ class GamesFromRankingTest < Minitest::Test
   end
 
   # The default tournament holds the whole ladder: Brown, AmiGo, the three
-  # michi levels, and GNU Go level 0, each copy recorded with its opponent.
+  # michi levels, and GNU Go at levels 0 and 10, each copy recorded with its
+  # opponent.
   def test_tournament_has_the_whole_ladder
     in_experiment do
       write_networks(1, { '0001.ann' => '' })
       players = build_generation.send(:setup_tournament)['players']
       copies = players.values.filter_map { |player| player['opponent'] }.tally
-      assert_equal({ 'Brown' => 5, 'AmiGo' => 10, 'MichiWeak' => 5, 'MichiMid' => 5, 'MichiStrong' => 5, 'GnuGo' => 3 },
-                   copies)
-      assert_equal 'gnugo --level 0 --mode gtp --capture-all-dead', players['GnuGo1']['command']
+      assert_equal({ 'Brown' => 5, 'AmiGo' => 10, 'MichiWeak' => 5, 'MichiMid' => 5, 'MichiStrong' => 5, 'GnuGoZero' => 3,
+                     'GnuGoTen' => 3 }, copies)
+      assert_equal 'gnugo --level 0 --min-level 0 --max-level 0 --mode gtp --capture-all-dead',
+                   players['GnuGoZero1']['command']
+      assert_equal 'gnugo --level 10 --min-level 10 --max-level 10 --mode gtp --capture-all-dead',
+                   players['GnuGoTen3']['command']
       assert_equal 'michi gtp --sims 1200 --play-until-end', players['MichiStrong5']['command']
     end
   end
@@ -922,12 +926,12 @@ class GamesFromRankingTest < Minitest::Test
 
   def test_tournament_includes_every_external_player_and_a_bye_for_odd_counts
     in_experiment do
-      write_networks(1, %w[0001.ann 0002.ann 0003.ann 0004.ann].to_h { |name| [name, name] })
+      write_networks(1, %w[0001.ann 0002.ann 0003.ann].to_h { |name| [name, name] })
       tournament = build_generation.send(:setup_tournament)
-      # 4 networks and 33 bots: 5 Brown, 10 AmiGo, 5 of each michi level,
-      # and 3 GNU Go.
-      assert_equal 37, tournament['players'].size
-      assert_equal 19, tournament['games'].size
+      # 3 networks and 36 bots: 5 Brown, 10 AmiGo, 5 of each michi level,
+      # and 3 of each GNU Go level.
+      assert_equal 39, tournament['players'].size
+      assert_equal 20, tournament['games'].size
       assert_equal 1, tournament['games'].count { |game| game['white'].nil? }
       assert_equal '../evo ../networks/1/0001.ann', tournament['players']['0001.ann']['command']
     end
@@ -2341,7 +2345,7 @@ class GenerationTimingsReportTest < Minitest::Test
                 "weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=none feature_step=0.01\n"
         [true, genes * 2]
       end
-      # The 2 networks and the 33 bots: 17 games, one chunk of 1.5 s each, and a bye.
+      # The 2 networks and the 36 bots: 19 games, one chunk of 1.5 s each.
       gen.instance_variable_set(:@pool, FakePool.new(clock: @clock))
       # Storing a game's row takes 0.25 s of Ruby time, storing a birth
       # 0.25 s of setup, within breeding, and the last round's save with
@@ -2365,9 +2369,9 @@ class GenerationTimingsReportTest < Minitest::Test
       assert_includes out.lines.map(&:chomp),
                       'timings generation=0 partial=0 setup=2.500 setup_clear=0.000 setup_breed=2.500 ' \
                       'setup_hash=0.000 setup_store=0.500 setup_sync=0.000 setup_save=0.000 setup_retire=0.000 ' \
-                      'round_1=29.875 worker_round_1=25.500 ruby_round_1=4.375 games_round_1=17 failures_round_1=0 ' \
-                      'tournament=29.875 worker=25.500 ruby=4.375 games=17 failures=0 champion=0.125 benchmark=5.000 ' \
-                      'total=37.375'
+                      'round_1=33.375 worker_round_1=28.500 ruby_round_1=4.875 games_round_1=19 failures_round_1=0 ' \
+                      'tournament=33.375 worker=28.500 ruby=4.875 games=19 failures=0 champion=0.125 benchmark=5.000 ' \
+                      'total=40.875'
       refute_includes out, 'Resumed'
     end
   end

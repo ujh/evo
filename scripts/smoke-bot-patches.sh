@@ -3,7 +3,8 @@ set -eu
 
 # Checks that GNU Go and michi-c2 keep the behaviour evo's patches give
 # them (scripts/patches/): the position that overflowed GNU Go's
-# superstring liberties replays; and for michi-c2, another seed gives other
+# superstring liberties replays, and the panels' pinned GNU Go levels do not
+# change with its clock; and for michi-c2, another seed gives other
 # moves, time commands do not change its moves, and the positions that
 # crashed it or that it refused replay. Runs locally and in CI's smoke
 # (patches) job.
@@ -55,6 +56,67 @@ if [ "$status" -ne 0 ] || answers "$scratch/gnugo-superstring" | grep -q '^?'; t
 else
   printf 'gnugo superstring replay: genmove answered %s\n' "$answer"
 fi
+
+# GNU Go's level is pinned in the default panels (ruby/setup_experiment.rb,
+# GNUGO_ZERO and GNUGO_TEN): once it gets time_settings, as from the arena
+# and twogtp, its genmove otherwise raises its level while much of its
+# clock is left and lowers it while little is, so its moves would depend on
+# the machine's load. Each panel command plays 30 moves against itself
+# without time commands, with time_settings of 60 seconds (plenty left),
+# and with a time_left of 1 second before every move (little left), and
+# must play the same moves in all three. The unpinned levels show that the
+# check sees the clock: level 0 rises with plenty left, level 10 falls
+# with little.
+gnugo_selfplay() {
+  printf 'boardsize 9\nclear_board\nkomi 6.5\n'
+  [ "$1" = untimed ] || printf 'time_settings 60 0 0\n'
+  n=0
+  while [ "$n" -lt 30 ]; do
+    if [ $((n % 2)) -eq 0 ]; then color=b; else color=w; fi
+    [ "$1" = little ] && printf 'time_left %s 1 0\n' "$color"
+    printf 'genmove %s\n' "$color"
+    n=$((n + 1))
+  done
+  printf 'quit\n'
+}
+# gnugo_moves CLOCK COMMAND: the moves COMMAND plays under CLOCK (untimed,
+# plenty or little), run in $scratch.
+gnugo_moves() {
+  # shellcheck disable=SC2086
+  (cd "$scratch" && gnugo_selfplay "$1" | $2 >gnugo-clock 2>gnugo-clock.err) || true
+  if grep -q '^?' "$scratch/gnugo-clock"; then
+    printf 'error: %s' "$(grep '^?' "$scratch/gnugo-clock")"
+  else
+    answers "$scratch/gnugo-clock" | grep -v '^= *$' | sed 's/^= //' | tr '\n' ' '
+  fi
+}
+for command in 'gnugo --level 0 --min-level 0 --max-level 0 --mode gtp --capture-all-dead' \
+  'gnugo --level 10 --min-level 10 --max-level 10 --mode gtp --capture-all-dead' \
+  'gnugo --level 0 --min-level 0 --max-level 0 --mode gtp' \
+  'gnugo --level 10 --min-level 10 --max-level 10 --mode gtp'; do
+  untimed=$(gnugo_moves untimed "$command --seed 5")
+  plenty=$(gnugo_moves plenty "$command --seed 5")
+  little=$(gnugo_moves little "$command --seed 5")
+  if [ "$(printf '%s' "$untimed" | wc -w)" -ne 30 ] || [ "$untimed" != "$plenty" ] || [ "$untimed" != "$little" ]; then
+    fail "gnugo clock: $command changed its moves with the clock:
+  untimed $untimed
+  plenty  $plenty
+  little  $little"
+  else
+    printf 'gnugo clock: %s plays the same 30 moves whatever its clock\n' "$command"
+  fi
+done
+for check in 'plenty:gnugo --level 0 --mode gtp' 'little:gnugo --level 10 --mode gtp'; do
+  clock=${check%%:*}
+  command=${check#*:}
+  untimed=$(gnugo_moves untimed "$command --seed 5")
+  timed=$(gnugo_moves "$clock" "$command --seed 5")
+  if [ -z "$untimed" ] || [ "$untimed" = "$timed" ]; then
+    fail "gnugo clock: unpinned $command played the same moves with $clock of its clock left as without time commands: $untimed"
+  else
+    printf 'gnugo clock: unpinned %s plays other moves with %s of its clock left\n' "$command" "$clock"
+  fi
+done
 
 # michi-c2 with evo's patch (scripts/patches/michi-c2-d2a4cb8.patch).
 # Another seed gives other moves: example.ann against michi-c2 at two
