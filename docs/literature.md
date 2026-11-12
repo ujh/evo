@@ -448,6 +448,7 @@ How the literature refines it:
 - **Hypothesis:** explicit elitism removes the advantage of near-copy lineages, so with meta_rate 0.2 the step and copy_chance collapse less; with meta_rate 0 the plateau is higher.
 - **Single change:** carry over E unchanged elites.
 - **Compare:** run 1 (meta_rate 0) and the 20-round meta_rate 0.2 runs.
+- **Ran:** four arms and two baselines, one run each, to generation 1000 (`docs/experiment-reference.md`, "Elitism (`elite_share`)"); with one run per setting they cannot tell the hypothesis.
 - **Literature:** Such et al. 2017; Rosin & Belew 1997; Arnold & Beyer 2000a; Kruisselbrink et al. 2011; Luke 2013.
 
 How the literature refines it:
