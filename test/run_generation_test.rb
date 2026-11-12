@@ -424,6 +424,8 @@ class EvolveFromPreviousPopulationTest < Minitest::Test
     state = breed(scores: { '0001.ann' => 1, '0002.ann' => 0 }) { [false, '', exit_status(2), "bad parent\n"] }
     assert_kind_of RunGeneration::Stopped, state[:error]
     assert_instance_of RunGeneration::BreedingFailed, state[:error]
+    assert state[:error].message.end_with?("Its stderr:\nbad parent\nThe run stopped; a resume copies any elites " \
+                                           'again and breeds every child again.'), state[:error].message
   end
 
   # The summary and the child's genes line fill the rest of its birth.
@@ -2989,12 +2991,14 @@ class ElitesTest < Minitest::Test
       fw_saves_atari: 0.5 * i }
   end
 
-  # Generation 1 finished, its networks in networks/1/.
-  def finished_generation_one
+  # Generation 1 finished, its networks in networks/1/, but for those
+  # `without_file` names, and its births, but for those `without_birth`
+  # names (only damage by hand leaves either).
+  def finished_generation_one(without_file: [], without_birth: [])
     FileUtils.mkdir_p('networks/1')
     NAMES.each do |name|
-      File.binwrite(File.join('networks/1', name), network(name))
-      database.record_birth(**parent_birth(name))
+      File.binwrite(File.join('networks/1', name), network(name)) unless without_file.include?(name)
+      database.record_birth(**parent_birth(name)) unless without_birth.include?(name)
     end
     players = NAMES.to_h { |name| [name, { 'command' => "../evo ../networks/1/#{name}" }] }
                    .merge(BOTS.to_h { |bot, opponent| [bot, { 'command' => 'bot', 'external' => true, 'opponent' => opponent }] })
@@ -3093,6 +3097,32 @@ class ElitesTest < Minitest::Test
     assert_equal network('0005.ann'), networks['5.ann']
     assert_equal [%w[5.ann elite 0005.ann]], births.select { |birth| birth[:operator] == 'elite' }
                                                    .map { |birth| birth.values_at(:child, :operator, :first_parent) }
+  end
+
+  # An elite that cannot be copied, as after damage by hand, stops the run
+  # with a report, as a failed evolve does, before any evolve runs and with
+  # nothing stored.
+  def elite_failure(**damage)
+    in_experiment(generation: '2') do
+      finished_generation_one(**damage)
+      gen = generation_two
+      error = assert_raises(RunGeneration::BreedingFailed) { set_up(gen) }
+      assert_empty @evolved
+      assert_empty database.births(2)
+      assert_nil database.state(2)
+      error.message
+    end
+  end
+
+  def test_an_elite_missing_from_the_previous_networks_stops_the_run
+    message = elite_failure(without_file: ['0003.ann'])
+    assert_equal "Elite 0003.ann is missing from networks/1/.\nThe run stopped; resume after fixing the cause.", message
+  end
+
+  def test_an_elite_without_a_birth_stops_the_run
+    message = elite_failure(without_birth: ['0001.ann'])
+    assert_equal "Elite 0001.ann has no birth in generation 1, so its genes are unknown.\n" \
+                 'The run stopped; resume after fixing the cause.', message
   end
 
   # Ctrl-C during breeding: nothing is stored, and the resume copies the
