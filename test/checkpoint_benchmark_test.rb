@@ -240,6 +240,39 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
+  # A pool that, when the first game is queued, keeps the opening files as
+  # they are then and overwrites each, so a file written again once games
+  # can run (and a game could read it half-written) loses the mark.
+  class OpeningsPool < FakePool
+    attr_reader :openings_at_first_game
+
+    def submit(command, identifier)
+      unless @openings_at_first_game
+        @openings_at_first_game = Dir['benchmark/openings/*/opening.sgf'].sort.to_h { |path| [path, File.read(path)] }
+        @openings_at_first_game.each_key { |path| File.write(path, 'in use') }
+      end
+      super
+    end
+  end
+
+  def test_every_opening_is_written_once_before_the_first_game_starts
+    in_experiment do
+      only_opponents('Brown', 'AmiGo', 'GnuGoLevel0', 'Gen0Champion')
+      store_generations(0)
+      pool = OpeningsPool.new do |game|
+        copy_dat('black_wins', game.prefix)
+        File.write("#{game.prefix}-0.sgf", '(;SZ[9])')
+      end
+      settings = SETTINGS.merge('benchmark_games' => 6, 'benchmark_bot_games' => 2)
+      capture_io { CheckpointBenchmark.new(0, settings, pool, database).call }
+      # Openings 0 to 2 for the champion's games; the bot games use 0 alone.
+      expected = (0..2).to_h { |i| ["benchmark/openings/#{i}/opening.sgf", Openings.sgf(9, Openings.moves(1, i, 9, 4))] }
+      assert_equal expected, pool.openings_at_first_game
+      assert_equal 3 * 6 + 3 * 2, pool.commands.size
+      expected.each_key { |path| assert_equal 'in use', File.read(path), "#{path} was written again during the games" }
+    end
+  end
+
   def test_the_openings_are_the_same_at_every_checkpoint
     in_experiment(generation: '20') do
       only_opponents('Brown')
