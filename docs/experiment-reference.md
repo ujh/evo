@@ -567,7 +567,7 @@ In the pairs' own fits, `seed2-meta0` and `seed2-meta0-b` are rated âˆ’101 and â
 
 **Self-benchmark check** (A six and pairs, owner 19 Oct 2026). In none of the runs above did a checkpoint champion have the genome of a network it was benchmarked against.
 
-**Interpretation** (what the outputs cannot separate). In every window, the elites of the four elite runs and the exact clones of every run scored less on average in the next tournament than they or their parent had in the one that chose them (the Elites and exact-clone retest tables). The outputs cannot tell how much of either fall is a stronger next field and how much a lucky score that selection picked, since the two tournaments have different fields. Nor can they separate a setting's effect on the `meta_rate` 0.2 gene trajectories from the spread between runs of one setting: the only pair at 0.2, `rounds20` and `seed2-rounds20`, is in the Genes table, up to generation 302.
+**Interpretation** (what the outputs cannot separate). In every window, the elites of the four elite runs and the exact clones of every run scored less on average in the next tournament than they or their parent had in the one that chose them (the Elites and exact-clone retest tables). The outputs cannot tell how much of either fall is a stronger next field and how much a lucky score that selection picked, since the two tournaments have different fields. Nor can they separate a setting's effect on the `meta_rate` 0.2 gene trajectories from the spread between runs of one setting: the only pair at 0.2, `rounds20` and `seed2-rounds20`, is in the Genes table, up to generation 300 (its outputs to 302).
 
 ## Benchmark
 
