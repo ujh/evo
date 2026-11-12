@@ -1,30 +1,33 @@
+# Each recipe runs make with -C, which fails when the directory is missing
+# (pcg-c/src in a fresh worktree before `git submodule update --init`).
+# `cd DIR; $(MAKE)` would run this Makefile again instead, without end.
 all: pcg lib
-	cd engine; $(MAKE)
-	cd initial-population; $(MAKE)
-	cd evolve; $(MAKE)
+	$(MAKE) -C engine
+	$(MAKE) -C initial-population
+	$(MAKE) -C evolve
 
 clean:
-	cd engine; $(MAKE) clean
-	cd initial-population; $(MAKE) clean
-	cd evolve; $(MAKE) clean
-	cd lib; $(MAKE) clean
-	cd pcg-c/src; $(MAKE) clean
+	$(MAKE) -C engine clean
+	$(MAKE) -C initial-population clean
+	$(MAKE) -C evolve clean
+	$(MAKE) -C lib clean
+	$(MAKE) -C pcg-c/src clean
 
 test: pcg lib
-	cd lib; $(MAKE) test
-	cd engine; $(MAKE) enginetest
-	cd engine; $(MAKE) test
-	cd initial-population; $(MAKE) test
-	cd engine; $(MAKE) arenatest
-	cd evolve; $(MAKE) test
-	cd evolve; $(MAKE) evolvetest
-	cd evolve; $(MAKE) perturbtest
+	$(MAKE) -C lib test
+	$(MAKE) -C engine enginetest
+	$(MAKE) -C engine test
+	$(MAKE) -C initial-population test
+	$(MAKE) -C engine arenatest
+	$(MAKE) -C evolve test
+	$(MAKE) -C evolve evolvetest
+	$(MAKE) -C evolve perturbtest
 
 pcg:
-	cd pcg-c/src; $(MAKE)
+	$(MAKE) -C pcg-c/src
 
 # GENANN and Evo's layer over it (lib/ann.h), linked by every program.
 lib: pcg
-	cd lib; $(MAKE)
+	$(MAKE) -C lib
 
 .PHONY: all clean test pcg lib

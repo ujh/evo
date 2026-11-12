@@ -52,7 +52,7 @@ Detailed behavior of the engine, network files, and build. Read the relevant sec
 
 ## Build and test notes
 
-- Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and `../lib/libann.a`, and fail if `make pcg` and `make lib` have not run.
+- Build from the repository root. The subdirectory Makefiles link `../pcg-c/src/libpcg_random.a` and `../lib/libann.a`, and fail if `make pcg` and `make lib` have not run. The top-level `Makefile` runs each subdirectory's with `$(MAKE) -C DIR`, so a missing directory, such as `pcg-c/src` before `git submodule update --init`, stops it with an error; `cd DIR; $(MAKE)` ran the top-level `Makefile` again instead, without end (`test/makefile_test.rb`).
 - zsh, the default shell here, expands a word that starts with `=` as a command's path, so an argument such as Pachi's `-t =500` fails with "500 not found". Quote it (`'=500'`) or run the command through `sh -c`. zsh also does not split an unquoted variable into words, so settings held in one string (`ARGS='--board-size 9 --seed 1'; mise run new-experiment NAME $ARGS`) arrive as a single argument and fail with "invalid option: --board-size 9 --seed 1"; hold them in an array (`args=(--board-size 9 --seed 1)`, then `"${args[@]}"`).
 - In Claude Code's shell, `grep` is a function that runs ugrep, which refuses a pattern with two or more long bounded repeats (`a.{0,200}b.{0,200}c`: "exceeds complexity limits", exit 2; 12 Nov 2026). Use `grep -P`, `command grep` (macOS's BSD grep), or a short script.
 - `mise run test-ruby` takes 70–180 s on the owner's machine (12 Nov 2026), so give `mise run test` a Bash time limit of at least 400000 ms; without one, Claude Code moves it to the background after 2 minutes.
