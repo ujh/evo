@@ -100,7 +100,7 @@ Source: `mise exec -- scripts/game-repeats.rb experiments/NAME/experiment.sqlite
 
 ## Fixed mutation genes (`meta_rate` 0)
 
-Questions: does the self-adaptive genes' shrinking limit progress (`docs/literature.md` sections 1 and 7)?
+Questions: does the self-adaptive genes' shrinking limit progress (`docs/literature.md`, "Short answer" and "Ranked experiments")?
 Does the share of mutation children that score at least as well as their parent tell whether a step is too big?
 Runs: `seed2-rounds20` (self-adaptive, `meta_rate` 0.2), `seed2-meta0` (`meta_rate` 0 with the default genes: `weight_step` 0.5, 229 weight changes, `copy_chance` 0.01, `activation_rate` and `structure_rate` 0.02) and `seed2-meta0-step015` (the same with `initial_weight_step` 0.15), with every other setting and the seed the same, so all three share generation 0; one run per setting, the fixed ones to about generation 570.
 `seed2-meta0-b`, a second run of `seed2-meta0`'s setting, is under [Elitism](#elitism-elite_share).
@@ -131,7 +131,7 @@ Runs: the checkpoint champions of `seed2-rounds20` and `seed2-meta0` at generati
 - At steps 0.005, 0.02, 0.1 and 0.5, 98, 93, 72 and 32 % of the games of `seed2-meta0`'s generation-500 champion's children are identical to its own (78, 42, 8 and 2 % at generation 300); for the self-adaptive champions, 21 % (generation 300) and 16 % (500) at step 0.005, and 39 % and 72 % at `own`.
 - A faint hint, not significant on its own: on the fresh re-test games, `seed2-rounds20` generation 500's controls trail the champion at every fixed step (−8.25 ± 7.70, −6.75 ± 8.59, −14.50 ± 8.40, −11.00 ± 9.75 wins of 600), each within two SEs of 0, while on the benchmark openings the same steps' children are ahead (+2.38 to +5.31 of 300); the four steps share the champion's re-test games, so they are not four independent signs, and `seed2-meta0` generation 300's controls are also all below 0 (−2.00 to −7.00).
   A small loss of children on fresh games cannot be ruled out.
-- Interpretation: the step-0.5 lineage may have evolved robustness to the mutation it gets (`docs/literature.md` section 7 expects this under fixed genes), while the self-adaptive champions' move scores may be close enough that a small change flips moves; neither shows a detectable average loss, so they are sensitive rather than, as far as this test can tell, brittle.
+- Interpretation: the step-0.5 lineage may have evolved robustness to the mutation it gets (`docs/literature.md`, "Ranked experiments", experiment 1, expects this under fixed genes), while the self-adaptive champions' move scores may be close enough that a small change flips moves; neither shows a detectable average loss, so they are sensitive rather than, as far as this test can tell, brittle.
 
 Source: `scripts/brittleness.rb` at ec7a7a0, run by the owner on `seed2-rounds20 300 500` and `seed2-meta0 300 500` at the default options with `--out experiments/brittleness` (finished 15 Oct 2026), and its `--report-only` report; no game failed, and every replay reproduced all 300 of its champion's stored benchmark games.
 
@@ -139,7 +139,7 @@ Source: `scripts/brittleness.rb` at ec7a7a0, run by the owner on `seed2-rounds20
 
 Questions:
 
-1. The 16 Oct hypothesis (`docs/literature.md` section 7, experiment 2): with elitism, do `weight_step` and `copy_chance` shrink less at `meta_rate` 0.2, and is the plateau higher at `meta_rate` 0?
+1. The 16 Oct hypothesis (`docs/literature.md`, "Ranked experiments", experiment 2): with elitism, do `weight_step` and `copy_chance` shrink less at `meta_rate` 0.2, and is the plateau higher at `meta_rate` 0?
 2. Step 0.5's rise and fall ([Fixed mutation genes](#fixed-mutation-genes-meta_rate-0)): does elitism change it?
 3. Do elites and exact clones keep their score in the next tournament?
 4. Did a checkpoint champion play the benchmark against its own genome (owner, 19 Oct 2026)?
