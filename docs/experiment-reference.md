@@ -256,7 +256,7 @@ It prints one Markdown table per generation, one row per kind of game: network a
 
     mise exec -- scripts/game-repeats.rb --without-elites experiments/seed2-elite/experiment.sqlite3 100 500
 
-The games left out count as if they had not been played: the groups are formed from the other games alone, so a group whose first game an elite played gets its first remaining game as original (a bred network's game that repeats only elites' games counts as an original), and a kind of game none of whose games remains gets no row. Each table's first line gives the games counted, the generation's games, those left out, and its number of elites, or says that it has none (a run without elitism; elites are told from `births`, never from `elite_share`, so a database without that setting works too). A generation without `births` is refused, since its elites cannot be told.
+The games left out count as if they had not been played: the groups are formed from the other games alone, so a group whose first game an elite played gets its first remaining game as original (a bred network's game that repeats only elites' games counts as an original), and a kind of game none of whose games remains gets no row. Each table's first line gives the games counted, the generation's games, those left out, and its number of elites, or says that it has none (a run without elitism, or generation 0, whose births are all `initial`; elites are told from `births`, never from `elite_share`, so a database without that setting works too). A generation without `births` is refused, since its elites cannot be told.
 
 ### Self-adaptive and fixed genes
 
