@@ -441,6 +441,25 @@ class CompareRunsTest < Minitest::Test
     base, elite = runs('base', 'elite')
     assert_includes C.report([base, elite]), 'Replaying the same games would not move them'
     refute_includes C.report([base, elite], %w[AmiGo Brown]), 'Replaying the same games'
+    # A superset of the default bots holds a bot the sentence is not true
+    # of; a subset or another order of them is still covered by it.
+    refute_includes C.report([base, elite], %w[AmiGo MichiWeak MichiMid Brown]), 'Replaying the same games'
+    assert_includes C.report([base, elite], %w[MichiMid AmiGo]), 'Replaying the same games would not move them'
+  end
+
+  # A run still being benchmarked can have its games against the chosen
+  # bots complete and those against a later panel bot not yet: its rating
+  # is then from partial games, so the ratings table marks it, while the
+  # wins table, counting the chosen bots only, does not.
+  def test_ratings_mark_a_checkpoint_missing_games_against_any_panel_bot
+    base, elite = runs('base', 'elite')
+    dropped = base.champion_games.find { |game| game[:generation] == 800 && game[:opponent] == 'Brown' }
+    partial = base.with(champion_games: base.champion_games - [dropped])
+    report = C.report([partial, elite])
+    ratings = report[/## Ratings.*?(?=## Wins)/m]
+    wins = report[/## Wins.*?(?=Per run and window)/m]
+    assert_match(/^\| 800 \| [^|]*, incomplete \|/, ratings)
+    assert_match(/^\| 800 \| \d+ ± \d+ \|/, wins)
   end
 
   def test_bot_agreement_compares_game_by_game
