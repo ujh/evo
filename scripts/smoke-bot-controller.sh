@@ -34,7 +34,9 @@ fail() {
   failed=1
 }
 
-gnugo='gnugo --level 0 --mode gtp --seed 11'
+# GNU Go's level is pinned, as in the default panels, so its clock cannot
+# change its moves (scripts/smoke-bot-patches.sh).
+gnugo='gnugo --level 0 --min-level 0 --max-level 0 --mode gtp --seed 11'
 michi='michi gtp --sims 100 --seed 11'
 evo_bot="$evo $root/engine/example.ann"
 

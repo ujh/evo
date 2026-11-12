@@ -175,35 +175,44 @@ class SetupExperiment
   # scores. They are stored with the experiment, and the runner reads them
   # from there, so changing them here only changes experiments created
   # afterwards.
-  # The tournament holds the whole ladder from the start, weakest first:
-  # Brown, AmiGo, three michi levels calibrated between AmiGo and GNU Go
-  # level 0 (by playouts per move, so their strength does not depend on the
-  # machine's load), and GNU Go level 0 (docs/experiment-reference.md has
-  # the calibration). The arena plays and scores every tournament game by
-  # Tromp-Taylor, the bots' too, so the bots play until no dead stones are
-  # left: michi with --play-until-end, GNU Go with --capture-all-dead. The
-  # runner adds a per-game --seed to michi's and GNU Go's commands. The michi
-  # levels were calibrated on 9x9 only, so an experiment whose panels hold
-  # michi refuses other board sizes (MICHI_BOARD_SIZE). Names end in a
-  # letter: copies are named NAME plus a number.
+  # The tournament holds the whole ladder from the start: Brown, AmiGo,
+  # three michi levels calibrated between AmiGo and GNU Go, and GNU Go at
+  # levels 0 and 10 (docs/experiment-reference.md has the calibration). The
+  # michi levels play by playouts per move, so their strength does not
+  # depend on the machine's load. GNU Go would otherwise change its level at
+  # every genmove by how much of its clock is left (it gets time_settings
+  # from the arena and twogtp), so its strength would depend on the load and
+  # its games would not repeat; --min-level and --max-level pin it. The
+  # arena plays and scores every tournament game by Tromp-Taylor, the bots'
+  # too, so the bots play until no dead stones are left: michi with
+  # --play-until-end, GNU Go with --capture-all-dead. The runner adds a
+  # per-game --seed to michi's and GNU Go's commands. The michi levels were
+  # calibrated on 9x9 only, so an experiment whose panels hold michi refuses
+  # other board sizes (MICHI_BOARD_SIZE). Names end in a letter: copies are
+  # named NAME plus a number.
   # scripts/smoke-external-tools.sh plays each opponent and each benchmark
-  # bot; add new ones there.
+  # bot, and scripts/smoke-bot-patches.sh checks that the clock does not
+  # change the GNU Go commands' moves; add new ones there.
   MICHI_WEAK = 'michi gtp --sims 80 --play-until-end'.freeze
   MICHI_MID = 'michi gtp --sims 300 --play-until-end'.freeze
   MICHI_STRONG = 'michi gtp --sims 1200 --play-until-end'.freeze
+  GNUGO_ZERO = 'gnugo --level 0 --min-level 0 --max-level 0 --mode gtp'.freeze
+  GNUGO_TEN = 'gnugo --level 10 --min-level 10 --max-level 10 --mode gtp'.freeze
   DEFAULT_OPPONENTS = [
     { name: 'Brown', command: 'brown', copies: 5 },
     { name: 'AmiGo', command: 'amigogtp', copies: 10 },
     { name: 'MichiWeak', command: MICHI_WEAK, copies: 5 },
     { name: 'MichiMid', command: MICHI_MID, copies: 5 },
     { name: 'MichiStrong', command: MICHI_STRONG, copies: 5 },
-    { name: 'GnuGo', command: 'gnugo --level 0 --mode gtp --capture-all-dead', copies: 3 }
+    { name: 'GnuGoZero', command: "#{GNUGO_ZERO} --capture-all-dead", copies: 3 },
+    { name: 'GnuGoTen', command: "#{GNUGO_TEN} --capture-all-dead", copies: 3 }
   ].freeze
   # The fixed panel the top network of every checkpoint generation plays, so
   # checkpoints stay comparable however the tournament's opponents change.
-  # The michi levels play with the tournament's commands. GNU Go level 0
-  # plays without --capture-all-dead: a GNU Go referee scores the benchmark
-  # with dead stones removed, so the flag would only change its play. The
+  # The michi levels play with the tournament's commands. GNU Go plays at
+  # the same pinned levels, without --capture-all-dead: a GNU Go referee
+  # scores the benchmark with dead stones removed, so the flag would only
+  # change its play. The
   # two network kinds have no command: the runner picks the network from
   # the experiment's own generations. PastChampions stands for the last
   # `benchmark_champions` checkpoints' top networks, each played as
@@ -214,7 +223,8 @@ class SetupExperiment
     { name: 'MichiWeak', kind: 'bot', command: MICHI_WEAK },
     { name: 'MichiMid', kind: 'bot', command: MICHI_MID },
     { name: 'MichiStrong', kind: 'bot', command: MICHI_STRONG },
-    { name: 'GnuGoLevel0', kind: 'bot', command: 'gnugo --level 0 --mode gtp' },
+    { name: 'GnuGoLevel0', kind: 'bot', command: GNUGO_ZERO },
+    { name: 'GnuGoLevel10', kind: 'bot', command: GNUGO_TEN },
     { name: 'Gen0Champion', kind: 'initial_champion', command: nil },
     { name: 'PastChampions', kind: 'past_champions', command: nil }
   ].freeze

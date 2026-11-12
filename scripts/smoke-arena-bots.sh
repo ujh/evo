@@ -27,7 +27,9 @@ fail() {
   failed=1
 }
 
-gnugo='gnugo --level 0 --mode gtp --seed 11'
+# GNU Go's level is pinned, as in the default panels, so its clock cannot
+# change its moves (scripts/smoke-bot-patches.sh).
+gnugo='gnugo --level 0 --min-level 0 --max-level 0 --mode gtp --seed 11'
 michi='michi gtp --sims 100 --seed 11'
 
 # The arena plays a --mixed chunk with the real bots on its own board:
@@ -52,7 +54,7 @@ games=18
       case $player in
         brown) printf 'command\t%s-%s\t%s\tbrown\n' "$black" "$white" "$color" ;;
         amigo) printf 'command\t%s-%s\t%s\tamigogtp\n' "$black" "$white" "$color" ;;
-        gnugo) printf 'command\t%s-%s\t%s\tgnugo --level 0 --mode gtp --seed %s\n' "$black" "$white" "$color" "$seed" ;;
+        gnugo) printf 'command\t%s-%s\t%s\tgnugo --level 0 --min-level 0 --max-level 0 --mode gtp --seed %s\n' "$black" "$white" "$color" "$seed" ;;
         michi) printf 'command\t%s-%s\t%s\tmichi gtp --sims 100 --seed %s\n' "$black" "$white" "$color" "$seed" ;;
       esac
     done

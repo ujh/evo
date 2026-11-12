@@ -48,7 +48,7 @@ class CheckpointBenchmarkTest < Minitest::Test
     in_experiment do
       store_generations(0)
       run_benchmark(0)
-      assert_equal %w[AmiGo Brown GnuGoLevel0 MichiMid MichiStrong MichiWeak].flat_map { |name|
+      assert_equal %w[AmiGo Brown GnuGoLevel0 GnuGoLevel10 MichiMid MichiStrong MichiWeak].flat_map { |name|
                      [[name, 0, 'black', nil], [name, 0, 'white', nil]]
                    }, played(0)
       assert @played_any
@@ -101,7 +101,7 @@ class CheckpointBenchmarkTest < Minitest::Test
     names = lambda do |generation, champions = 3|
       CheckpointBenchmark.opponents_for(generation, panel, keep_every: 10, champions:).map { |o| o[:name] }
     end
-    bots = %w[Brown AmiGo MichiWeak MichiMid MichiStrong GnuGoLevel0]
+    bots = %w[Brown AmiGo MichiWeak MichiMid MichiStrong GnuGoLevel0 GnuGoLevel10]
     assert_equal bots, names.call(0)
     assert_equal bots + %w[Gen0Champion], names.call(10)
     assert_equal bots + %w[Gen0Champion Gen10Champion], names.call(20)
@@ -109,7 +109,7 @@ class CheckpointBenchmarkTest < Minitest::Test
     assert_equal bots + %w[Gen0Champion Gen40Champion Gen50Champion Gen60Champion], names.call(70)
     assert_equal bots + %w[Gen0Champion], names.call(70, 0)
     sources = CheckpointBenchmark.opponents_for(70, panel, keep_every: 10, champions: 3).map { |o| o[:source] }
-    assert_equal [nil] * 6 + [0, 40, 50, 60], sources
+    assert_equal [nil] * 7 + [0, 40, 50, 60], sources
     assert_raises(ArgumentError) do
       CheckpointBenchmark.opponents_for(0, [{ name: 'X', kind: 'nope' }], keep_every: 10, champions: 3)
     end
@@ -131,7 +131,7 @@ class CheckpointBenchmarkTest < Minitest::Test
       store_generations(0)
       commands = run_benchmark(0).commands
       seed = ->(color) { Seeds.gnugo(1, 'benchmark', 0, 'GnuGoLevel0', 0, color) }
-      gnugo = ->(color) { "gnugo --level 0 --mode gtp --seed #{seed.call(color)}" }
+      gnugo = ->(color) { "gnugo --level 0 --min-level 0 --max-level 0 --mode gtp --seed #{seed.call(color)}" }
       # twogtp counts the opening's stones toward the move limit.
       assert_equal [%(gogui-twogtp -black "../evo benchmark/0-b.ann" -white "#{gnugo.call('black')}" ) +
                     %(-referee "gnugo --mode gtp --chinese-rules --seed #{seed.call('black')}" -size 9 -komi 6.5 ) +
@@ -484,12 +484,12 @@ class CheckpointBenchmarkTest < Minitest::Test
     end
   end
 
-  def test_the_default_panel_plays_fifteen_pairs
+  def test_the_default_panel_plays_twenty_one_pairs
     in_experiment do
       store_generations(0)
       run_benchmark(0, settings: { 'benchmark_bot_games' => 2 })
-      assert_equal 30, bot_games.size
-      assert_equal 15, bot_games.map { |black, white| [black, white].sort }.uniq.size
+      assert_equal 42, bot_games.size
+      assert_equal 21, bot_games.map { |black, white| [black, white].sort }.uniq.size
     end
   end
 

@@ -560,21 +560,23 @@ class SetupExperimentTest < Minitest::Test
     end
   end
 
-  # The tournament's bots, weakest first: the michi levels calibrated between
-  # AmiGo and GNU Go level 0 (docs/experiment-reference.md), and GNU Go with
-  # --capture-all-dead, so it leaves no dead stones for Tromp-Taylor to count.
+  # The tournament's bots: the michi levels (docs/experiment-reference.md),
+  # and GNU Go at levels 0 and 10 with --capture-all-dead, so it leaves no
+  # dead stones for Tromp-Taylor to count, and with its level pinned
+  # (--min-level and --max-level), so its clock cannot change it.
   def test_the_default_opponents
     assert_equal [['Brown', 'brown', 5], ['AmiGo', 'amigogtp', 10],
                   ['MichiWeak', 'michi gtp --sims 80 --play-until-end', 5],
                   ['MichiMid', 'michi gtp --sims 300 --play-until-end', 5],
                   ['MichiStrong', 'michi gtp --sims 1200 --play-until-end', 5],
-                  ['GnuGo', 'gnugo --level 0 --mode gtp --capture-all-dead', 3]],
+                  ['GnuGoZero', 'gnugo --level 0 --min-level 0 --max-level 0 --mode gtp --capture-all-dead', 3],
+                  ['GnuGoTen', 'gnugo --level 10 --min-level 10 --max-level 10 --mode gtp --capture-all-dead', 3]],
                  SetupExperiment::DEFAULT_OPPONENTS.map { |o| o.values_at(:name, :command, :copies) }
   end
 
-  # The benchmark panel: the bots weakest first, the michi levels with the
-  # tournament's commands, GNU Go level 0 without an ending flag (its GNU Go
-  # referee removes dead stones), then the two network opponents the runner
+  # The benchmark panel: the bots, the michi levels with the tournament's
+  # commands, GNU Go at levels 0 and 10, pinned, without an ending flag (its
+  # GNU Go referee removes dead stones), then the two network opponents the runner
   # picks from the experiment's own generations: generation 0's champion and
   # the rolling set of past checkpoints' champions.
   def test_the_default_benchmark_panel
@@ -582,7 +584,8 @@ class SetupExperimentTest < Minitest::Test
                   ['MichiWeak', 'bot', 'michi gtp --sims 80 --play-until-end'],
                   ['MichiMid', 'bot', 'michi gtp --sims 300 --play-until-end'],
                   ['MichiStrong', 'bot', 'michi gtp --sims 1200 --play-until-end'],
-                  ['GnuGoLevel0', 'bot', 'gnugo --level 0 --mode gtp'],
+                  ['GnuGoLevel0', 'bot', 'gnugo --level 0 --min-level 0 --max-level 0 --mode gtp'],
+                  ['GnuGoLevel10', 'bot', 'gnugo --level 10 --min-level 10 --max-level 10 --mode gtp'],
                   ['Gen0Champion', 'initial_champion', nil], ['PastChampions', 'past_champions', nil]],
                  SetupExperiment::DEFAULT_BENCHMARK.map { |o| o.values_at(:name, :kind, :command) }
   end
@@ -592,7 +595,7 @@ class SetupExperimentTest < Minitest::Test
       database = ExperimentDatabase.new('experiment.sqlite3')
       answers = prompt_answers
       with_stdin("#{answers.join("\n")}\n") { SetupExperiment.settings(database) }
-      assert_equal 6, database.opponents.size
+      assert_equal 7, database.opponents.size
       assert_equal SetupExperiment::DEFAULT_SCORING, database.scoring
       assert_equal SetupExperiment::DEFAULT_BENCHMARK, database.benchmark_opponents
     end
