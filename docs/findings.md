@@ -112,8 +112,6 @@ A later change to them goes through a script.
 - Whether the shrinking limits progress: cannot tell, with one run per setting.
   The checkpoint champions' benchmark wins of 300 against AmiGo, MichiWeak and MichiMid at generations 100–500: `seed2-rounds20` 51, 101, 102, 109 and 114; `seed2-meta0` 73, 102, 93, 81 and 77; `seed2-meta0-step015` 56, 61, 58, 83 and 80.
 - The share of networks scoring above the AmiGo copies' mean tournament score, averaged over generations 151–200, 251–300, 351–400 and 451–500: `seed2-rounds20` 11, 32, 41 and 40 %; `seed2-meta0` 6, 15, 22 and 23 %; `seed2-meta0-step015` 5, 5, 6 and 9 %.
-  Per 25 generations, `seed2-meta0`'s was 29.8 % at 401–425, 15.4 % at 526–550 and 8.4 % at 551–575, and `seed2-meta0-step015`'s 7.0, 11.0 and 9.5 % (to 570).
-- `seed2-rounds20` made 2,096, 6,483 and 8,717 shape changes in generations 201–300, 301–400 and 401–500, against 1,340–1,750 per 100 generations in the fixed runs, while its per-generation mean `weight_step` was 0.0035–0.019 over generations 401–500; whether the shapes kept it improving is not measured.
 - The share of mutation children that score at least as well as their parent cannot tell whether a step is too big: it is 30.5–31.6 % per 100 generations in all three runs, about the same as for exact copies (30–38 %), whose play is unchanged, so it measures how far a parent's lucky score regresses.
   Strictly better than their parent's score of the generation before are 18–21 % of copies and 18–19 % of mutation children in each run.
 - Interpretation: whether step 0.5 is too big is open; it may be too big without elitism.

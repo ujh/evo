@@ -28,7 +28,7 @@ Then move only the changed players in memory instead of re-sorting (the order mu
 
 **Read the benchmark ratings as they come in.**
 `stats` rates every checkpoint's champion, generation 0's, and the panel's bots on one Elo scale (`docs/experiment-reference.md`, "stats", says how to read ± and the prior).
-Once `even-bigger2` (a champion every 100 generations) has several checkpoints, check whether the champions' ratings rise steadily or cycle, and whether the rise holds against the bots, not only against past champions.
+Check whether the ratings of `even-bigger2`'s champions (one every 100 generations) rise steadily or cycle, and whether the rise holds against the bots, not only against past champions.
 
 ## What most affects the experiment
 
@@ -76,7 +76,7 @@ The `weight_step` clamp (0.0001) is reached: the generation's minimum sits at it
 Still open:
 - whether another seed agrees with the single-seed results in `docs/findings.md`, "Fixed mutation genes" and "How brittle a champion is";
 - how the populations of `seed2-meta0` (step 0.5) and `seed2-meta0-step015` (step 0.15) changed against the bots (`docs/findings.md`, "Fixed mutation genes"), and whether elitism changes that (owner, 9 Oct 2026: without elitism, children that change little are the only way a good network's play survives, which may be what favours small weight steps); the elitism runs cannot tell, with one run per setting, and telling it needs more seeds of each setting;
-- whether the shapes are what kept the self-adaptive run gaining: a fixed-gene run with a higher `initial_structure_rate` would tell;
+- whether shape changes affected the self-adaptive runs' play: a fixed-gene run with a higher `initial_structure_rate` would tell;
 - whether larger steps still sometimes give better children, which the brittleness test could miss (`docs/findings.md`, "How brittle a champion is").
 
 If shapes are to be explored, start with a higher `initial_structure_rate`.
@@ -153,7 +153,7 @@ Check outcomes by colour, opening, game length, passing, and komi on `even-bigge
 ### 7. Move choice is deterministic
 
 A network always plays its highest-scoring allowed move, so two networks with the same colours play the same game every time, and repeat pairings add no information.
-In the self-adaptive runs at 20 and 40 rounds a growing share of network games are clone repeats (`docs/findings.md`, "How often tournament games repeat"); at generation 500 of `seed2-rounds20` they are about 17 % of the network games.
+Clone repeats are about 17 % of the network games at generation 500 of `seed2-rounds20` (`docs/findings.md`, "How often tournament games repeat", per run and checkpoint).
 
 **Proposed: random openings in the tournament, before any temperature.**
 Start each tournament game from an opening drawn per game, as the benchmark does, so clone pairs and games against AmiGo and Brown differ while every network still plays its best move.

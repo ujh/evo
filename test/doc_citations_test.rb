@@ -92,6 +92,16 @@ class DocCitationsTest < Minitest::Test
     end
   end
 
+  # A link resolves from the linking file's directory, as GitHub renders it:
+  # docs/b.md inside docs/a.md points at docs/docs/b.md.
+  def test_a_link_resolves_from_the_linking_files_directory
+    in_repo('docs/a.md' => "# A\n\n[b](docs/b.md) [same](b.md)\n", 'docs/b.md' => "# B\n") do |out, status|
+      refute status.success?, out
+      assert_match(/^FAIL\s+link\s+docs\/a\.md:3\s+docs\/b\.md$/, out)
+      assert_match(/^ok\s+link\s+docs\/a\.md:3\s+b\.md$/, out)
+    end
+  end
+
   # A heading inside a code block is no heading, and an external link is
   # not checked.
   def test_code_blocks_and_external_links_are_ignored

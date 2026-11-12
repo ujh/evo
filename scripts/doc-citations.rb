@@ -42,8 +42,9 @@ end
 def resolve_link(from, path)
   return from if path.empty?
 
-  [File.join(File.dirname(from), path), path].map { |c| File.expand_path(c).delete_prefix("#{Dir.pwd}/") }
-                                              .find { |c| File.exist?(c) }
+  # Relative to the linking file, as GitHub renders it.
+  candidate = File.expand_path(File.join(File.dirname(from), path)).delete_prefix("#{Dir.pwd}/")
+  candidate if File.exist?(candidate)
 end
 
 def doc_path(name, docs)
