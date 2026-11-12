@@ -141,6 +141,7 @@ class CheckpointBenchmark
     total = done + pending.size
     # Until the first game is in, the line shows the benchmark starting.
     show("Benchmark: starting #{pending.size} games ...")
+    write_openings(pending)
     pending.each { |game| pool.submit(command(game), game) }
     pending.size.times do |i|
       game, duration, status = pool.next_finished
@@ -235,7 +236,7 @@ class CheckpointBenchmark
     moves = opening_moves(game.opening)
     self.class.game_command(
       network: network_command, opponent: game.opponent.command, color: game.color, seed:, prefix: game.prefix,
-      openings: (opening_directory(game.opening, moves) unless moves.empty?), opening_stones: moves.size, settings:
+      openings: (opening_directory(game.opening) unless moves.empty?), opening_stones: moves.size, settings:
     )
   end
 
@@ -250,7 +251,7 @@ class CheckpointBenchmark
     moves = opening_moves(game.opening)
     self.class.twogtp_command(
       black, white, seed:, prefix: game.prefix,
-      openings: (opening_directory(game.opening, moves) unless moves.empty?), opening_stones: moves.size, settings:
+      openings: (opening_directory(game.opening) unless moves.empty?), opening_stones: moves.size, settings:
     )
   end
 
@@ -259,8 +260,16 @@ class CheckpointBenchmark
       Openings.moves(settings.fetch('seed'), index, settings['board_size'], settings['benchmark_opening_moves'])
   end
 
-  def opening_directory(index, moves)
-    Openings.write(File.join(DIRECTORY, 'openings', index.to_s), settings['board_size'], moves)
+  def opening_directory(index) = File.join(DIRECTORY, 'openings', index.to_s)
+
+  # Writes each opening the games use once, before the first game is queued:
+  # the pool starts games while later ones are queued, and a game reading an
+  # opening while it was written again failed ("No root tree found").
+  def write_openings(games)
+    games.map(&:opening).uniq.each do |index|
+      moves = opening_moves(index)
+      Openings.write(opening_directory(index), settings['board_size'], moves) unless moves.empty?
+    end
   end
 
   # The class's score, for one of the checkpoint's games.
