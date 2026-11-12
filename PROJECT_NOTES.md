@@ -185,10 +185,6 @@ michi-c2 at fixed playouts fills the gap between AmiGo and GNU Go level 0 (three
 
 The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
 
-### Write the benchmark's openings once, before its games start
-
-`CheckpointBenchmark` queues a checkpoint's games (700–1,800, and its bot games at the first checkpoint) in one loop, and building each game's command rewrites that opening's shared file (`opening_directory` → `Openings.write`, `ruby/checkpoint_benchmark.rb`); the pool starts games while the loop goes on, so a game can read a half-written `opening.sgf` and fail (`No root tree found`). Rare, but it is the progress measure. `scripts/brittleness.rb` (`write_openings`) writes every opening once before queuing any game; do the same in the runner, test first (owner, 15 Oct 2026: into these notes).
-
 ### Small fixes, one PR
 
 Owner, 15 Oct 2026: do these together as one small PR.
