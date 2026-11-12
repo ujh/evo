@@ -32,33 +32,14 @@ SOFTWARE.
 #include <time.h>
 
 #include "ann.h"
+#include "args.h"
 
 pcg32_random_t rng;
-
-// A seed is a non-negative decimal integer; anything else is an error, so a
-// typo cannot silently fall back to an unseeded run.
-static uint64_t parse_seed(const char *text) {
-  char *end;
-  errno = 0;
-  unsigned long long value = strtoull(text, &end, 10);
-  if (errno != 0 || end == text || *end != '\0' || text[0] == '-') {
-    fprintf(stderr, "seed must be a non-negative integer, got %s\n", text);
-    exit(1);
-  }
-  return value;
-}
 
 // A gene is a finite decimal number; anything else is an error. Whether it
 // lies in its range is checked once the network's size is known.
 static double parse_gene(const char *name, const char *text) {
-  char *end;
-  errno = 0;
-  double value = strtod(text, &end);
-  if (errno != 0 || end == text || *end != '\0' || !isfinite(value)) {
-    fprintf(stderr, "%s must be a finite number, got %s\n", name, text);
-    exit(1);
-  }
-  return value;
+  return parse_number(name, text, -HUGE_VAL, HUGE_VAL);
 }
 
 // GROUPS is none, all, or a comma-separated list of group names

@@ -29,16 +29,11 @@ SOFTWARE.
 #include <stdint.h>
 
 #include "ann.h"
+#include "args.h"
 
 extern pcg32_random_t rng;
 
 void seed();
-// The command-line numbers evolve and perturb take, parsed strictly: a typo
-// exits 1 with a message instead of falling back to a default (for a seed,
-// to an unseeded run). A seed is a non-negative decimal integer; a number a
-// finite decimal in [min, max].
-uint64_t parse_seed(const char *text);
-double parse_number(const char *name, const char *text, double min, double max);
 // Reads both parents, their genes, and their features; exits 1 if either
 // cannot be read.
 genann **load_nns(char *ann1_name, char *ann2_name, ann_genes genes[2], ann_features features[2]);
