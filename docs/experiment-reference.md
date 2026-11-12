@@ -252,6 +252,12 @@ It prints one Markdown table per generation, one row per kind of game: network a
 - **No moves** counts games without a move (a bot that resigned at once); they are no one's repeat.
 - The shares are of the row's games. Clone repeats measure how alike the population plays at a given number of rounds (the share can grow with the rounds counted, since two clones repeat a game only when they meet the same opponent with the same colour, and more rounds give them more chances); rematches depend on the rounds and the pairing (as a share of their row mostly highest, among the network rows, against AmiGo and Brown: a network meeting another copy of the bot with the same colour). michi and GNU Go vary through their per-game seeds, so their rows stay near 0.
 
+`--without-elites` leaves out every game in which an elite of the generation plays (its `births` with `operator` `elite`), against a network, a bot or another elite, so the bred networks' repeats can be set beside those of a run without elitism:
+
+    mise exec -- scripts/game-repeats.rb --without-elites experiments/seed2-elite/experiment.sqlite3 100 500
+
+The games left out count as if they had not been played: the groups are formed from the other games alone, so a group whose first game an elite played gets its first remaining game as original (a bred network's game that repeats only elites' games counts as an original), and a kind of game none of whose games remains gets no row. Each table's first line gives the games counted, the generation's games, those left out, and its number of elites, or says that it has none (a run without elitism, or generation 0, whose births are all `initial`; elites are told from `births`, never from `elite_share`, so a database without that setting works too). A generation without `births` is refused, since its elites cannot be told.
+
 ### Self-adaptive and fixed genes
 
 The script at generations 100–500 of the five second-seed runs (14 Oct 2026, at f2e6717): `seed2-rounds10`, `seed2-rounds20` and `seed2-rounds40` with self-adaptive genes and 10, 20 and 40 rounds, and `seed2-meta0` and `seed2-meta0-step015` with fixed genes ("Fixed mutation genes" below) and 20 rounds. Clone repeats + rematches, as shares of the row's games:
