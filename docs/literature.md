@@ -6,6 +6,7 @@ The review's own arithmetic and simulation are labelled as such and are not publ
 
 The review studied runs with self-adaptive genes nudged by `meta_rate` 0.2 (`genes.md`), no elitism, tournament selection of size 3, 1,000 networks, and one-point crossover at rate 0.4.
 In them the genes shrank: `weight_step`'s median fell from 0.5 to 0.018, 0.006 and 0.0004 by generation 500 in `seed2-rounds10`, `seed2-rounds20` and `seed2-rounds40` (`findings.md`, "10, 20 and 40 rounds", which cannot tell whether the round count caused the differences).
+In `seed2-rounds20-b`, the same run as `seed2-rounds20` to generation 500, the median rose again later, to 2.65 in generations 751–800 (same finding).
 "The owner's hypothesis": without elitism, lineages that make near-copies keep their fitness, so self-adaptation evolves a de-facto elitism and switches exploration off.
 
 - [Short answer](#short-answer)
@@ -102,7 +103,7 @@ The reliabilities in `findings.md`, "How noisy the tournament's ranking is", may
   A survivor that keeps its old noisy score causes "systematic overvaluation" and stagnation (Arnold & Beyer 2000a); "lucky models" can dominate reproduction (Real et al. 2019).
   Elitism "can cause premature convergence if not kept in check: perhaps by increasing the mutation and crossover noise, or weakening the selection pressure, or reducing how many elites are being stored" (Luke 2013).
   A fit parent with a bad self-adapted rate can block progress for a long time (Doerr, Witt & Yang 2018).
-  Re-evaluation is not automatically better: Antipov & Doerr (2025) found re-evaluations "can be highly detrimental" in a (1+1) EA with bit-flip noise.
+  Re-evaluation is not automatically better: Antipov & Doerr (2025) found re-evaluations "can be highly detrimental" in a (1+1) EA on LeadingOnes under constant noise rates.
 - **Stale scores.** Evo at `elite_share` 0 lives one generation per network, the extreme of aging evolution (Real et al. 2019; our inference); `elite_share` (#126) elites play the next Swiss tournament and are scored on it alone, so they never keep a stale score.
   Ranking an elite on its mean over every tournament since the one that selected it would keep earlier evidence (Fieldsend 2015, abstract only), but also that likely lucky tournament at weight 1/k after k tournaments, and games against older populations; no source tested a setting like evo's.
 - **Local optima.** On some multimodal problems the elitist (μ+λ) EA "gets trapped on a local optimum" while a non-elitist EA with 3-tournament selection escapes, given a mutation rate below the error threshold (Dang, Eremeev & Lehre 2021).

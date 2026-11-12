@@ -14,7 +14,9 @@
 # reader to check by hand. A section cited by quoted name without its file
 # is not seen.
 
-EXCLUDED = %w[pcg-c/ docs/gtp/].freeze
+# The submodule, the vendored GTP spec, and this script and its test, whose
+# examples of citations cite nothing.
+EXCLUDED = %w[pcg-c/ docs/gtp/ scripts/doc-citations.rb test/doc_citations_test.rb].freeze
 
 def tracked(pattern = nil)
   `git ls-files #{pattern}`.split("\n").reject { |f| f.start_with?(*EXCLUDED) }

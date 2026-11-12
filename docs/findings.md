@@ -22,8 +22,8 @@ Runs: one with `features all`, one with `features none`, the same settings and s
   Against AmiGo and GNU Go level 0, every checkpoint of both runs lost all 10 games, except one win against AmiGo by `none`'s generation 5.
   Against their own generation 0's champion, `all`'s checkpoints won 8–9 of 10 and `none`'s all 10; against the previous checkpoint, `all`'s won 5 of 10 at both checkpoints, `none`'s 1 and then 5.
   In the arena, `all`'s champion beat `none`'s in both colours at generation 15 and in one of two at generation 19.
-- Whether the features make the difference: suggestive, not proof, with 10 games per opponent and one run per setting; more seeds and more games would tell.
-- The `all` run's feature-weight medians moved most in the first five generations, faster than mutation could move them (at a `feature_step` of 0.01, five generations move a weight by at most about 0.05; saves_atari rose from 0.73 to 0.91); after that they barely moved (saves_atari 0.92 at generation 19), and `feature_step`'s median fell from 0.01 to 0.0050.
+- Whether the features make the difference: cannot tell, with one run per setting and 10 games per opponent; more seeds and more games would tell.
+- In the `all` run, saves_atari's median rose from 0.73 to 0.91 in the first five generations, faster than mutation could move it (at a `feature_step` of 0.01, five generations move a weight by at most about 0.05), and was 0.92 at generation 19; `feature_step`'s median fell from 0.01 to 0.0050.
 - Interpretation: selection picked among generation 0's noise; whether it picked for those weights or for the networks that carried them cannot be told apart from one run.
 
 Source: these commands (26 Sep 2026, seed 2026), then `stats` and the arena; no script.
@@ -80,8 +80,9 @@ Each seed has one run per round count; `tournament_rounds` defaults to 20 since 
 - Second seed, wins of 300 against the same three bots: the 10-round run led at about 20 summed hours; from about 36 h on the 20-round run led at every equal-compute point (101 against 67 at 36–42 h, 102 against 83 at 52–55 h).
   The 40-round run trailed the 20-round run at equal compute and, from generation 200 on, at equal generations (78 against 101 at generation 200, 94 against 114 at 500); it led only at generation 100 (75 against 51), at twice the cost.
 - `weight_step`'s median fell from 0.5 to 0.018 in `seed2-rounds10`, 0.006 in `seed2-rounds20` and 0.0004 in `seed2-rounds40` by generation 500.
+  It did not stay down in every run: `seed2-rounds20-b`, the same as `seed2-rounds20` to generation 500, had a median of 0.0056 in generations 451–500, 0.181 in 651–700 and 2.65 in 751–800 (`scripts/gene-trajectories.rb` at 7e4b5a6, [Elitism](#elitism-elite_share)).
 - Whether the round count caused these differences: cannot tell, with one run per round count and seed.
-  Two runs of 20 rounds with different seeds, `rounds20` and `seed2-rounds20`, differ by +70, +19 and +26 wins of 300 at checkpoints 100, 200 and 300 (which also include another draw of benchmark openings and bot seeds; [Elitism](#elitism-elite_share)).
+  Two runs of 20 rounds with different seeds differ about as much: `rounds20` won 70, 19 and 26 more of 300 than `seed2-rounds20` at checkpoints 100, 200 and 300 (which also include another draw of benchmark openings and bot seeds; `scripts/compare-runs.rb` at 7e4b5a6, [Elitism](#elitism-elite_share)).
 
 Source: each experiment's own `stats` (first seed 2 Oct 2026, second seed 9 Oct 2026) and the summed `games.duration`; no script.
 
@@ -140,17 +141,17 @@ Source: `scripts/brittleness.rb` at ec7a7a0, run by the owner on `seed2-rounds20
 Questions:
 
 1. The 16 Oct hypothesis (`docs/literature.md`, "Ranked experiments", experiment 2): with elitism, do `weight_step` and `copy_chance` shrink less at `meta_rate` 0.2, and is the plateau higher at `meta_rate` 0?
-2. Step 0.5's rise and fall ([Fixed mutation genes](#fixed-mutation-genes-meta_rate-0)): does elitism change it?
+2. Does elitism change how `seed2-meta0`'s population (fixed step 0.5) did against the bots ([Fixed mutation genes](#fixed-mutation-genes-meta_rate-0))?
 3. Do elites and exact clones keep their score in the next tournament?
 4. Did a checkpoint champion play the benchmark against its own genome (owner, 19 Oct 2026)?
 
 Runs: six, to generation 1000 (finished between 24 Oct and 12 Nov 2026), all with `seed2-rounds20`'s seed and other settings (9×9, 1,000 networks starting at 10 hidden layers of 200, 20 rounds), one run per setting (`elite_share`, `meta_rate`, `initial_copy_chance`): `seed2-elite` (0.01, 0.2, 0.01), `seed2-elite-meta0` (0.01, 0, 0.01), `seed2-elite-nocopy` (0.01, 0.2, 0), `seed2-elite-meta0-nocopy` (0.01, 0, 0), `seed2-rounds20-b` (0, 0.2, 0.01) and `seed2-meta0-b` (0, 0, 0.01).
 They share generation 0's ranking and champion and are separate runs from generation 1 on; `seed2-rounds20-b` and `seed2-rounds20` never differ over generations 0–500.
-Two runs of one setting, both without elitism: `seed2-meta0` and `seed2-meta0-b` (`meta_rate` 0, the same seed, diverging at generation 33; both reach generation 576) and `rounds20` and `seed2-rounds20` (`meta_rate` 0.2, other seeds; both reach generation 302).
+Two runs of one setting, both without elitism: `seed2-meta0` and `seed2-meta0-b` (`meta_rate` 0, the same seed, diverging at generation 33; the generations both have end at 576) and `rounds20` and `seed2-rounds20` (`meta_rate` 0.2, other seeds; the generations both have end at 302).
 The runs predate #132, so their GNU Go is the unpinned one.
 
 1. **Cannot tell**, with one run per setting; telling it needs more seeds of each setting.
-   Nor can the outputs separate a setting's effect on the `meta_rate` 0.2 gene trajectories from the spread between runs of one setting: the only pair at 0.2, `rounds20` and `seed2-rounds20`, reaches generation 302.
+   Nor can the outputs separate a setting's effect on the `meta_rate` 0.2 gene trajectories from the spread between runs of one setting: the only pair at 0.2, `rounds20` and `seed2-rounds20`, has generations in common only up to 302.
 2. **Cannot tell**, with one run of each elitist setting at `meta_rate` 0.
 3. In every window, the elites of the four elite runs and the exact clones of every run scored less on average in the next tournament than they or their parent had in the one that chose them.
    The outputs cannot tell how much of either fall is a stronger next field and how much a lucky score that selection picked, since the two tournaments have different fields.

@@ -70,11 +70,12 @@ With one run per setting, the fixed-gene runs (`meta_rate` 0) cannot tell whethe
 **Open question: do the shrinking mutation genes limit progress?**
 Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies.
 In the 500-generation runs `weight_step`'s median fell from 0.5 to between 0.018 and 0.0004 (`docs/findings.md`, "10, 20 and 40 rounds"), and in `seed2-rounds40` `copy_chance` rose to 0.02–0.07; with one run per round count, whether the rounds set that order cannot tell.
+Past generation 500 the median rose again in `seed2-rounds20-b` (to 2.65 in generations 751–800, same finding), so the shrinking need not last.
 The `weight_step` clamp (0.0001) is reached: the generation's minimum sits at it in `rounds20` from generation 200 and in `seed2-rounds40` from generation 337, and touches it in many generations of `seed2-rounds10` (from 352) and `seed2-rounds20`.
 `seed2-rounds20-b` and `seed2-meta0-b`, second runs of `seed2-rounds20`'s and `seed2-meta0`'s settings, reach generation 1000 (`docs/findings.md`, "Elitism (`elite_share`)", has the commands that print their genes and population strength).
 Still open:
 - whether another seed agrees with the single-seed results in `docs/findings.md`, "Fixed mutation genes" and "How brittle a champion is";
-- why step 0.5's population rose and then fell while step 0.15's kept rising slowly, and whether elitism changes that (owner, 9 Oct 2026: without elitism, children that change little are the only way a good network's play survives, which may be what favours small weight steps); the elitism runs cannot tell, with one run per setting, and telling it needs more seeds of each setting;
+- how the populations of `seed2-meta0` (step 0.5) and `seed2-meta0-step015` (step 0.15) changed against the bots (`docs/findings.md`, "Fixed mutation genes"), and whether elitism changes that (owner, 9 Oct 2026: without elitism, children that change little are the only way a good network's play survives, which may be what favours small weight steps); the elitism runs cannot tell, with one run per setting, and telling it needs more seeds of each setting;
 - whether the shapes are what kept the self-adaptive run gaining: a fixed-gene run with a higher `initial_structure_rate` would tell;
 - whether larger steps still sometimes give better children, which the brittleness test could miss (`docs/findings.md`, "How brittle a champion is").
 
@@ -157,7 +158,7 @@ In the self-adaptive runs at 20 and 40 rounds a growing share of network games a
 **Proposed: random openings in the tournament, before any temperature.**
 Start each tournament game from an opening drawn per game, as the benchmark does, so clone pairs and games against AmiGo and Brown differ while every network still plays its best move.
 It makes the tournament and the benchmark alike, which the owner prefers, and gives the arena the openings that moving the benchmark into it needs ([Slow experiments](#slow-experiments-identify-the-cost-before-choosing-the-remedy)).
-Against Wally, a fully deterministic 9×9 Go program, SANE's networks learned tricks and then lost even to random players, and 10 % random moves in Wally fixed it (Richards, Moriarty & Miikkulainen 1998; `docs/literature.md`, "What helped").
+Against Wally, a fully deterministic Go program, SANE's networks learned tricks and then lost even to random players, and 10 % random moves in Wally fixed it (Richards, Moriarty & Miikkulainen 1998; `docs/literature.md`, "What helped").
 Compare a run with openings against `seed2-rounds20`, only the openings changed.
 
 **Open: does elitism keep the population more varied?**

@@ -75,6 +75,21 @@ class DocCitationsTest < Minitest::Test
     end
   end
 
+  # The repository's own docs: every citation resolves, so the PR workflow's
+  # check (docs/pull-requests.md step 3) starts from a clean run.
+  def test_the_repository_passes
+    out, status = Open3.capture2e(RbConfig.ruby, SCRIPT, chdir: File.expand_path('..', __dir__))
+    assert status.success?, out.lines.grep(/^FAIL/).join
+  end
+
+  # "section 1" names the heading numbered 1, not one numbered 10.
+  def test_a_section_number_matches_whole
+    in_repo('docs/guide.md' => "# Guide\n\n## 10. Ten\n", 'NOTES.md' => "`docs/guide.md` section 1\n") do |out, status|
+      refute status.success?, out
+      assert_match(/^FAIL\s+number\s+NOTES\.md:1\s+docs\/guide\.md section 1$/, out)
+    end
+  end
+
   # A heading inside a code block is no heading, and an external link is
   # not checked.
   def test_code_blocks_and_external_links_are_ignored
