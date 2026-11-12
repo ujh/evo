@@ -7,7 +7,9 @@ default: initial-population
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
-include $(OBJS:.o=.dep)
+# Every source's .dep, so an object is rebuilt when any header it includes
+# changes, whichever program it goes into.
+include $(patsubst %.c,%.dep,$(wildcard *.c))
 
 initial-population: $(OBJS) ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)

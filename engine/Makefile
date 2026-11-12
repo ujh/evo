@@ -9,8 +9,9 @@ default: evo arena botdriver
 
 %.dep : %.c
 	$(CC) -M -MP $(CFLAGS) $< > $@
-include $(OBJS:.o=.dep) score.dep arena.dep rules_test.dep score_test.dep gtp_test.dep features_test.dep \
-	bot.dep botdriver.dep fakebot.dep
+# Every source's .dep, so an object is rebuilt when any header it includes
+# changes, whichever program it goes into.
+include $(patsubst %.c,%.dep,$(wildcard *.c))
 
 evo: $(OBJS) main.o ../lib/libann.a
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
