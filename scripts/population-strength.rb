@@ -338,7 +338,8 @@ module PopulationStrength
      'score, in the generation before, of the parent whose genome it equals (the parent it used when both parents ' \
      'have that genome): how many, the mean score before and after, and the mean change (after minus before); for ' \
      'the exact clones also the correlation of the scores before and after (Pearson; — below 2 or without spread). ' \
-     "The elites are their generation's first networks by rank, so they get no correlation. Both compare two " \
+     "An elite's score before is its parent's, one of the previous generation's first networks by rank, so " \
+     'those scores all lie near the top and a correlation would say nothing; the elites get none. Both compare two ' \
      "tournaments against different fields (the next generation's players), so neither the change nor the " \
      'correlation is a reliability coefficient of one tournament.',
      '', '### Elites', '',
