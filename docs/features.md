@@ -1,48 +1,35 @@
 # Go features
 
-Without help, a network sees only the stones and komi and has to discover
-everything about Go by itself: that capturing is good, that a stone in
-atari should run, that some shapes are strong. Features give it that
-knowledge from the start. This page explains what the features are, how
-the network uses them, how they evolve, how to read them in `stats`, and
-what they cost. [The evolving genome](genes.md) explains the rest of a
-network's genome.
+Without help, a network sees only the stones and komi and has to discover everything about Go by itself: that capturing is good, that a stone in atari should run, that some shapes are strong.
+Features give it that knowledge from the start.
+[The evolving genome](genes.md) explains the rest of a network's genome.
+
+- [Two ways the network uses them](#two-ways-the-network-uses-them)
+- [The features](#the-features)
+- [Feature groups: the `features` setting](#feature-groups-the-features-setting)
+- [The starting values](#the-starting-values)
+- [How the feature weights evolve](#how-the-feature-weights-evolve)
+- [Reading them in `stats`](#reading-them-in-stats)
+- [What the features cost](#what-the-features-cost)
+- [What a comparison showed](#what-a-comparison-showed)
 
 ## Two ways the network uses them
 
-The engine computes a few facts for every point of the board ("playing
-here captures", "this is a hane shape", …) and uses them twice:
+The engine computes a few facts for every point of the board ("playing here captures", "this is a hane shape", …) and uses them twice:
 
-- **A: as inputs.** Besides komi and the stones, the network gets one
-  input per point per feature, plus a few board facts (chain liberties,
-  the opponent's last stone, whether the opponent just passed). What the
-  network makes of them is up to its weights, which evolve as always.
-- **B: as feature weights.** After the network has scored every point,
-  each move feature adds its own weight to the score of every point where
-  that feature is 1. There is one weight per feature, the same at every
-  point, and each network carries its own.
+- **A: as inputs.** Besides komi and the stones, the network gets one input per point per feature, plus a few board facts (chain liberties, the opponent's last stone, whether the opponent just passed); what it makes of them is up to its evolving weights.
+- **B: as feature weights.** After the network has scored every point, each move feature adds its own weight, one per feature and network, to the score of every point where that feature is 1.
 
-```
-score(p) = network(p) + w_hane·hane(p) + w_cut·cut(p) + w_edge·edge(p)
-                      + w_capture·capture(p) + w_self_atari·self_atari(p)
-                      + w_saves_atari·saves_atari(p) + w_near_last·near_last(p)
-```
+Example: the network scores D5 at 0.40 and E5 at 0.45, so on its own it would play E5.
+But playing D5 captures a stone (capture = 1 at D5), and this network's capture weight is 1.0, so D5 scores 1.40 and the engine plays D5.
 
-Example: the network scores D5 at 0.40 and E5 at 0.45, so on its own it
-would play E5. But playing D5 captures a stone (capture = 1 at D5), and
-this network's `w_capture` is 1.0. D5's score becomes 0.40 + 1.0 = 1.40,
-and the engine plays D5.
-
-B gives generation 0 good habits at once (capture, run from atari, avoid
-self-atari), while A lets evolution find more subtle uses. The pass keeps
-its own output; B never touches it.
+B gives generation 0 good habits at once (capture, run from atari, avoid self-atari), while A lets evolution find more subtle uses.
+The pass keeps its own output; B never touches it.
 
 ## The features
 
-Every feature looks at the board from the side of the player to move, so
-it means the same for Black and White. Every move feature is 0 at a point
-the engine would not play anyway (illegal, suicide, or filling its own
-eye), so no feature ever points at a refused move.
+Every feature looks at the board from the side of the player to move, so it means the same for Black and White.
+Every move feature is 0 at a point the engine would not play anyway (illegal, suicide, or filling its own eye).
 
 ### Move features (inputs and feature weights)
 
@@ -64,15 +51,12 @@ eye), so no feature ever points at a refused move.
 | last move | last_move | 1 per point | 1 at the opponent's last stone, else 0 (all 0 after a pass and at the start) |
 | opponent passed | last_move | 1 | 1 if the opponent's last move was a pass |
 
-Handicap stones do not count as a last move. Benchmark opening stones do:
-they arrive as ordinary moves.
+Handicap stones do not count as a last move; benchmark opening stones do, since they arrive as ordinary moves.
 
 ### The shapes
 
-The three shape families are the 3×3 patterns MoGo used in its playouts,
-taken from [michi](https://github.com/pasky/michi) (Petr Baudiš, MIT
-licence; the credit is in `engine/features.c`). The candidate point is the
-centre, marked `*`. Legend:
+The three shape families are the 3×3 patterns MoGo used in its playouts, taken from [michi](https://github.com/pasky/michi) (Petr Baudiš, MIT licence; the credit is in `engine/features.c`).
+The candidate point is the centre, marked `*`:
 
 ```
 X, O   stones of the two colours       .   empty
@@ -80,9 +64,8 @@ x      not X (empty, O, or off board)  ?   anything
 o      not O (empty, X, or off board)  #   off the board (the edge)
 ```
 
-Each pattern counts in all 4 rotations and their mirror images, and with
-the colours swapped, so a shape counts whoever is to move: a hane point is
-urgent for both sides.
+Each pattern counts in all 4 rotations, their mirror images, and with the colours swapped, so a hane point is urgent for both sides.
+One point can match several families, and then each of their features is 1.
 
 **hane** (4 patterns)
 
@@ -111,13 +94,9 @@ O * ?     X * O            x * O                   x * x     X * O
 # # #     # # #            # # #                   # # #     # # #
 ```
 
-The families overlap: one point can match a hane and a cut at once, and
-then both features are 1.
-
 ## Feature groups: the `features` setting
 
-The features come in four groups, and an experiment's `features` setting
-says which ones every network gets:
+An experiment's `features` setting says which groups every network gets, for the whole run:
 
 | Group | Move features | Board features | Inputs on 9×9 |
 | --- | --- | --- | --- |
@@ -126,117 +105,55 @@ says which ones every network gets:
 | `last_move` | near_last | last move, opponent passed | 163 |
 | `liberties` | | liberties (3 planes) | 243 |
 
-The setting is `all` (the default), `none` (stones and komi only, the
-networks Evo had before features), or a comma-separated list such as
-`--features tactics,liberties`. A network's inputs are always in the same
-order:
+The setting is `all` (the default), `none` (stones and komi only), or a comma-separated list such as `--features tactics,liberties`.
+The inputs are always in this order, counting only the planes of the network's groups, so 82 inputs on 9×9 with `none` and 974 with `all`:
 
 ```
 [komi][stones][move features, one plane each][liberties ×3][last move][opponent passed]
    1     81        7 × 81 = 567                  243           81            1
 ```
 
-counting only the planes of its groups. On 9×9 that is 82 inputs with
-`none` and 974 with `all`. The outputs stay the same: one per point plus
-pass. One experiment has one feature set; it never changes during a run.
-
 ## The starting values
 
-Generation 0's feature weights start from hand-set values:
+Generation 0's feature weights start from hand-set values: capture +1.0, saves_atari +0.8, self_atari −1.0, and hane, cut, edge and near_last +0.05 each.
 
-| Feature | Starting weight |
-| --- | --- |
-| capture | +1.0 |
-| saves_atari | +0.8 |
-| self_atari | −1.0 |
-| hane, cut, edge, near_last | +0.05 each |
+Why these sizes: a random network's scores over the legal points spread over about 0.6 to 1.0, but its best and second-best points differ by only 0.02–0.04 on average, and often by less than 0.01.
+A weight of about 1 is the whole spread, so it decides the move almost always; a weight of 0.05 is worth a few near-ties, so it breaks close calls without deciding every move.
+On generation-0 networks of `1x10`, `1x50` and `1x100` with all groups (1,000 positions from random play per shape), the feature weights changed 63–69 % of the moves, the networks captured 90–95 % of the time they could, saved an atari 81–85 % of the time, and avoided the self-atari in every position where their own favourite was one; the three shape weights alone changed 7–12 % of the moves, `near_last` 5–10 %.
 
-Why these sizes: a random network's scores over the legal points spread
-over about 0.6 to 1.0, but its best and second-best points differ by only
-0.02–0.04 on average, and often by less than 0.01. A weight of about 1 is the whole spread, so it decides
-the move almost always; a weight of 0.05 is worth a few near-ties, so it
-breaks close calls without deciding every move.
-
-Measured on generation-0 networks with all groups (10 random 9×9
-networks per shape, 100 positions from random play each, 1,000
-positions per shape):
-
-| Shape | Captures when it can | Saves an atari when it can | Avoids self-atari* | Plays a shape point (network alone) | Move changed by the feature weights |
-| --- | --- | --- | --- | --- | --- |
-| 1×10 | 95% | 85% | 100% | 61% (21%) | 63% |
-| 1×50 | 91% | 84% | 100% | 62% (23%) | 64% |
-| 1×100 | 90% | 81% | 100% | 64% (23%) | 69% |
-
-\* of the positions where the network's own favourite was a self-atari.
-The three shape weights alone change 7–12% of the moves, `near_last` 5–10%.
-
-Each network then gets its own copy with some noise: every weight is
-multiplied by 1 + u, with u drawn uniformly within
-±`initial_feature_noise` (default 0.3), so capture starts between 0.7 and
-1.3. The noise is relative, so no sign flips: capture stays good and
-self-atari bad in generation 0.
+Each network then gets its own copy with some noise: every weight is multiplied by 1 + u, with u drawn uniformly within ±`initial_feature_noise` (default 0.3), so capture starts between 0.7 and 1.3.
+The noise is relative, so no sign flips: capture stays good and self-atari bad in generation 0.
 
 ## How the feature weights evolve
 
-The feature weights are genes. A copy keeps them exactly; a crossover
-child takes those of the parent whose weights come first. A mutated child
-first nudges its gene `feature_step` (as `weight_step` is nudged, by
-`meta_rate`), then moves **every** feature weight by a random amount
-between −`feature_step` and +`feature_step`, and clamps it to −10…10.
-`feature_step` starts at `initial_feature_step`, 0.01, and stays within
-0.0001…1.
-
-So with the defaults a shape weight of 0.05 moves by at most 0.01 per
-mutation, and capture's 1.0 barely moves at all: the small weights drift
-over tens of mutations, and selection keeps the drift that wins games.
-Networks without move features (`none`, or `liberties` alone) have no
-feature weights, and their `feature_step` never moves.
+The feature weights and `feature_step` are genes, inherited and mutated as [The evolving genome](genes.md) describes: a mutated child nudges `feature_step` and then moves **every** feature weight by up to ±`feature_step`, clamped to −10…10.
+`feature_step` starts at `initial_feature_step`, 0.01, and stays within 0.0001…1.
+So with the defaults a shape weight of 0.05 moves by at most 0.01 per mutation, and capture's 1.0 barely moves: the small weights drift over tens of mutations, and selection keeps the drift that wins games.
+Networks without move features (`none`, or `liberties` alone) have no feature weights, and their `feature_step` never moves.
 
 ## Reading them in `stats`
 
-With move features, `stats` has a Feature weights table between Genes and
-Shapes and activations:
+With move features, `stats` has a Feature weights table between Genes and Shapes and activations:
 
 ```
 Feature weights (range: generation 2)
-+-----+---------+--------+--------+--------+---------+-----------+------------+----------+
 | Gen | Step    | Hane   | Cut    | Edge   | Capture | SelfAtari | SavesAtari | NearLast |
-+-----+---------+--------+--------+--------+---------+-----------+------------+----------+
 |   0 |    0.01 | 0.0594 | 0.0583 | 0.0551 |   0.955 |     -1.09 |      0.728 |   0.0427 |
 |   1 |    0.01 | 0.0594 | 0.0603 | 0.0505 |    1.29 |     -1.14 |      0.626 |   0.0427 |
 |   2 |  0.0104 | 0.0565 | 0.0607 | 0.0472 |    1.28 |     -1.15 |      0.622 |    0.041 |
-+-----+---------+--------+--------+--------+---------+-----------+------------+----------+
 | min | 0.00872 | 0.0491 | 0.0532 | 0.0372 |    1.27 |     -1.15 |      0.606 |   0.0301 |
 | max |  0.0137 | 0.0654 | 0.0643 | 0.0639 |     1.3 |    -1.14 |      0.626 |   0.0573 |
-+-----+---------+--------+--------+--------+---------+-----------+------------+----------+
 ```
 
-(Generations 0 to 2 of `mise run new-experiment demo --board-size 9
---population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5
---game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 2
---benchmark-games 2 --benchmark-bot-games 0 --seed 3`, then `mise run run demo --concurrency 4 --one-generation`
-three times; 26 Sep 2026.)
-
-Each row gives the medians of that generation's networks: Step is
-`feature_step`, the others the weight each feature adds. The `min` and
-`max` rows give the range in the latest generation. Only the experiment's
-features have a column, and without move features there is no table.
-
+Each row gives the medians of that generation's networks: Step is `feature_step`, the others the weight each feature adds.
+The `min` and `max` rows give the range in the latest generation, and only the experiment's features have a column.
 What to look for:
 
-- A median that moves steadily in one direction over many generations:
-  selection likes (or dislikes) that feature more than the start assumed.
-- A sign that flips (Capture or SavesAtari below 0, SelfAtari above 0), or
-  a weight that runs to ±10: worth a look at the games.
-- A median that only wobbles by a few thousandths: drift, `feature_step`
-  at work without selection pushing.
+- A median that moves steadily in one direction over many generations: selection likes (or dislikes) that feature more than the start assumed.
+- A sign that flips (Capture or SavesAtari below 0, SelfAtari above 0), or a weight that runs to ±10: worth a look at the games.
+- A median that only wobbles by a few thousandths: drift, `feature_step` at work without selection pushing.
 
-In `stats NAME --csv`, the columns `genes.feature_step.min|median|max` are
-filled for every experiment, and `genes.fw_NAME.min|median|max` (for
-example `genes.fw_capture.median`) for each of the seven feature weights,
-empty where the experiment's groups lack that feature. So experiments with
-different feature sets have the same columns and line up in a spreadsheet.
-The Weights column of the Genes table counts the feature inputs' weights.
+[The evolving genome](genes.md), "CSV columns", has the feature weights' CSV columns.
 
 ## What the features cost
 
@@ -247,19 +164,13 @@ On 9×9 with a hidden layer of 50:
 | Inputs | 82 | 974 |
 | Network weights | 8,332 | 52,932 |
 | `.ann` file | 67 kB | 424 kB |
-| Default `weight_changes` (0.0004 × weights) | 3.3 | 21.2 |
+| Default `weight_changes` (max(1, 0.0004 × weights)) | 3.3 | 21.2 |
 | Arena game (median, 90 games of seeded 1×50 networks) | 0.0003 s | 0.0033 s |
 | Per move | about 3 µs | about 37 µs |
 
-The features multiply the arena's move time by about ten, but a game still
-takes a few milliseconds, against about 0.3 s for a game with a bot through
-GoGui, as the tournament played those before #84 (the arena plays them now).
-The storage grows with the weights: such a network's file is about six
-times as large (the `.ann` row above). On 19×19 a network with all groups has 4,334 inputs, and 1×50 is 235,212 weights (1.9 MB).
-
-With this many inputs, removing a network's only hidden layer makes it
-bigger, not smaller: a 9×9 `0x0` network connects all 974 inputs to the
-82 outputs, 79,950 weights, against 10,652 for `1x10`.
+The features multiply the arena's move time by about ten, but a game still takes a few milliseconds.
+On 19×19 a network with all groups has 4,334 inputs, and 1×50 is 235,212 weights (1.9 MB).
+With this many inputs, removing a network's only hidden layer makes it bigger, not smaller: a 9×9 `0x0` network connects all 974 inputs to the 82 outputs, 79,950 weights, against 10,652 for `1x10`.
 
 ## What a comparison showed
 
