@@ -342,7 +342,7 @@ class GeneTrajectoriesTest < Minitest::Test
 
       ## No network weight changed
 
-      Counted apart from the clones, and neither as clones nor as not clones: mutation children whose differs count against their picked parent is 0, with no structural or activation change. No network weight changed; feature weights and genes moved; whether they play like the parent is not measured. Per run and window, of each such child's largest feature-weight change against its picked parent (its fw_* columns against the parent's, where both have one), the median and the maximum. stats' Copies column counts them.
+      Counted apart from the clones, and neither as clones nor as not clones: mutation children whose differs count against their picked parent is 0, with no structural or activation change. No network weight changed; feature weights and genes may differ from the parent's (the feature-weight change is below); whether they play like the parent is not measured. Per run and window, of each such child's largest feature-weight change against its picked parent (its fw_* columns against the parent's, where both have one), the median and the maximum. stats' Copies column counts them.
 
       | Run | Window | Generations | Mutation children | No network weight changed | Largest feature-weight change, median | Largest feature-weight change, maximum |
       | --- | ---: | ---: | ---: | ---: | ---: | ---: |
