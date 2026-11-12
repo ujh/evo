@@ -260,7 +260,7 @@ So plan, write scripts, proper PRs with reviews etc, and only then let's run the
   Let's not make the mistake (here and [in] any other analysis) of trying to find things in the data that are not actually there.
   If we cannot tell one thing from another at that point that's also a valid outcome."
   What the outputs cannot tell apart, the results doc reports plainly as "cannot tell".
-  Three practices keep an analysis from finding what is not there (applied in `docs/experiment-reference.md`, "Elitism (`elite_share`)"):
+  Three practices keep an analysis from finding what is not there (applied in `docs/findings.md`, "Elitism (`elite_share`)"):
   - **Design for the runs there are.** Before designing a comparison of settings, count the runs of each.
     With one run per setting, a difference between runs cannot be told from the spread between two runs of one setting, so a test between the settings tests the runs.
     Such an analysis describes each run from the start, attributes nothing to a setting, and names more seeds as the way to tell settings apart; if telling them apart is the point, ask the owner whether to run more seeds first (owner, 12 Nov 2026: "Descriptive only").
@@ -268,7 +268,7 @@ So plan, write scripts, proper PRs with reviews etc, and only then let's run the
   - **Rules fixed before the outputs.** Before the scripts run, the plan fixes the windows and defaults, which windows and checkpoints the results doc covers, and for each question the output it is answered from.
     It names the output, never the statement, since a fact the plan tells the doc to state can turn out contradicted by the data.
     Only an owner decision, recorded as one, changes these rules after the outputs are seen.
-  - **Answers and the command to rerun.** Per analysis, the results doc gives the questions, a plain answer to each ("cannot tell" allowed), the runs, and the command and revision that reproduce the numbers (owner, 12 Nov 2026: "Answers + command", replacing the earlier layout of tables by stated rules).
+  - **Answers and the command to rerun.** Per analysis, the results doc (an entry in `docs/findings.md`) gives the questions, a plain answer to each ("cannot tell" allowed), the runs, and the command and revision that reproduce the numbers (owner, 12 Nov 2026: "Answers + command", replacing the earlier layout of tables by stated rules).
     A table appears only where a question's answer is a table; for more detail, readers rerun the script.
     No sentence sums up over some of the runs, windows or measures, or from a starting point, since the pick leans one way; a statement or range over every run, window or measure the outputs hold, or every one a stated rule names, picks nothing and may stay ("in every window …").
 - **Raw outputs kept.** Run the script from a merged revision and keep its raw output, with that revision, beside the plan (`plans/NAME-results/`), so the results PR's reviewers check each figure against the output, not the writer's notes.
@@ -286,7 +286,7 @@ So plan, write scripts, proper PRs with reviews etc, and only then let's run the
   - An estimate made before the run (its cost, its expected power), labelled as an estimate.
     The run's figures replace it where its outputs give them; a cost stays a labelled estimate unless a [quiet] measurement replaces it, since a timing the docs rely on is one.
   - A caveat a reviewer's own query raised, as its mechanism without the query's figure: the clone-repeat share can grow with the rounds counted, since two clones repeat a game only when they meet the same opponent with the same colour.
-  - Figures a section marks as predating this rule, from one-off queries the owner shipped after review (the "Fixed mutation genes" figures of #119, 14 Oct 2026); later text may cite them, and a change to them goes through a script.
+  - Figures a section marks as predating this rule, from one-off queries the owner shipped after review (the figures of `docs/findings.md`, "Fixed mutation genes", #119, 14 Oct 2026); later text may cite them, and a change to them goes through a script.
   - Interpretation, in its own labelled bullet or paragraph, apart from the results, so a reader can tell what was measured from what is read into it; it is checked as strictly as the figures (above).
 
 ## Worktrees and stacked PRs

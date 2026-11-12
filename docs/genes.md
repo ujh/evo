@@ -89,7 +89,7 @@ The catch: selection on genes is indirect and noisy, so a gene can also just dri
 `meta_rate` (default 0.2) sets how far a gene moves per nudge.
 The nudge multiplies `weight_changes`, `weight_step` and `feature_step` by e^(`meta_rate` × a standard normal number), at 0.2 a typical nudge of about ±22 %: a parent that changes 7 weights per child might have a child that changes 8 or 6, and rarely 5 or 10.
 The three chances move the same way on the log-odds scale, which for small values like 0.02 is nearly the same.
-`meta_rate` 0 freezes the genes, bit for bit (`docs/experiment-reference.md`, "Fixed mutation genes", has the runs).
+`meta_rate` 0 freezes the genes, bit for bit (`docs/findings.md`, "Fixed mutation genes", has the runs).
 
 ### Why `weight_changes` is a count, not a rate
 
@@ -231,24 +231,4 @@ The Genes, Shapes and activations, and Breeding examples above come from a run o
 The same seed gives the same run again on the same machine and code; another machine can differ, because the build is tuned to the local CPU.
 Delete `experiments/demo` afterwards.
 
-### What a 20-generation default run showed
-
-Two seeded runs with the default genes and limits (26 Sep 2026: 9×9, 20
-networks of `1x50`, 5 rounds, seed 2026; the command is in
-[Go features](features.md#what-a-comparison-showed)), one with every
-feature group and one with `features none`, hit no limit, but the medians
-moved:
-
-| Gene | Start | `all` at generation 19 | `none` at generation 19 |
-| --- | --- | --- | --- |
-| `copy_chance` | 0.01 | 0.008 | 0.005 |
-| `weight_changes` | 21.2 (`all`), 3.3 (`none`) | 12.5 | 4.2 |
-| `weight_step` | 0.5 | 0.34 | 0.48 (about 0.74 around generations 14–17) |
-| `activation_rate` | 0.02 | 0.016 | 0.01 |
-| `structure_rate` | 0.02 | 0.008 | 0.016 (0.04 in between) |
-| `feature_step` | 0.01 | 0.005 | 0.01 (never moves) |
-
-Only two or three shape changes happened in each run, and none spread.
-Twenty generations cannot tell drift from selection, so this stays an open
-question in `PROJECT_NOTES.md`: watch the Genes table in longer runs, and
-start with a higher `initial_structure_rate` to explore shapes.
+What a 20-generation run with the default genes showed is in [Findings](findings.md#what-a-20-generation-default-run-showed).

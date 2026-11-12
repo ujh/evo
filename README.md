@@ -48,7 +48,7 @@ Each network carries its own settings as genes, which evolve with its weights: i
 
 Networks also get hand-coded Go knowledge (good 3×3 shapes, captures, self-atari, saving a chain from atari, the opponent's last move, and chain liberties), as extra inputs and as feature weights that evolve too.
 The `features` setting picks the groups: `all` (the default), `none` (stones and komi only), or a list such as `tactics,liberties`.
-[Go features](docs/features.md) explains each feature and what a comparison with a stones-only run showed.
+[Go features](docs/features.md) explains each feature; [Findings](docs/findings.md) has what a comparison with a stones-only run showed, and what the other experiments found.
 
 ## Benchmark
 

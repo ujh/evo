@@ -35,8 +35,9 @@ Build from the repository root.
 - [Analysis scripts](docs/analysis-scripts.md): what each analysis script prints and how to read it.
 - [Performance measurements](docs/performance.md): how to measure, the fixed workloads, and the measured costs that set a default or a design.
   Read before optimizing.
-- [Go features](docs/features.md): feature design, groups, weights, and comparison results.
+- [Go features](docs/features.md): feature design, groups, weights, and their cost.
 - [The evolving genome](docs/genes.md): genes, mutation, crossover, structure, and run interpretation.
+- [Findings](docs/findings.md): what each experiment and analysis found, and the command to rerun it; read before choosing the next experiment.
 - [Literature](docs/literature.md): self-adaptation, noisy selection, elitism, and evolving game players; read before changing breeding or selection.
 - [GTP version 2 specification](docs/gtp/README.md): the protocol evo and the bot controller speak; grep `gtp2-spec.txt`.
 - [PR workflow](docs/pull-requests.md) and [larger change workflow](docs/orchestration.md): follow when preparing the corresponding work.
@@ -62,7 +63,7 @@ Docs hold what an agent needs to build, run, or decide the next step and cannot 
   When a change makes text stale, rewrite or delete it; never append an update.
 - A rule keeps one clause of why.
   Owner decisions keep the owner's words and date.
-- Results follow `docs/orchestration.md`, "Analyses and results docs".
+- Results go in `docs/findings.md` and follow `docs/orchestration.md`, "Analyses and results docs".
 - `PROJECT_NOTES.md` items: problem, why it matters, next step, and the owner decision if any.
 - Docs cite sections by heading name, not number; the numbered process steps are cited by number.
 - Markdown, one sentence per line.
