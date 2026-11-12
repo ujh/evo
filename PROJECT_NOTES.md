@@ -1,284 +1,361 @@
 # Evo: open work
 
-This file lists only work still to do: defects, cleanup, proposed experiments, and open questions. Delete an item when a change finishes it. Facts a future agent needs go into the relevant reference in `docs/`.
+This file lists only work still to do: defects, cleanup, proposed experiments, and open questions.
+Delete an item when a change finishes it.
+Facts a future agent needs go into the relevant reference in `docs/`, and results into `docs/findings.md`.
+Each item gives the problem, why it matters, the next step, and the owner's decision if there is one.
+
+- [What most affects the experiment](#what-most-affects-the-experiment)
+- [Go rules and scoring boundary](#go-rules-and-scoring-boundary)
+- [Comparing the owner's two proposed directions](#comparing-the-owners-two-proposed-directions)
+- [Code cleanup](#code-cleanup)
+- [Tooling for agents](#tooling-for-agents)
+- [Proposed sequence](#proposed-sequence)
+- [Questions to settle together](#questions-to-settle-together)
 
 **Proposed first milestone:** repeatable improvement on a small board, under a fixed and trustworthy evaluation procedure.
 
-**Current recommendation:** the longer `bigrun` and `even-bigger` experiments (both deleted 30 Sep 2026; `even-bigger2` is the only one left) showed improvement against AmiGo but leave a large gap to GNU Go level 0. New experiments now play a calibrated ladder between AmiGo and GNU Go level 0 (three michi-c2 levels) and GNU Go itself in the tournament, at levels 0 and 10 (`docs/experiment-reference.md`); next, run experiments with it and test whether low mutation rates limit further progress. Improve checkpoint comparisons and repeat controlled runs with several seeds before attributing a gain to a setting. Do the [cleanup](#code-cleanup) alongside. Treat search as a possible follow-on that needs its own control experiment.
+**Current recommendation:** new experiments play a calibrated ladder in the tournament: Brown, AmiGo, three michi-c2 levels, and GNU Go at levels 0 and 10 (`docs/experiment-reference.md`, "The default panels and the michi ladder").
+Next, run experiments with it and test whether low mutation rates limit further progress.
+Improve checkpoint comparisons, and repeat controlled runs with several seeds before attributing a gain to a setting.
+Do the [cleanup](#code-cleanup) alongside.
+Treat search as a possible follow-on that needs its own control experiment.
 
-**Reduce the Ruby side of a tournament round for large populations (only if it gets in the way again).** The runner's Ruby side is still O(population) work per game: `RunGeneration#update_data` re-sorts the whole ranking, `in_order?` and `ranking_moves` walk it, and the rank shift in `ExperimentDatabase#raise_in_ranking` scans the generation's `rankings` rows, which have no index on `rank`. Since `925e51a` the runner scores each record as it arrives, while the arenas play, and on the large workload at concurrency 3 that work no longer lengthens the tournament: it keeps the main thread busy 14–15 s of a 50–60 s tournament, and the tournament ends within 1 s of the summed worker time divided by 3 (`docs/performance.md`). It would matter again if the main thread fell behind the records, for example at a higher concurrency (at 8 it was busy 23–27 s of a 32–46 s tournament) or with more games a round: then a round's `round_K` rises well above `worker_round_K` divided by the concurrency. Candidates: move only the changed players in memory instead of re-sorting (the order must stay `update_data`'s), and an index on `(generation, rank)` (a new migration). Measure again on the large workload after any change; with 50 networks Ruby is under 1 s and not worth changing.
+**Reduce the Ruby side of a tournament round for large populations (only if it gets in the way again).**
+The runner's Ruby side is O(population) work per game: `RunGeneration#update_data` re-sorts the whole ranking, `in_order?` and `ranking_moves` walk it, and `ExperimentDatabase#raise_in_ranking` scans the generation's `rankings` rows, which have no index on `rank`.
+At concurrency 3 on the large workload the main thread keeps up with the arenas (`docs/performance.md`, "The runner's main thread"); it would matter if it fell behind, at a higher concurrency or with more games a round, when a round's `round_K` rises well above `worker_round_K` divided by the concurrency.
+Then move only the changed players in memory instead of re-sorting (the order must stay `update_data`'s), add an index on `(generation, rank)` in a new migration, and measure again on the large workload.
 
-**Read the benchmark ratings as they come in.** `stats` now rates every checkpoint's champion, generation 0's, and the panel's bots on one Elo scale (AmiGo at 0) from all their benchmark games and the bots' games against each other (`docs/experiment-reference.md`). Once `even-bigger2` (a champion every 100 generations) has several checkpoints, check whether the champions' ratings rise steadily across checkpoints or cycle, and whether the rise holds against the bots, not only against past champions. Read ± as narrower than the uncertainty against AmiGo, and a champion that beat or lost to everyone as held finite only by the prior. Still open: whether these games go to the arena instead of GoGui, which would make them nearly free. They add up to 1,800 GoGui games a checkpoint at the default settings (100 per opponent since migration 017: seven bots, generation 0's champion, and ten past champions). The 1,700 of the panel before GNU Go level 10 joined it took about 16 CPU-minutes going by `even-bigger2`'s generation-200 games (4.5 s each against the unpinned GNU Go level 0, which played at up to level 10, under 1 s against the rest); the pinned levels' cost is not measured. The scoring differs little: the referee's Chinese rules are area scoring too, and differ from the arena's Tromp–Taylor only where dead stones stay on the board (GNU Go removes them, Tromp–Taylor counts them), which happens often while networks pass early and less once they finish games. The arena lacks openings, though, which the benchmark needs because networks play deterministically; it would have to learn to start games from one.
+**Read the benchmark ratings as they come in.**
+`stats` rates every checkpoint's champion, generation 0's, and the panel's bots on one Elo scale (`docs/experiment-reference.md`, "stats", says how to read ± and the prior).
+Once `even-bigger2` (a champion every 100 generations) has several checkpoints, check whether the champions' ratings rise steadily or cycle, and whether the rise holds against the bots, not only against past champions.
 
 ## What most affects the experiment
 
 ### 1. Fitness needs a clearer meaning
 
-The tournament has a useful idea: match roughly comparable players while including fixed external bots. However, different networks can face very different schedules, colors are randomized rather than paired, and repeat pairings are allowed. A tournament score measures success in that particular schedule; it is not a stable measure of strength across generations. The benchmark (see `docs/experiment-reference.md`) measures strength instead.
+A tournament score measures success in one schedule (different opponents, random rather than paired colours, repeat pairings), so it is no stable measure of strength across generations; the benchmark (`docs/experiment-reference.md`, "Benchmark") measures strength instead.
 
-**Proposed experiment:** now that progress is measured apart from the tournament, test whether bots belong in the tournament at all. Compare an experiment with the default `opponents` panel against one with an empty `opponents` table, on the benchmark, at equal game budgets. If the bot-free run drifts or cycles (the usual coevolution pathologies), try a hall of fame of frozen past champions in the tournament instead; games between networks are cheap, since the arena plays them (see `docs/experiment-reference.md`).
+**Proposed experiment:** compare the default `opponents` panel against an empty `opponents` table, on the benchmark, at equal game budgets, to test whether bots belong in the tournament.
+If the bot-free run drifts or cycles, try a hall of fame of frozen past champions in the tournament instead.
 
-**Later fitness-side ideas from the literature** (`docs/literature.md`, "Ranked experiments", item 10), each a single change: give the bots some randomness so the networks win 20–80 % against them (opponents already beaten or out of reach give no signal); an even number of rounds with balanced colours; and raising the rounds when a measured statistic calls for it rather than at fixed generations (Pollack & Blair 1998 raised their bar when the challengers' success rate passed 15 %).
+**Later fitness-side ideas** (`docs/literature.md`, "Ranked experiments", item 10), each a single change: bots with some randomness so the networks win 20–80 % against them; an even number of rounds with balanced colours; raising the rounds when a measured statistic calls for it rather than at fixed generations.
 
 ### 2. Selection pressure is a guess
 
-Parents are chosen by tournament selection with a default size of 3 (`tournament_size`). Nothing yet shows whether that keeps enough variation or selects too weakly to make progress.
+Parents are chosen by tournament selection of size 3 (`tournament_size`), and nothing shows whether that keeps enough variation or selects too weakly.
 
-**Proposed response:** measure it with the [recorded data](#6-test-the-assumptions-with-the-recorded-data) below, compare a few tournament sizes (size 5 as a single change; low priority as a cure for the shrinking mutation genes, since stronger selection did not stop the rates' collapse in Glickman & Sycara 2000, though they found search effective only in a narrow band of tournament sizes, about 10 in a population of 100; `docs/literature.md`, "Ranked experiments", experiment 7); elitism is built (`elite_share`, below); its first six runs, one per setting, cannot tell its effect (`docs/findings.md`, "Elitism (`elite_share`)"). Re-evaluate top-ranked networks and some lower-ranked ones on the same independent openings to estimate how much the tournament schedule misorders parents and checkpoint champions.
+**Proposed response:**
+- Measure it with the [recorded data](#6-test-the-assumptions-with-the-recorded-data).
+- Compare tournament size 5 as a single change (`docs/literature.md`, "Ranked experiments", experiment 7), with low priority as a cure for the shrinking mutation genes.
+- Re-evaluate top-ranked and some lower-ranked networks on the same independent openings, to estimate how much the tournament schedule misorders parents and checkpoint champions.
 
-**Rank by the rating fit instead of the win count?** Predicted about 6 % better selection at no cost in games (`docs/findings.md`, "How noisy the tournament's ranking is"); untested, and it needs its own pair of runs if wanted. The owner would rather keep the tournament and the benchmark alike (owner, 30 Sep 2026: "On a theoretical level I'd prefer to keep both tournaments (actual ones and benchmark) the same, just because that's easier to reason about. If raising the rounds to 20 would already help then that would be preferrable. But it all depends on the data, I guess").
+Elitism is built (`elite_share`); its first six runs, one per setting, cannot tell its effect (`docs/findings.md`, "Elitism (`elite_share`)"); its open variants are under [Questions to settle together](#questions-to-settle-together).
+
+**Rank by the rating fit instead of the win count?**
+Predicted about 6 % better selection at no cost in games (`docs/findings.md`, "How noisy the tournament's ranking is"); untested, and it needs its own pair of runs if wanted.
+The owner would rather keep the tournament and the benchmark alike (owner, 30 Sep 2026: "On a theoretical level I'd prefer to keep both tournaments (actual ones and benchmark) the same, just because that's easier to reason about. If raising the rounds to 20 would already help then that would be preferrable. But it all depends on the data, I guess").
 
 ### 3. Mutation and crossover deserve separate experiments
 
-A mutated child changes each weight with probability `weight_changes / total_weights`, by a uniform amount within `±weight_step`, and with probability `copy_chance` a child is an unchanged copy instead. All three are genes of each network (see the last paragraph). Because `weight_changes` is a count, the expected number of changed weights per child does not grow with the network. With few changes per child, many children differ from their parent in only a weight or two, and changes in weights can also leave the chosen moves unchanged, so genetic and behavioral diversity are different measurements.
+How a child is made is in `docs/genes.md`, "How `evolve` makes a child".
+Many children differ from their parent in a weight or two, and changed weights can leave the moves unchanged, so genetic and behavioural diversity are different measurements.
+Crossover and mutation are mutually exclusive in `breed()` (`evolve/evolve.c`), and crossing raw weight arrays assumes hidden units have compatible roles in both parents, which they need not (the [original NEAT paper](https://nn.cs.utexas.edu/downloads/papers/stanley.ec02.pdf)); measure whether that matters rather than assume it.
 
-Crossover and mutation are mutually exclusive in `breed()` (`evolve/evolve.c`), and parents of different shapes always give a mutation. Increasing the crossover rate reduces the number of mutation attempts. Crossing identical parents produces an identical child, which becomes relevant if selection concentrates the population.
+**Proposed response:** a mutation-only baseline, `cross_over_rate` 0 as a single change against `seed2-rounds20` at equal game budgets; none of the large-scale neuroevolution successes crossed weights (`docs/literature.md`, "Large-scale neuroevolution compared with evo").
+Treat the number of mutated weights and the size of each perturbation as separate controls, and optionally measure unchanged children's move agreement on a small bank of positions.
+None of the `initial_*` gene defaults was chosen from evidence, so compare starting values at equal game budgets.
+With one run per setting, the fixed-gene runs (`meta_rate` 0) cannot tell whether freezing the genes helps (`docs/findings.md`, "Fixed mutation genes").
 
-Crossing raw weight arrays also assumes that hidden units occupy compatible roles in both parents. They need not: equivalent networks can place their internal features in different orders. This is a known issue discussed in the [original NEAT paper](https://nn.cs.utexas.edu/downloads/papers/stanley.ec02.pdf). Whether it is a major problem for Evo should be measured rather than assumed.
+**Open question: do the shrinking mutation genes limit progress?**
+Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies.
+In the 500-generation runs `weight_step`'s median fell from 0.5 to between 0.018 and 0.0004 (`docs/findings.md`, "10, 20 and 40 rounds"), and in `seed2-rounds40` `copy_chance` rose to 0.02–0.07; with one run per round count, whether the rounds set that order cannot tell.
+The `weight_step` clamp (0.0001) is reached: the generation's minimum sits at it in `rounds20` from generation 200 and in `seed2-rounds40` from generation 337, and touches it in many generations of `seed2-rounds10` (from 352) and `seed2-rounds20`.
+`seed2-rounds20-b` and `seed2-meta0-b`, second runs of `seed2-rounds20`'s and `seed2-meta0`'s settings, reach generation 1000 (`docs/findings.md`, "Elitism (`elite_share`)", has the commands that print their genes and population strength).
+Still open:
+- whether another seed agrees with the single-seed results in `docs/findings.md`, "Fixed mutation genes" and "How brittle a champion is";
+- why step 0.5's population rose and then fell while step 0.15's kept rising slowly, and whether elitism changes that (owner, 9 Oct 2026: without elitism, children that change little are the only way a good network's play survives, which may be what favours small weight steps); the elitism runs cannot tell, with one run per setting, and telling it needs more seeds of each setting;
+- whether the shapes are what kept the self-adaptive run gaining: a fixed-gene run with a higher `initial_structure_rate` would tell;
+- whether larger steps still sometimes give better children, which the brittleness test could miss (`docs/findings.md`, "How brittle a champion is").
 
-**Proposed response:** establish a mutation-only baseline and compare it with the present crossover scheme at equal game budgets: `cross_over_rate` 0 as a single change against `seed2-rounds20`. None of the large-scale neuroevolution successes crossed weights (`docs/literature.md`, "Large-scale neuroevolution compared with evo"). Treat the number of mutated weights and the size of each perturbation as separate controls. The share of unchanged children is recorded in `births`; optionally also measure their move agreement on a small bank of positions.
+If shapes are to be explored, start with a higher `initial_structure_rate`.
+Also open (owner, 12 Nov 2026): whether `feature_step` shrinks as `weight_step` did in the 500-generation runs; `scripts/gene-trajectories.rb` prints its per-run medians and clamp shares (`docs/findings.md`, "Elitism (`elite_share`)", has the command).
 
-The genes start from the `initial_*` settings (defaults: `copy_chance` 1%, 0.0004 weight changes per weight, `weight_step` ±0.5) and adapt at the pace of `meta_rate`. None of those values was chosen from evidence. Question them in these experiments: compare starting values at equal game budgets. With one run per setting, the fixed-gene runs (`meta_rate` 0) cannot tell whether freezing the genes helps (below).
+**Next diagnostic for structural exploration.**
+Low adaptive structure rates can leave a run scarcely testing other shapes (one large run changed structure in 42 of 50,000 births in generations 100–149), which does not establish a local optimum.
+Compare a maintained minimum structural-change rate against the current self-adaptation, other settings fixed, and measure how many shapes are tried and how often they survive, at equal generations as well as equal games and elapsed time.
 
-**Open question: do the shrinking mutation genes limit progress?** Under noisy selection a gene can drift toward a bound, for example `copy_chance` to its maximum of 0.1, which would make a tenth of the mutated children plain copies. A 20-generation seeded run with the default genes (9×9, 20 networks of 1×50, 5 rounds, 25 Sep 2026) hit no clamp, but the medians moved: `copy_chance` from 0.01 to about 0.005, `activation_rate` from 0.02 to about 0.01, `structure_rate` up to 0.04 and back to 0.016, `weight_changes` from 3.3 to 4.2, and `weight_step`'s median rose to about 0.74 around generations 14–17 and fell back to 0.48 (all births: 0.23–1.21). Only three structural changes and seven activation switches happened, and none spread: no generation had more than two networks with another activation or one with another shape than 1×50. Twenty generations cannot tell drift from selection. The same settings with every feature group (26 Sep 2026; the stones-only run gave the numbers above again) also hit no clamp: `weight_changes` fell from 21.2 to 12.5, `weight_step` to about 0.34, and `structure_rate` to about 0.008, and `copy_chance` and `activation_rate` to about 0.008 and 0.016. In the 500-generation runs of 10, 20 and 40 rounds (`seed2-rounds10/20/40`, Oct 2026, one run each; `docs/findings.md`, "10, 20 and 40 rounds"), `weight_step`'s median fell from 0.5 to 0.018 in `seed2-rounds10`, 0.006 in `seed2-rounds20` and 0.0004 in `seed2-rounds40` by generation 500 (the clamp is 0.0001), and in `seed2-rounds40` `copy_chance` rose to 0.02–0.07; with one run per round count, whether the rounds set that order cannot tell. Past generation 500 one run with `seed2-rounds20`'s settings goes on, `seed2-rounds20-b` (to generation 1000); `scripts/gene-trajectories.rb` prints its medians per window (`docs/findings.md`, "Elitism (`elite_share`)", has the command). With the first seed, `rounds20`'s `weight_step` fell to 0.0002–0.0005 while `weight_changes` rose to 30,000–250,000 of about 500,000 weights (generations 225–303), and `even-bigger2`'s `weight_changes` fell to about 2. On the second seed, the champions of the fixed-gene runs `seed2-meta0` and `seed2-meta0-step015` won fewer benchmark games than those of `seed2-rounds20` from generation 200–300 on, whose `structure_rate` rose while its weight steps shrank; with one run per setting, whether freezing the genes helps cannot tell (`docs/findings.md`, "Fixed mutation genes"). Still open (the brittleness test's results are in `docs/findings.md`, "How brittle a champion is"): whether another seed agrees; why step 0.5's population rose and then fell while step 0.15's kept rising slowly (by the share above the AmiGo copies' mean; a second step-0.5 run, `seed2-meta0-b`, runs to generation 1000, which `scripts/population-strength.rb` prints, `docs/findings.md`, "Elitism (`elite_share`)"), and whether elitism changes that (owner, 9 Oct 2026: without elitism, children that change little are the only way a good network's play survives, which may be what favours small weight steps): the elitism runs cannot tell, with one run per setting, and telling it needs more seeds of each setting (`docs/findings.md`, "Elitism (`elite_share`)"); whether the shapes are what kept the self-adaptive run gaining (a fixed-gene run with a higher `initial_structure_rate` would tell); and whether larger steps still sometimes give better children, since gains below the size the test finds with 80 % power (about 2–8 points, none estimated where children almost never play differently) could have gone unseen, found with less than 80 % probability, and larger ones could still be missed, as only the 4 best of 32 children a step were tested for improvement. The `weight_step` clamp (0.0001) is reached: the generation's minimum sits at it in `rounds20` from generation 200 and in `seed2-rounds40` from generation 337, and touches it in many generations of `seed2-rounds10` (from 352) and `seed2-rounds20`. If shapes are to be explored, start with a higher `initial_structure_rate`. Also open (owner, 12 Nov 2026): whether `feature_step` shrinks as `weight_step` did in the 500-generation runs; `scripts/gene-trajectories.rb` prints its per-run medians and clamp shares (`docs/findings.md`, "Elitism (`elite_share`)", has the command).
+**Proposed experiment: cross the rest of the genome apart from the weights.**
+A crossover child takes all of the non-weight genome (mutation genes, activations, feature weights, `feature_step`) from the parent whose weights come first.
+Instead, take each gene from either parent at random or average the numeric ones, for every child, crossover or mutation; these genes could mix even between parents of different shapes.
+Prefer the arithmetic mean for the mutation genes (owner, 9 Oct 2026, likes it): it pulls the step up, which keeps self-adaptation stable where the geometric mean does not (`docs/literature.md`, "Fixes for self-adaptation").
+Compare against the present scheme at equal game budgets.
 
-**Next diagnostic for structural exploration:** The larger ongoing run adopted an 11×200 shape from 10×200 early, but only 42 of 50,000 births in generations 100–149 changed structure. The longer small-population run also had stretches with almost no structural or activation changes. Low adaptive rates mean the runs scarcely test alternative shapes; they do not establish a local optimum. Compare a maintained minimum structural-change rate against the current self-adaptation, with other settings fixed, and measure both how many different shapes are tried and how often they survive. Test selection pressure, weight mutation size, and crossover separately rather than changing them together. Evaluate at equal generations as well as equal games and elapsed time.
+**Proposed experiment: average the weights of related parents.**
+Instead of one-point crossover, move one parent a fraction (say 5–20 %) of the way toward the other, weight by weight, then mutate; same shape only, against the present crossover at equal game budgets.
+Averaging unrelated networks breaks them (Uriot & Izzo 2020), but between close relatives it worked (Pollack & Blair 1998; Runarsson & Lucas, via secondary sources), and late in a run evo's parents are close relatives.
 
-**Proposed experiment: cross the rest of the genome apart from the weights.** A crossover child takes all of the non-weight genome (the mutation genes, both activations, the feature weights, and `feature_step`) from the picked parent, the one whose weights come first. Instead, cross it separately: for example take each gene from either parent at random, or average the numeric ones. These genes do not depend on the network's shape, so they could mix even between parents of different shapes, which today always give a mutation. Compare against the present scheme at equal game budgets. Prefer the arithmetic mean for the mutation genes (owner, 9 Oct 2026, likes it): it pulls the step up, which is what keeps self-adaptation stable in evolution strategies, where the geometric mean does not (parents with `weight_step` 0.02 and 0.5 give 0.26 against about 0.1; `docs/literature.md`, "Fixes for self-adaptation"). Apply it to every child, crossover or mutation, so the genes average even when the weights do not.
+**If self-adaptation stays, alternatives to test one at a time** (`docs/literature.md`, "Fixes for self-adaptation" and "Ranked experiments"):
+- 10 % of mutation children made with the default genes, whatever the parent's;
+- one shared step for the population under the 1/5 success rule, with a success measure other than the tournament score, since copies beat their parent's score about as often as mutation children do (`docs/findings.md`, "Fixed mutation genes");
+- a small upward bias in the nudge (log-step plus about 0.01);
+- a floor on the total perturbation √(weights changed × step² / 3) rather than on `weight_step`, since `rounds20` traded a tiny step for 30,000–250,000 changed weights of about 500,000;
+- a smaller `meta_rate` such as 0.05, expected only to slow the collapse.
 
-**Proposed experiment: average the weights of related parents.** Instead of one-point crossover, a child is one parent moved a fraction (say 5–20 %) of the way toward the other, weight by weight, then mutated. Averaging unrelated networks breaks them (hidden neurons play different roles in each: averaging two independently trained networks dropped accuracy to chance, Uriot & Izzo 2020), but between close relatives it worked: Pollack & Blair 1998 moved their backgammon champion 5 % toward a winning challenger, and Runarsson & Lucas found parent–child averaging essential for small-board Go (via secondary sources). Late in a run evo's parents are close relatives. Same shape only, compared against the present crossover at equal game budgets.
+**Proposed experiment: heavy-tailed weight changes, without genes.**
+Under `meta_rate` 0, draw each child's number of changed weights from a power law (probability ∝ k^−1.5 on 1 to half the weights), against `seed2-meta0` (`docs/literature.md`, "Ranked experiments", experiment 9).
 
-**If self-adaptation stays, alternatives to test one at a time** (`docs/literature.md`, "Fixes for self-adaptation" and "Ranked experiments"): 10 % of mutation children made with the default genes whatever the parent's; one shared step for the population, raised when more than about a fifth of mutation children beat their parent and lowered otherwise (the 1/5 success rule), but not with the tournament score as the measure of success: in generations 1–500 of `seed2-rounds20` and the fixed-gene runs, 18–21 % of exact copies beat their parent's score of the generation before, as do 18–19 % of mutation children, so the rule would track how far the parents' selected scores regress, not the mutation; a small upward bias in the nudge (log-step plus about 0.01); a floor on the total perturbation √(weights changed × step² / 3) rather than on `weight_step`, since `rounds20` traded a tiny step for 30,000–250,000 changed weights; and a smaller `meta_rate` such as 0.05, expected only to slow the collapse.
-
-**Proposed experiment: heavy-tailed weight changes, without genes.** Under `meta_rate` 0, draw each child's number of changed weights from a power law (probability ∝ k^−1.5 on 1 to half the weights): mostly near-copies, with rare large jumps, and no gene to collapse; compare against `seed2-meta0`. Proven to help only for elitist algorithms on bit strings (`docs/literature.md`, "Ranked experiments", experiment 9).
-
-**Settings that could become genes.** Candidates, each a proposed experiment:
-
-- `cross_over_rate` as a per-network `crossover_chance`: the picked parent's decides, and it mutates on the logit scale like `copy_chance`. Pairs with crossing the rest of the genome (above).
-- A pass bias added to the pass output's score, a move weight for passing, since saturated ties pass today.
-- Move temperature (see item 7).
-- Switching feature groups on or off per network. That changes the input count, so it blocks crossover between networks that differ; worth it only if a feature turns out to hurt.
+**Settings that could become genes**, each a proposed experiment:
+- `cross_over_rate` as a per-network `crossover_chance`, mutating on the logit scale like `copy_chance`;
+- a pass bias added to the pass output's score, since saturated ties pass today;
+- move temperature (item 7);
+- feature groups switched on or off per network, worth it only if a feature turns out to hurt, since it blocks crossover between networks that differ.
 
 The other settings define the experiment or its measurement and stay settings: the board, komi, move and time limits, population, rounds, seeds, the benchmark, the shape bounds, `tournament_size`, `elite_share`, and `meta_rate` (the τ that evolution strategies usually keep fixed).
 
 ### 4. The policy has to learn Go structure from very little guidance
 
-The dense network receives the board and komi, and, with feature groups, per-point shape and tactical features, chain liberties, the last move, and whether the opponent passed, plus shared feature weights added to its move scores (the `features` setting, `all` by default). A `features none` network has none of that: only a flat board and komi. Neither has more move history than the last move or spatial weight sharing. The engine's legality checks handle immediate constraints, but the policy has no lookahead to examine consequences.
+The network gets the board, komi and, with feature groups, per-point features and feature weights (`docs/features.md`), but no move history beyond the last move, no spatial weight sharing, and no lookahead.
+None of its settings (hidden layers and sizes, activations, inputs and outputs) was chosen for a reason, and cached sigmoid outputs create score ties that favour earlier intersections or passing.
 
-That makes a compact policy an interesting learning experiment, with substantial representational demands. In particular, a two-neuron hidden layer such as the bundled fixture compresses the whole board very aggressively; it should not be taken as a recommended training architecture.
+**Check whether the dense network still influences move choice.**
+A late population of the deleted `bigrun` had tanh outputs (between −1 and 1) while some feature weights were around 7–10, so the feature terms may decide many moves.
+Check first whether `even-bigger2`'s champions show the same pattern; then, on a bank of positions, measure move agreement with the feature terms removed and with the dense output removed, and test the resulting policies on held-out games.
 
-None of the network's settings was chosen for a reason: the number and size of hidden layers, the hidden and output activations (sigmoid through a lookup table, for both), and the inputs and outputs. Generation 0's sizes and activations are experiment settings and defaults; from there, activations and sizes evolve as genes of each network. Cached sigmoid outputs, for one, create artificial score ties that favor earlier intersections or passing; a network that evolved a linear output layer would not have them.
-
-**Check whether the dense network still influences move choice.** In late `bigrun` (since deleted), the population had tanh outputs (bounded by −1 and 1) while some added feature weights were around 7–10. This may make the feature terms decide many moves, even as the dense weights mutate. On a saved bank of positions, measure move agreement with the feature terms removed and with the dense output removed; inspect score margins and test the resulting policies on held-out games. Large feature weights alone do not establish that they hurt play. Check first whether `even-bigger2`'s champions show the same pattern.
-
-**Later head starts from the literature**, each compared with a run without it (`docs/literature.md`, "Evolving Go and board-game players" and "Ranked experiments"): score the position after each candidate move (a one-move lookahead) instead of picking a move directly, since position evaluators are easier to learn than move pickers; start evolution from a network trained by temporal-difference learning; local shape features whose weights are shared across the board; and small changes to all weights against large changes to a few, at equal total perturbation.
-
-Search remains a choice to discuss.
+**Later head starts from the literature**, each compared with a run without it (`docs/literature.md`, "Ranked experiments", its head starts for later): score the position after each candidate move instead of picking a move; start from a network trained by temporal-difference learning; local shape features with weights shared across the board; small changes to all weights against large changes to a few at equal total perturbation.
 
 ### 5. Long runs need recoverable evidence
 
-SGFs are kept only for every `keep_every`-th generation, and of its networks only one, the champion; the other networks of a generation are deleted once the next generation is bred, and an archived experiment (`mise run archive-experiment`) keeps the same champions. That saves space but limits comparisons with early ancestors to those champions. Each experiment keeps copies of its executables and records the code revision they came from.
+Only every `keep_every`-th generation keeps its champion and SGFs (`docs/experiment-reference.md`, "Storage"), which limits comparisons with early ancestors to those champions.
 
 **Proposed response:** also keep each generation's top-ranked network, if the `keep_every` generations turn out too sparse.
 
 ### 6. Test the assumptions with the recorded data
 
-Many settings rest on assumptions nobody has checked: the tournament size, whether one point per win (bot or network) rewards the right games, the mutation rate and perturbation size, whether crossover helps, and how much a score depends on pairing and color rather than play. The experiment database records what is needed (`games`, `births`, and `rankings` in `experiment.sqlite3`), and `stats` reports it, including children per parent and where the bots rank. Still to do: run a few seeded experiments that vary one setting at a time.
+The tournament size, one point per win, the mutation rate and size, crossover, and how much a score depends on pairing and colour rest on unchecked assumptions.
+`experiment.sqlite3` records what is needed; next, run a few seeded experiments that vary one setting at a time.
 
 **Cheap measurements before more long runs** (`docs/literature.md`, "Step 0: cheap measurements"):
+- **Test-retest reliability:** replay one stored generation in a second, independent Swiss tournament at 10 and 20 rounds and correlate the rankings, since the split-half reliabilities in `docs/findings.md`, "How noisy the tournament's ranking is", may be artefacts of the pairing.
+- **Drift control:** a few dozen generations with shuffled fitness, tracking the median log `weight_step`, to see how far the genes move with no selection.
+- **Per-generation figures in `stats`:** the total perturbation, the share of mutation children scoring at least as well as their parent beside the same share for copies, scores by operator, weight size per layer and saturated neurons, and how often a child picks its parent's move on a bank of positions.
 
-- **Test-retest reliability.** Replay one stored generation's networks in a second, independent Swiss tournament at 10 and 20 rounds and correlate the two rankings. A simulation made for the literature review (1,000 equally strong players, Swiss pairing by score) gave an odd/even split-half reliability of about 0.56 at 10 rounds, so the reliabilities in `docs/findings.md` ("How noisy the tournament's ranking is") may be artefacts of the pairing.
-- **Drift control.** A few dozen generations with shuffled fitness, tracking the median log `weight_step`: how far do the genes move with no selection? A lineage's log step does a random walk with a spread of about 0.2 × √(0.6 × 500) ≈ 3.5 over 500 generations, the order of the observed falls.
-- **Per-generation figures in `stats`:** the total perturbation √(weights changed × step² / 3) (`docs/literature.md`, "Large-scale neuroevolution compared with evo", has the values), the share of mutation children scoring at least as well as their parent beside the same share for copies (alone it measures how far the parents' selected scores regress: `docs/findings.md`, "Fixed mutation genes"), scores by operator (crossover, mutation, copy), the weights' size per layer and the share of saturated neurons, and how often a child picks its parent's move on a bank of positions.
+**Are the benchmark's fixed openings less informative than fresh ones?**
+The brittleness test's faint hint (`docs/findings.md`, "How brittle a champion is") is that children led a champion on its benchmark openings while their controls trailed it on fresh ones.
+If the fixed openings separate players poorly, every checkpoint comparison is weaker than it looks.
+Next: an analysis script comparing each step's spread on the benchmark and on fresh openings with the spread per-game noise gives (`docs/orchestration.md`, "Analyses and results docs") (owner, 15 Oct 2026: into these notes).
 
-**Are the benchmark's fixed openings less informative than fresh ones?** In the brittleness test, `seed2-rounds20` generation 500's children at the fixed steps led the champion on its 50 benchmark openings while their controls trailed it on fresh ones (`docs/findings.md`, "How brittle a champion is", the faint hint). The benchmark is the progress measure: if its fixed openings separate players poorly, every checkpoint comparison is weaker than it looks, and more or other openings may be the remedy. The hint is not significant on its own; an analysis could compare each step's spread on the benchmark and on fresh openings with the spread per-game noise gives. Needs an analysis script (`docs/orchestration.md`, "Analyses and results docs") (owner, 15 Oct 2026: into these notes).
-
-**Investigate the color gap before tuning around it.** Against AmiGo after generation 0, `bigrun`'s checkpoint champions won 444/1,140 games as Black and 688/1,140 as White; `even-bigger` showed the same direction in its first four checkpoints (11/40 and 20/40). Both runs are deleted, so repeat the check on `even-bigger2` and later runs; in `even-bigger2`'s tournaments White wins 56–63 % of all games (`scripts/ranking-noise.rb`), so the gap is not only against AmiGo. The benchmark pairs colors, so its combined rate is still useful, but these results call for checking outcomes by opening, game length, passing, and komi. Do not assume yet whether the cause is the policy, the openings, or the opponent.
+**Investigate the colour gap before tuning around it.**
+White wins 56–63 % of `even-bigger2`'s tournament games (`docs/findings.md`, "How noisy the tournament's ranking is"), and earlier runs' champions won more often as White against AmiGo.
+Check outcomes by colour, opening, game length, passing, and komi on `even-bigger2` and later runs before assuming whether the cause is the policy, the openings, or the opponent.
 
 ### 7. Move choice is deterministic
 
-A network always plays its highest-scoring allowed move, so the same two networks with the same colors play the same game every time, and a tie between saturated outputs always goes the same way (usually a pass). Repeat pairings in the tournament and benchmark games without openings therefore add no information.
+A network always plays its highest-scoring allowed move, so two networks with the same colours play the same game every time, and repeat pairings add no information.
+In the self-adaptive runs at 20 and 40 rounds a growing share of network games are clone repeats (`docs/findings.md`, "How often tournament games repeat"); at generation 500 of `seed2-rounds20` they are about 17 % of the network games.
 
-In the self-adaptive runs at 20 and 40 rounds (one seed), a growing share of the network games are clone repeats, games behavioural clones replay, and networks replay games against AmiGo and Brown (`docs/findings.md`, "How often tournament games repeat").
+**Proposed: random openings in the tournament, before any temperature.**
+Start each tournament game from an opening drawn per game, as the benchmark does, so clone pairs and games against AmiGo and Brown differ while every network still plays its best move.
+It makes the tournament and the benchmark alike, which the owner prefers, and gives the arena the openings that moving the benchmark into it needs ([Slow experiments](#slow-experiments-identify-the-cost-before-choosing-the-remedy)).
+Against Wally, a fully deterministic 9×9 Go program, SANE's networks learned tricks and then lost even to random players, and 10 % random moves in Wally fixed it (Richards, Moriarty & Miikkulainen 1998; `docs/literature.md`, "What helped").
+Compare a run with openings against `seed2-rounds20`, only the openings changed.
 
-**Proposed: random openings in the tournament, before any temperature.** Start each tournament game from an opening as the benchmark does (`benchmark_opening_moves` stones from the seed), drawn per game, so clone pairs and games against AmiGo and Brown differ while every network still plays its best move. It makes the tournament and the benchmark alike, which the owner prefers, and it is the arena support for openings that moving the benchmark into the arena needs (above). Unlike temperature it does not make a result partly luck or weaken play on purpose. The literature backs varying the games: against a fully deterministic opponent, networks evolved for 7×7 Go learned tricks and then lost even to random players, and 10 % random moves in the opponent fixed it (Richards, Moriarty & Miikkulainen 1998; `docs/literature.md`, "What helped"). Neither adds more than one distinct game's information: at generation 500 of the 20-round run, repeats cost about 17 % of the network games. Compare a run with openings against `seed2-rounds20` (same seed, 20 rounds, only the openings changed).
+**Open: does elitism keep the population more varied?**
+The first elitism runs cannot tell, with one run per setting; telling it needs more seeds of each setting (`docs/findings.md`, "Elitism (`elite_share`)", has the `scripts/game-repeats.rb` commands).
+The clone-repeat share is comparable only between runs with the same number of rounds, and elitism adds clones by construction (an elite and a bred copy of its parent).
+`stats`' identical count compares activations only (`ExperimentStats#identical?`), so it is no exact clone count; `scripts/gene-trajectories.rb` counts exact clones by `genome`.
 
-**Open: does elitism keep the population more varied?** The first elitism runs cannot tell, with one run per setting. `scripts/game-repeats.rb` describes each run's clone repeats among network games at generations 100, 300, 500, 700 and 1000, with and without `--without-elites` (which leaves out every game an elite plays), and the one-setting pairs' as far as both runs of a pair reach (generations 500 and 300) (`docs/findings.md`, "Elitism (`elite_share`)", has the commands). Telling elitism's effect needs more seeds of each setting. The clone-repeat share is comparable only between runs with the same number of rounds, since it can grow with the rounds counted, two clones repeating a game only when they meet the same opponent with the same colour (rematches depend on the rounds and the pairing, not on diversity). Elitism adds clones by construction: an elite and a bred copy of the same parent are behavioural clones. Clones also come about without elitism, and without copies: a network crossed with itself is an exact clone (`scripts/gene-trajectories.rb` counts them per run; `ExperimentStats#identical?` compares the activations only, not the feature weights, so `stats`' identical count is no exact clone count, while `scripts/gene-trajectories.rb` counts exact clones by `genome`).
+**Proposed: never cross a network with itself.**
+Parents are drawn independently, with replacement (`RunGeneration#select_parent`), so a crossover child can have one network as both parents and be an exact clone, even at `copy_chance` 0 (1.8/N of the crossover children with a size-3 tournament over N networks whose scores all differ; `scripts/gene-trajectories.rb` counts them).
+Redrawing the second parent when it equals the first would remove them, but changes every later draw, so test it as a change of its own, not inside the elitism arms (owner, 19 Oct 2026: keep it for now, note it for later).
 
-**Proposed: never cross a network with itself.** Parents are drawn independently, with replacement (`RunGeneration#select_parent`), so a crossover child can have the same network as both parents; crossover does not mutate, so that child is an exact clone, even at `copy_chance` 0 (1.8/N of the children drawn for crossover with a size-3 tournament over N networks whose scores all differ, computed from the selection rule; an estimate of about 0.7 children a generation of 1,000 at crossover rate 0.4; `scripts/gene-trajectories.rb` counts them per run and window, `docs/findings.md`, "Elitism (`elite_share`)", has the command). Redrawing the second parent when it equals the first would remove them, but changes every later draw, so test it as a change of its own, not inside the elitism arms (owner, 19 Oct 2026: keep it for now, note it for later).
-
-**Proposed: `scripts/game-repeats.rb --rounds N`**, counting only the games of the first N rounds (`games.round` 0 to N − 1; the query in `GameRepeats.games`, `scripts/game-repeats.rb`, counts every round). The first N rounds of a longer Swiss tournament are a valid N-round tournament (each round's pairing depends only on the scores so far and the round's seed, `ruby/run_generation.rb`), so `seed2-rounds10`, `-rounds20` and `-rounds40` could be compared at equal rounds without new runs, and tell whether the clone-repeat gradient between them (`docs/findings.md`, "How often tournament games repeat") comes from the genes or from the measure. A reviewed script change before any of its numbers enter the docs (owner, 15 Oct 2026: into these notes).
+**Proposed: `scripts/game-repeats.rb --rounds N`**, counting only the games of the first N rounds (`games.round` 0 to N − 1; `GameRepeats.games` counts every round).
+The first N rounds of a Swiss tournament are a valid N-round tournament, so `seed2-rounds10`, `-rounds20` and `-rounds40` could be compared at equal rounds without new runs, telling whether their clone-repeat gradient comes from the genes or from the measure.
+A reviewed script change comes before any of its numbers enter the docs (owner, 15 Oct 2026: into these notes).
 
 The temperature idea below stays for later (owner, 9 Oct 2026: openings first).
 
-**Idea to think about:** make the move choice a little random with a temperature parameter: pick among the allowed moves with probability proportional to `exp(score / T)`, so T near 0 comes close to today's behavior (except that today a tie goes to the pass or the lower index, while sampling would split it) and a larger T plays more varied moves. Questions before building it:
-
-- Where the randomness comes from: a per-game seed passed to `evo` and the arena, derived from the experiment seed like the GNU Go seeds, so runs stay reproducible.
-- Whether T applies to the tournament only, with the benchmark kept at T = 0 so checkpoints stay comparable, or to both.
-- Whether T is an experiment setting or another gene that evolves per network.
-- Whether the pass is one of the sampled moves, or keeps its own rule.
-- Whether varied games make tournament scores less noisy (more distinct games per pairing) or just weaker (worse moves on purpose).
+**Idea to think about:** pick among the allowed moves with probability proportional to `exp(score / T)`.
+Questions before building it:
+- where the randomness comes from (a per-game seed derived from the experiment seed, so runs stay reproducible);
+- whether T applies to the tournament only, keeping the benchmark at T = 0, or to both;
+- whether T is a setting or a gene, and whether the pass is sampled or keeps its own rule;
+- whether varied games make tournament scores less noisy or just weaker.
 
 ## Go rules and scoring boundary
 
-Brown's internal final-status algorithm assumes the board has been filled according to Brown's original move policy. Evo can pass earlier, so those assumptions do not generally hold. The arena scores every tournament game by Tromp–Taylor instead, but the GNU Go referee still decides the whole benchmark.
+The arena scores every tournament game by Tromp–Taylor, the GNU Go referee decides the benchmark, and Brown's own final-status algorithm assumes a board filled by Brown's move policy, which evo's early passes break.
+Before treating results as reliable, specify the board size, suicide policy, ko rule, and how GNU Go adjudicates unfinished benchmark games; the engine uses simple ko and accepts suicide through `play`, though its generated moves exclude suicide.
 
-Before treating results as reliable, specify the board size, suicide policy, ko rule, and how GNU Go adjudicates unfinished benchmark games. The local engine uses simple ko and accepts suicide through `play`, although its generated moves exclude suicide. Those conventions should agree with the surrounding match system.
+**Optional positional superko for networks.**
+A network's move filter (`move_allowed`, `engine/features.c`) and the arena forbid only a simple ko retake, so a network may repeat an earlier whole-board position, which michi-c2 refuses (`? … Positional Superko rule violation`) and the arena treats as a crash.
+Depending on where evo ends up playing, it may need a mode that tracks earlier positions and avoids moves that repeat one (owner, 29 Sep 2026).
+Make it optional, off by default, and have the arena apply the same rule.
 
-**Optional positional superko for networks.** A network may play a move that repeats an earlier whole-board position: its move filter (`move_allowed`, `engine/features.c`) and the arena forbid only a simple ko retake. Opponents with a superko rule refuse such a move; michi-c2 answers `play` with `? … Positional Superko rule violation`, which the arena treats as a crash (found 29 Sep 2026 while trying michi-c2 as an opponent). Depending on where evo ends up playing, it may need a mode that tracks earlier positions and avoids moves that repeat one (owner, 29 Sep 2026). Make it optional, off by default, so current experiments keep their rules; the arena would then have to apply the same rule to decide legality.
-
-**Owner question: Tromp–Taylor rewards capturing dead stones.** A network that passes with AmiGo's dead stones still in its area loses by the arena's Tromp–Taylor count games the GNU Go referee gives it (7 of 50 in the comparison in `docs/experiment-reference.md`), so the tournament selects for capturing dead stones before passing. The bots' side is settled: the tournament's GNU Go and michi play on until the dead stones are captured (`--capture-all-dead`, `--play-until-end`), which took their winner changes against random networks from 45 and 13 of 110 games to 0 (the endings run in `docs/experiment-reference.md`). Still open: whether selecting networks for capturing dead stones before they pass is wanted, or whether their games need another ending or a referee.
+**Owner question: Tromp–Taylor rewards capturing dead stones.**
+A network that passes with AmiGo's dead stones in its area loses by the arena's count games the referee gives it (`docs/experiment-reference.md`, "Tromp–Taylor against the GNU Go referee on the same games"), so the tournament selects for capturing dead stones before passing; the bots already play on until dead stones are captured.
+Still open: whether selecting networks for capturing dead stones before they pass is wanted, or whether their games need another ending or a referee.
 
 ## Comparing the owner's two proposed directions
 
 ### Go features: what is still open
 
-The networks get 3×3 shapes, tactical features, the last move, and chain liberties as inputs and as feature weights that evolve (`docs/features.md`). One seeded 20-generation comparison with a stones-only run (26 Sep 2026, `docs/findings.md`, "What a comparison showed") leaves these open:
+One seeded 20-generation comparison of `features all` with a stones-only run (`docs/findings.md`, "What a comparison showed") leaves these open:
 
-- **Does the head start last, and does it help beyond Brown?** The feature run beat Brown 6–9 times in 10 against 0–5 for the stones-only run, but neither beat AmiGo or GNU Go level 0 at any checkpoint, and the feature run's checkpoints beat the previous one only 5 times in 10. One seed and 10 games per opponent: repeat with several seeds, more benchmark games, and longer runs (see "Proposed sequence" item 2).
-- **The feature weights hardly evolve.** Their medians moved in the first five generations, faster than mutation can move them, so selection picked among generation 0's noise; afterwards they barely moved and `feature_step` fell from 0.01 to 0.005. Try a larger `initial_feature_step` or `initial_feature_noise`, and check whether selection, not the lineage that carries them, moves the weights (for example several seeds, or a run with the weights fixed at their starting values).
-- **Which groups help?** The `features` setting takes single groups; compare them one at a time against `all` and `none`.
-- Shapes only around the last move, instead of at every point, as MoGo used them.
-- More move history than the last move: planes for how many turns ago each stone was played, as AlphaGo's inputs had.
-- **Should `remove_layer` go down to 0 layers with features?** Removing a feature network's only hidden layer makes it bigger, not smaller: with 974 inputs on 9×9 a 0×0 network has 79,950 weights against 10,652 for 1×10 (every input connects to every output), and such networks spread to 5 of 12 in a seeded run (`docs/features.md`, `docs/genes.md`). Decide whether structural mutation should stop at one hidden layer when the experiment has features, or whether a large flat network is a fine thing to evolve.
-- **Later: a `ladders` feature group.** Ladder capture and ladder escape per point, mainly for bigger boards, where ladders matter more. It needs a ladder reader on Brown's board: play the ladder out with trial moves and undo them with `brown_save`/`brown_restore`.
+- **Does the head start last, and does it help beyond Brown?**
+  Repeat with several seeds, more benchmark games, and longer runs ([Proposed sequence](#proposed-sequence) item 2).
+- **The feature weights hardly evolve** after the first generations.
+  Try a larger `initial_feature_step` or `initial_feature_noise`, and check whether selection, not the lineage that carries them, moves the weights (several seeds, or the weights fixed at their starting values).
+- **Which groups help?**
+  Compare single groups one at a time against `all` and `none`.
+- Shapes only around the last move, as MoGo used them.
+- More move history: planes for how many turns ago each stone was played, as AlphaGo's inputs had.
+- **Should `remove_layer` go down to 0 layers with features?**
+  With 974 inputs on 9×9 a 0×0 network has 79,950 weights against 10,652 for 1×10, and such networks spread to 5 of 12 in a seeded run (`docs/features.md`, `docs/genes.md`).
+  Decide whether structural mutation should stop at one hidden layer when the experiment has features.
+- **Later: a `ladders` feature group** (capture and escape per point, mainly for bigger boards), with a ladder reader that plays the ladder out on Brown's board and undoes it with `brown_save`/`brown_restore`.
 
 ### A network inside UCT-style search
 
-Search and local patterns can be combined. There are three distinct roles for a network:
-
-| Network role | What it supplies | Implication for Evo |
-| --- | --- | --- |
-| Guide exploration | A preference over candidate moves when expanding a search node. | The network's move scores could provide these preferences; incorporating policy priors requires a corresponding tree-selection rule rather than plain UCT alone. |
-| Guide rollouts | Move choices during simulated games. | Calls to the policy occur repeatedly inside simulations, making their speed and effect on rollout outcomes important. |
-| Evaluate leaves | An estimate of who will win from a position. | Requires a position-value output with consistent player perspective; existing move scores do not supply this value. |
-
-There is direct precedent for combining learned knowledge with Go search. Gelly and Silver's [Combining Online and Offline Knowledge in UCT](https://www.davidsilver.uk/wp-content/uploads/2020/03/combining_uct.pdf) examines simulation policies and prior knowledge in 9×9 Go. One relevant finding is that a stronger standalone policy did not necessarily make a better simulation policy. Their work used reinforcement learning, so it motivates an experiment here without establishing a result for evolution.
-
-For this repository, search also needs a way to copy or restore full board state, correct treatment of simulation endings and ko, and reliable simulation scoring. Brown can save and restore its whole game state (`brown_save`/`brown_restore`), but has no incremental undo, so each restore copies about 4 kB. Its inherited scorer cannot simply be used on arbitrary search leaves.
-
-The recommendation is to consider using the network's move scores to guide exploration after establishing a useful direct policy. A subsequent experiment must compare search with evolved guidance against the same search with uniform or frozen initial guidance. Use equal simulation budgets to study guidance quality, and equal elapsed-time budgets to measure practical benefit; report both. Search adds work per move, but whether it reduces total compute needed to reach a target strength is an empirical question.
-
-The idea is to use the network in place of the random moves of plain Monte Carlo playouts (owner, 29 Sep 2026): UCT as usual, but each simulated game is played by the network instead of by uniformly random moves. This is the "guide rollouts" role above. Gelly and Silver's finding above applies: a stronger standalone policy need not make a better simulation policy.
+A network could guide exploration (move preferences, which need a selection rule for priors), guide rollouts (move choices in simulated games, where its speed matters), or evaluate leaves (which needs a value output the move scores do not supply).
+The idea is to use the network in place of the random moves of plain Monte Carlo playouts (owner, 29 Sep 2026): UCT as usual, but each simulated game is played by the network instead of by uniformly random moves.
+A stronger standalone policy did not necessarily make a better simulation policy in 9×9 Go ([Gelly and Silver](https://www.davidsilver.uk/wp-content/uploads/2020/03/combining_uct.pdf), with reinforcement learning).
+Search needs full board restore (Brown's `brown_save`/`brown_restore` copies about 4 kB, no incremental undo), correct simulation endings and ko, and a scorer for arbitrary leaves, which Brown's inherited one is not.
+Build it after a useful direct policy exists, and compare against the same search with uniform or frozen guidance at equal simulation budgets and at equal elapsed time.
 
 ### Slow experiments: identify the cost before choosing the remedy
 
-The benchmark takes about 28 of a small generation's 30 s: it still plays every game through `gogui-twogtp` with the GNU Go referee, most of its time in the games against GNU Go level 0. Moving its games into the arena needs openings, which the arena lacks (see the benchmark ratings item above), and changes their scoring from the referee's to Tromp–Taylor. GNU Go level 0 is back in the default tournament, with the michi levels; On the large workload the new panel makes a generation 40–54 % slower, nearly all of it in the tournament, where a round waits for its GNU Go games (`docs/performance.md`).
+The benchmark takes about 28 of a small generation's 30 s (`docs/performance.md`, "The benchmark on the small workload"): 1,800 GoGui games a checkpoint at the defaults, through `gogui-twogtp` and the GNU Go referee.
+Moving them into the arena would make them nearly free, but the arena needs openings first, since networks play deterministically (item 7), and the scoring would change from the referee's to Tromp–Taylor, which differ where dead stones stay on the board.
+The default panel also makes a large-workload generation 40–54 % slower, nearly all of it in tournament rounds waiting for GNU Go games (`docs/performance.md`, "The default panel on the large workload").
 
-Another tournament improvement:
-
-- Later, a ladder that moves: the default panel now holds the whole ladder from the start (Brown, AmiGo, three michi levels, GNU Go levels 0 and 10; `docs/experiment-reference.md`), so selection keeps a signal once networks beat AmiGo. The pinned GNU Go levels are not placed on the ladder yet (below), and above them nothing is calibrated (Pachi). The panel lives in each experiment's `opponents` table, which the runner reads every generation, so a ladder could add rows, or drop beaten bots, as networks get stronger. A changing panel changes what a tournament score means; the benchmark panel is stored apart (`benchmark_opponents`), so checkpoints stay comparable while the ladder moves.
-
-The first experiment should have a comfortable elapsed-time cap and checkpoint results within that cap.
+**Later, a ladder that moves.**
+The runner reads each experiment's `opponents` table every generation, so a ladder could add bots, or drop beaten ones, as networks get stronger, while the separate `benchmark_opponents` keeps checkpoints comparable.
+A changing panel changes what a tournament score means; what promotes a network is under [Questions to settle together](#questions-to-settle-together).
 
 ### More engines for the tournament
 
-michi-c2 at fixed playouts fills the gap between AmiGo and GNU Go level 0 (three levels in the default panels, `docs/experiment-reference.md`). The ladder needs bots beyond GNU Go level 10 once networks get there. Candidates: Pachi, Fuego, GNU Go above level 10, and others. Pachi 12.90 builds on macOS (`make MAC=1 DCNN=0 JOSEKIFIX=0`), but its UCT engine refuses fewer than 500 playouts (`GJ_MINGAMES`) and does not repeat with `-s 42 threads=1`: playouts per move varied from 852 to 1,940 at `-t =500` between runs, and the moves differed (29 Sep 2026); so it is a later rung above GNU Go, not a repeatable intermediate one. For each candidate, find out whether it builds on macOS (clang) and Linux (GCC), speaks the GTP commands the arena controller needs, accepts or ignores time controls, and how strong and fast each setting is on 9×9 (against AmiGo, GNU Go level 0, and the other candidates, with varied openings and both colours). Calibrate candidates in separate matches, then include a qualifying bot in new experiments' fixed benchmark panels before deciding whether to use it for tournament selection. Each one that qualifies goes into the external tools release (`scripts/external-tools.txt`) and the installer.
+The ladder needs bots beyond GNU Go level 10 once networks get there: Pachi, Fuego, GNU Go above level 10, and others.
+Pachi 12.90 builds on macOS (`make MAC=1 DCNN=0 JOSEKIFIX=0`), but refuses fewer than 500 playouts (`GJ_MINGAMES`) and does not repeat with `-s 42 threads=1`, so it is a later rung, not a repeatable intermediate one.
+For each candidate, check that it builds on macOS and Linux, speaks the GTP commands the arena needs, how it handles time controls, and how strong and fast each setting is on 9×9; calibrate it in separate matches, add a qualifying bot to the benchmark panel before using it for selection, and to the external tools release (`scripts/external-tools.txt`) and installer.
 
-**Place the pinned GNU Go levels on the ladder.** The default panels now pin GNU Go at levels 0 and 10 (`--min-level` and `--max-level`; unpinned, its level followed its clock, `docs/experiment-reference.md`, the default panels). The michi levels were calibrated against the unpinned `--level 0`, which played at up to level 10, so where the pinned level 0 stands against MichiMid and MichiStrong, and how far level 10 is above it, is not measured: `scripts/calibrate-bots.rb ladder` with pairings of each pinned level against MichiMid, MichiStrong and the other level would tell, and whether the tournament's and the benchmark's order should change.
+**Place the pinned GNU Go levels on the ladder.**
+The michi levels were calibrated against the unpinned GNU Go, so where the pinned levels 0 and 10 stand against MichiMid, MichiStrong and each other is not measured (`docs/experiment-reference.md`, "The default panels and the michi ladder").
+`scripts/calibrate-bots.rb ladder` with those pairings would tell, and whether the panels' order should change.
 
-**Owner question: the 10 s bot deadlines as settings.** The arena waits at most 10 s for a bot's answer to setup, `play` and `quit`, and 10 s past its main time for `genmove` (`RunGeneration::RESPONSE_DEADLINE` and `GENMOVE_GRACE`, constants; `docs/experiment-reference.md`). They do not limit thinking, but a bot that loads a large model at startup (KataGo, for example) could miss the first setup deadline and stop the run as `launch`. When such a bot, or search with per-move time control, is added, make both experiment settings, and revisit that the clock is absolute main time only (no byo-yomi, no `time_left`).
+**Owner question: the 10 s bot deadlines as settings.**
+The arena waits at most 10 s for a bot's answer to setup, `play` and `quit`, and 10 s past its main time for `genmove` (`RunGeneration::RESPONSE_DEADLINE` and `GENMOVE_GRACE`), so a bot that loads a large model at startup (KataGo) could stop the run as `launch`.
+When such a bot, or search with per-move time control, is added, make both settings, and revisit that the clock is absolute main time only (no byo-yomi, no `time_left`).
 
-**Calibrate the michi levels for 13×13 and 19×19.** The three michi levels were calibrated on 9×9 only, so `SetupExperiment` refuses any other board size for an experiment whose panels hold michi (owner, 29 Sep 2026: "Best to abort even playing on 13x13 or 19x19 until such measurements have been taken"). Before lifting the refusal for a size, calibrate there with `scripts/calibrate-bots.rb` (its board size is fixed at 9 now): the endings run for the flags, then the ladder against AmiGo and GNU Go level 0. Bigger boards may need more levels, and games longer than 1 minute a side (owner). Until then evo plays 9×9 only; smaller boards are for tests (owner).
+**Calibrate the michi levels for 13×13 and 19×19.**
+The michi levels were calibrated on 9×9 only, so `SetupExperiment` refuses other board sizes for panels with michi (owner, 29 Sep 2026: "Best to abort even playing on 13x13 or 19x19 until such measurements have been taken").
+Before lifting the refusal for a size, calibrate there with `scripts/calibrate-bots.rb` (board size fixed at 9 now): the endings run, then the ladder.
+Bigger boards may need more levels, and games longer than 1 minute a side (owner).
+Until then evo plays 9×9 only; smaller boards are for tests (owner).
 
 ## Code cleanup
 
-The code was written quickly as a side project. The C/Ruby split can stay. Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
+Protect each cleanup step with tests, so the experiments built on the code do not inherit its defects.
 
 ### Fold the C program checks into the Minitest suite
 
-`mise run test-c` runs the top-level `Makefile`'s `test` target, which runs the C unit-test programs (`lib/test.c`, `evolve/test.c`, the engine's) and shell checks that run the real programs and check their output (among them `engine`'s `enginetest` and the `bottest.sh` its `test` runs, `lib`'s `play_test`, `evolvetest`, `perturbtest`, `arenatest`, and `initial-population`'s `test`). It stops at the first failing sub-make, so one failure hides the other suites' results, and agents run `make -C evolve test` and the like by hand to see each (owner, 19 Oct 2026: move away from the Makefile for testing and fold these into the test suite). Let `make` only build; turn each shell check into a Minitest test that runs the built program and asserts on its output, and run each C unit-test binary from a thin Minitest test that fails with its output. Group them by directory (for example `test/c/` and the Ruby tests), since Minitest has no tags, so CI can run the groups as separate jobs as it now runs C and Ruby (`mise run test-ruby` loads every `test/**/*_test.rb`, so its glob has to change with them); `-n /pattern/` selects single tests and `parallelize_me!` runs them in parallel. One run then reports every failure.
+`mise run test-c` runs the `Makefile`'s `test` target, which stops at the first failing sub-make, so one failure hides the other suites' results (owner, 19 Oct 2026: move away from the Makefile for testing and fold these into the test suite).
+Let `make` only build; turn each shell check (`enginetest`, `bottest.sh`, `play_test`, `evolvetest`, `perturbtest`, `arenatest`, `initial-population`'s `test`) into a Minitest test, and run each C unit-test binary from a thin Minitest test.
+Group them by directory (for example `test/c/`) so CI can still run C and Ruby as separate jobs, and change `mise run test-ruby`'s glob `test/**/*_test.rb` with them.
 
 ### Watch: a possibly flaky stats test
 
-Once, during a review, running `test/experiment_stats_test.rb` and `test/stats_test.rb` together with a mutant applied failed; with the same mutant each file alone passed, and six re-runs without it passed, so the failure may have been the mutant's and not a flaky test. A candidate cause is the `stats --watch` test (`test/stats_test.rb`, around line 511), which waits for the subprocess's output under a 20 s timeout and then sends SIGINT, which a loaded machine can upset. Act only if it fails again (owner, 19 Oct 2026).
+`test/experiment_stats_test.rb` and `test/stats_test.rb` failed once together with a mutant applied, so the failure may have been the mutant's.
+A candidate cause is the `stats --watch` test, which waits under a 20 s timeout and then sends SIGINT, which a loaded machine can upset.
+Act only if it fails again (owner, 19 Oct 2026).
 
 ### Replace `stats` with a graphical viewer
 
-`stats`' text tables are not useful as they are (owner, 26 Sep 2026). Replace them with a proper app, for example a web app run locally, that reads the experiment database read-only and shows graphs: benchmark results per checkpoint, gene and feature-weight trends, shapes and activations over time, and where the bots rank, plus whatever else turns out to be interesting. Open questions: the technology (a small local Ruby web server with a charting library, or something else), what to show, and whether the CSV output stays. Whatever replaces it should group a bot's copies by `players.opponent` (migration 013), not by name, as `ExperimentStats#against_bots` does: `ExperimentStats#bots` (`ruby/experiment_stats.rb:256`) matches copies with `/\A#{group}\d*\z/`, so an opponent whose name ends in a digit (such as `Michi100`) would also count `Michi1000`'s copies, and nothing but the comment at `ruby/setup_experiment.rb:165` makes names end in a letter.
+`stats`' text tables are not useful as they are (owner, 26 Sep 2026).
+Replace them with, for example, a local web app that reads the experiment database read-only and graphs benchmark results per checkpoint, gene and feature-weight trends, shapes and activations, and where the bots rank.
+Open questions: the technology, what to show, and whether the CSV output stays.
+Group a bot's copies by `players.opponent`, as `ExperimentStats#against_bots` does: `ExperimentStats#bots` matches copies by name with `/\A#{group}\d*\z/`, so `Michi100` would also count `Michi1000`'s copies.
 
 ### Let `new-experiment` set the panels
 
-`mise run new-experiment` takes only the settings (`SetupExperiment.option_parser`, `ruby/setup_experiment.rb:327`); the `opponents` and `benchmark_opponents` tables always start as `DEFAULT_OPPONENTS` and `DEFAULT_BENCHMARK` (`:172`, `:187`). A run with another panel edits them with `sqlite3` before its first run, as `scripts/profile-workload.sh:108-125` does to pin its panels. The michi and run-speed work needed this several times (a smoke run with an added michi row, a seeded comparison with every bot at 1 copy, a run against a fake bot, which also needs the `players` rows edited once a generation is set up), and the bot-free experiment under "1. Fitness needs a clearer meaning" needs an empty `opponents` table. Options such as `--opponent NAME=COMMAND:COPIES`, `--no-opponents`, and the same for the benchmark would make these runs one command, without hand-written SQL.
+`mise run new-experiment` takes only the settings; the `opponents` and `benchmark_opponents` tables always start as `DEFAULT_OPPONENTS` and `DEFAULT_BENCHMARK`, so another panel (such as item 1's empty one) needs hand-written SQL, as `scripts/profile-workload.sh` uses.
+Add options such as `--opponent NAME=COMMAND:COPIES`, `--no-opponents`, and the same for the benchmark.
 
 ### Quiet and split `test/run_generation_test.rb`
 
-`ReproducibleRoundsTest#next_round_games` (`test/run_generation_test.rb:1806`) calls `setup_next_round` without `capture_io`, so `test_pairings_depend_on_the_scores_not_on_the_order_ties_are_listed_in` prints "Pairing round 2/3 ..." twice into the test output, where it can hide a real warning. The file is also 3,075 lines; its classes (for example `PlayRoundTest` from `:937`, `InMemoryStateTest` from `:2414`, `NetworksOnDiskTest` from `:2689`) could move to their own files, so an agent reads only the part it needs.
+`ReproducibleRoundsTest#next_round_games` calls `setup_next_round` without `capture_io`, so a test prints "Pairing round 2/3 ..." twice into the output, where it can hide a real warning.
+The file is about 3,300 lines; its classes (for example `PlayRoundTest`, `InMemoryStateTest`, `NetworksOnDiskTest`) could move to their own files.
 
 ### Convert the C code to Rust?
 
-Consider porting Evo's own C code to Rust, keeping the libraries it uses (such as GENANN and `pcg-c`) as they are and linking them rather than rewriting them (owner, 27 Sep 2026). The Rust compiler gives better error messages, and LLM-assisted work may go more smoothly there. The owner already wrote a Rust Go bot, [Iomrascálaí](https://github.com/ujh/iomrascalai) (GPL-3.0, last pushed January 2018, so pre-2018-edition Rust). Its board, rule set, scoring, GTP, and SGF modules may be reusable here (owner, 27 Sep 2026). Open questions: how much code that is, whether the tests carry over, and what it does to the build and CI.
-
-### Neural network library
-
-GENANN stays: it is small, tested upstream, and does what the experiments need. It already has per-network hidden and output activations (sigmoid, cached sigmoid, linear, threshold, and since v1.1 `tanh` and ReLU). Extra feature inputs only widen the input layer, and inference is negligible next to adjudication, so batching is not needed. The `.ann` file records a network's sizes, both activations, its genes, and its feature set with its feature weights (format version 2). GENANN's hidden layers must all have the same width; revisit that only if an experiment needs different widths.
+Consider porting Evo's own C code to Rust, keeping the libraries it uses (such as GENANN and `pcg-c`) as they are and linking them rather than rewriting them (owner, 27 Sep 2026).
+The Rust compiler gives better error messages, and LLM-assisted work may go more smoothly there.
+The owner already wrote a Rust Go bot, [Iomrascálaí](https://github.com/ujh/iomrascalai) (GPL-3.0, last pushed January 2018, so pre-2018-edition Rust).
+Its board, rule set, scoring, GTP, and SGF modules may be reusable here (owner, 27 Sep 2026).
+Open questions: how much code that is, whether the tests carry over, and what it does to the build and CI.
 
 ### Left by the elitism analysis
 
 Owner, 12 Nov 2026: note all of these (triaged at the end of the elitism analysis, #133–#136).
 
-- **`scripts/game-repeats.rb` counts a checkpoint whose tournament is still running.** `GameRepeats.games` checks only that the games exist and kept their SGF, not `generations.round` against `tournament_rounds` as `scripts/gene-trajectories.rb` and `scripts/population-strength.rb` do, so on a running experiment its shares are quietly wrong until the checkpoint's tournament ends. Refuse or name unfinished generations as the other two do; in the same change, have those two name a generation whose births are stored but which has no `generations` row (a live run's newest, for a few seconds).
-- **GNU Go commands written out by hand.** `scripts/profile-workload.sh` (the fixed panel of its workloads) and `scripts/calibrate-bots.rb` (`ENDINGS_BOTS`) still use the unpinned `gnugo --level 0`, whose games depend on the machine's load (#132), so the seeded "same results as `main`" comparison (Tooling for agents, below) can differ for no reason; and five smoke scripts (`smoke-bot-patches.sh`, `smoke-external-tools.sh`, `smoke-arena-bots.sh`, `smoke-bot-controller.sh`, `bot-response-times.sh`) copy the pinned commands instead of reading `SetupExperiment::GNUGO_ZERO`/`GNUGO_TEN`, so a change of the defaults leaves them testing the old ones without a word.
-- **Shared analysis helpers.** `scripts/gene-trajectories.rb` and `scripts/population-strength.rb` copy about ten helpers (number formats, tables, windows, the unfinished-generation rule, the run's loading), and `scripts/compare-runs.rb` has its own table; one module would keep those rules identical, so the next analysis script does not copy them a third time and a fix lands once.
+- **`scripts/game-repeats.rb` counts a checkpoint whose tournament is still running.**
+  `GameRepeats.games` does not check `generations.round` against `tournament_rounds`, as `scripts/gene-trajectories.rb` and `scripts/population-strength.rb` do, so on a running experiment its shares are quietly wrong.
+  Refuse or name unfinished generations as the other two do, and have those two name a generation whose births are stored but which has no `generations` row.
+- **GNU Go commands written out by hand.**
+  `scripts/profile-workload.sh` and `scripts/calibrate-bots.rb` (`ENDINGS_BOTS`) use the unpinned `gnugo --level 0`, whose games depend on the machine's load, so the seeded "same results as `main`" comparison can differ for no reason.
+  Five smoke scripts (`smoke-bot-patches.sh`, `smoke-external-tools.sh`, `smoke-arena-bots.sh`, `smoke-bot-controller.sh`, `bot-response-times.sh`) copy the pinned commands instead of reading `SetupExperiment::GNUGO_ZERO`/`GNUGO_TEN`, so they would silently keep testing old defaults.
+- **Shared analysis helpers.**
+  `scripts/gene-trajectories.rb` and `scripts/population-strength.rb` copy about ten helpers, and `scripts/compare-runs.rb` has its own table; one module would keep those rules identical and let a fix land once.
 
 ## Tooling for agents
 
-**Owner request: check running subagents automatically.** In a planned run the orchestrator checks every running agent by hand for progress (its commits, working tree, worktrees and processes; `docs/orchestration.md`, "Watching running agents"), since an agent once finished its work and never reported. Build tooling that does it without being asked: for example a heartbeat or watchdog script, a Claude Code hook, or a plugin that tracks subagent liveness and prompts the orchestrator when an agent stops making progress. Open questions: what counts as progress for a step that runs a long measurement, and whether a hook can see subagents at all.
+**Owner request: check running subagents automatically.**
+The orchestrator checks running agents by hand (`docs/orchestration.md`, "Watching running agents"), since an agent can finish and never report.
+Build a watchdog script, Claude Code hook, or plugin that prompts the orchestrator when an agent stops making progress.
+Open questions: what counts as progress for a long measurement, and whether a hook can see subagents at all.
 
-**One command for "same results as `main`".** A step that must not change results runs a small seeded experiment at `main` and at its commit (`scripts/profile-workload.sh`) and compares the two databases table by table: births with every column, games and benchmark rows without their time columns, rankings (`docs/orchestration.md`, step 5, "Real runs"). `profile-workload.sh` takes no extra settings, so a check at, say, `--elite-share 0.2` needs a hand-made experiment, and every agent writes the comparison queries again and decides again which columns to ignore. Add a settings pass-through and a `scripts/compare-experiments` that diffs two kept databases by that rule (owner, 19 Oct 2026).
+**One command for "same results as `main`".**
+A step that must not change results compares two seeded experiments' databases table by table (`docs/orchestration.md`, step 5, "Real runs"), and every agent writes those queries again.
+`scripts/profile-workload.sh` takes no extra settings.
+Add a settings pass-through and a `scripts/compare-experiments` that diffs two kept databases by that rule (owner, 19 Oct 2026).
 
-**A mutant helper.** Reviewers run mutants by hand and hit two traps: after a C mutant is reverted its binaries can stay built (a stale `initial-population` kept refusing 0 until a clean rebuild; `docs/code-reference.md` warns only about stale builds of the mutant itself; the cause was not established; make 3.81's one-second timestamps could explain it, which a clean rebuild would hide rather than fix), and a `sed -i ''` mutant whose pattern does not match silently changes nothing. A `scripts/mutant.sh` that applies the change, fails if the source did not change, builds clean, tests, reverts and rebuilds clean would remove both (owner, 19 Oct 2026).
+**A mutant helper.**
+A reverted C mutant's binaries can stay built (a stale `initial-population` kept refusing 0 until a clean rebuild; cause not established), and a `sed -i ''` mutant whose pattern does not match silently changes nothing.
+A `scripts/mutant.sh` that applies the change, fails if the source did not change, builds clean, tests, reverts and rebuilds clean would remove both (owner, 19 Oct 2026).
 
-**A fast multi-seed check for `evolve`.** Each `evolve` process start costs about 0.24 s on macOS, so a check that `evolve` gives byte-identical children to `main` over many seeds outruns a foreground command's time limit. A test-only mode that loops over seeds in one process would make it one command (owner, 19 Oct 2026).
+**A fast multi-seed check for `evolve`.**
+Each `evolve` process start costs about 0.24 s on macOS, so checking byte-identical children against `main` over many seeds outruns a foreground command's time limit.
+A test-only mode that loops over seeds in one process would make it one command (owner, 19 Oct 2026).
 
 ## Proposed sequence
 
-These are candidate milestones for discussion, rather than an implementation commitment.
+Candidate milestones for discussion, not a commitment:
 
-0. **Clean up the code under test.** Carry out the remaining [cleanup](#code-cleanup) alongside milestone 1.
-1. **Make a short experiment interpretable and affordable.** Choose 5×5 or 9×9 and the komi, and verify a short run can resume safely. Measure runtime per generation and the fraction of unchanged offspring.
-2. **Measure the features' effect.** Compare a feature run with a stones-only run and with random search using the same inputs and game budget, with the same breeding procedure. Use several independent seeds; three is a practical starting point, not a guarantee of statistical confidence. Report raw game counts, uncertainty, elapsed time, and diversity. Reserve additional opponents or openings for final evaluation.
-3. **Choose the next experiment from the evidence.** Operator comparisons, additional features, and UCT-style search are candidates. For search, test the contribution of evolved guidance against the same search without that guidance. If there is still no learning, use the measured offspring variation, lineage diversity, game records, and runtime breakdown to narrow the next change.
+0. **Clean up the code under test** alongside milestone 1.
+1. **Make a short experiment interpretable and affordable:** choose the board and komi, verify a short run can resume safely, and measure runtime per generation and the fraction of unchanged offspring.
+2. **Measure the features' effect:** compare a feature run with a stones-only run and with random search at the same inputs, game budget and breeding, with several seeds (three is a practical start), raw game counts, uncertainty, elapsed time, and diversity, keeping some opponents or openings for final evaluation.
+3. **Choose the next experiment from the evidence:** operator comparisons, more features, or UCT-style search (against the same search without evolved guidance).
 
-Repeated deterministic games from the same starting position do not provide independent evidence. Evaluation needs controlled variation in openings or opponent seeds, with color-balanced comparisons. Report progress at equal generations as well as equal games and compute consumed: `even-bigger` (since deleted) reached similar AmiGo benchmark performance in only 300 generations, but it also changed population size and architecture, so those effects need separate comparisons.
+Evaluate with controlled variation in openings or opponent seeds, colour-balanced, at equal generations as well as equal games and compute.
+A useful success statement: "Within an agreed CPU/time budget, evolution consistently beats equally budgeted random search and the initial population on opponents or positions not used to select parents."
 
-A useful success statement would be: “Within an agreed CPU/time budget, evolution consistently beats equally budgeted random search and the initial population on opponents or positions not used to select parents.” A later milestone could name a particular external bot and a target win rate once baseline results exist.
+**First experiment, proposed:** evolution against a random-search control that keeps the best of fresh random networks, at the same board, architecture, rules, komi and evaluation budget, chosen beforehand.
+Start with mutation-only breeding, recording unchanged offspring; select initial champions without consulting test results; measure champions against a fixed validation panel in both colours at predetermined checkpoints; compare the final policies against the initial and random-search champions on reserved opponents or openings, repeated with independent seeds.
+Agree on a meaningful gain, game budget and elapsed-time cap before collecting the final results.
 
-### First experiment: proposed evidence target
-
-There are two useful questions: do descendants play better than the initial population, and does breeding find better players than simply generating and evaluating more random networks? The second comparison helps distinguish useful inheritance from finding a lucky network through a larger search.
-
-| Element | Proposal |
-| --- | --- |
-| Fixed conditions | Within an evolution-versus-random-search comparison, use the same board size, network architecture, rules, komi, and candidate evaluation procedure. Choose these before running the comparison. Representation comparisons are separate experiments. |
-| Starting point | Save each run's initial population and select an initial champion using the training evaluation, without consulting the final test results. |
-| Random-search control | Generate fresh random networks and retain the best found so far, using the same candidate evaluation budget as evolution. |
-| Evolution conditions | Start with mutation-only breeding and record actual changed offspring so a mostly cloning population is visible. Compare crossover separately once the first experiment is informative. |
-| Progress measurement | At predetermined checkpoints, measure champions against a fixed validation panel in both colors. Show game counts and uncertainty alongside the learning curve. |
-| Final comparison | Compare the chosen policies against the initial champion and random-search champion on reserved opponents or openings. Repeat the entire experiment with independent seeds. |
-| Decision | Look for improvement across runs and on reserved evaluations, rather than a single best tournament result. Agree on a practically meaningful gain and game budget before collecting the final results. |
-
-This design remains provisional. The acceptable feature set and available compute should determine the experiment's scale.
-
-## Later directions
-
-The goal is a strong player reached through evolution, and head starts such as features and search are part of it. These remain possible extensions:
-
-| Direction | What it would emphasize | Main tradeoff |
-| --- | --- | --- |
-| Explore evolving structures | Investigate topology evolution, indirect encodings, or program evolution after establishing a baseline. | Larger experimental and implementation scope. |
-
-There is precedent for training substantial neural policies with genetic algorithms: [Such et al., Deep Neuroevolution](https://arxiv.org/abs/1712.06567) demonstrated this on Atari and locomotion tasks. That supports taking the idea seriously, but does not establish how well the present Go setup should learn or what compute it needs.
+Later, after a baseline: topology evolution, indirect encodings, or program evolution ([Such et al., Deep Neuroevolution](https://arxiv.org/abs/1712.06567), trained large policies with genetic algorithms on Atari and locomotion).
 
 ## Questions to settle together
 
-- Elitism is built, and its first runs are described (`docs/findings.md`, "Elitism (`elite_share`)"). `elite_share` (#126, stacked on #124, which lets `initial_copy_chance` 0 mean never copy) carries the top E networks of a generation's Swiss ranking (E = the share of the population, rounded, at least 1) unchanged into the next generation, where they play its tournament and are scored on it alone; every parent is still drawn by size-3 tournament from the whole population (owner, 16 Oct 2026: a share, not a count, since the population size may change; the top E by Swiss; the latest tournament only). The runs: four arms, elitism (`elite_share` 0.01, 10 of 1,000) × `meta_rate` {0.2, 0} × `initial_copy_chance` {0.01, 0}, with `seed2-rounds20`'s settings and seed (owner, 16 Oct 2026), against `seed2-rounds20-b` and `seed2-meta0-b`, which repeat `seed2-rounds20` and `seed2-meta0` (no elitism) to generation 1000, as far as the arms ran. The hypothesis (`docs/literature.md`, "Ranked experiments", experiment 2): with elitism, `weight_step` and `copy_chance` shrink less under `meta_rate` 0.2, and the plateau is higher under `meta_rate` 0. With one run per setting, the runs cannot tell (the scripts that section names print each run's genes and champions); telling it needs more seeds of each setting. Still open, left out of the first version and to decide from those runs (`docs/literature.md`, "Elitism" and "Ranked experiments"):
-  - a shortlist re-test: choose elites by extra games in both colours against a fixed panel for the top 10–50 and the current elites, since one Swiss tournament finds only a minority of the true top;
-  - ranking an elite on its mean score over every tournament since the one that selected it, instead of the latest alone (keeps earlier evidence, but also that likely lucky tournament at a shrinking weight, and games against older populations);
-  - a margin: an elite replaced only by a clearly better challenger (AlphaGo Zero's: more than 55 % of 400 games);
+- Elitism (`elite_share`) carries the top E networks of a generation's Swiss ranking unchanged into the next generation, scored on its tournament alone, while every parent is still drawn from the whole population (owner, 16 Oct 2026: a share, not a count, since the population size may change; the top E by Swiss; the latest tournament only).
+  Its first runs, four arms (`elite_share` 0.01 × `meta_rate` {0.2, 0} × `initial_copy_chance` {0.01, 0}) with `seed2-rounds20`'s settings and seed (owner, 16 Oct 2026) and two baselines, cannot tell the hypothesis (`docs/literature.md`, "Ranked experiments", experiment 2) with one run per setting; telling it needs more seeds of each setting (`docs/findings.md`, "Elitism (`elite_share`)", names the scripts).
+  Still open, to decide from those runs (`docs/literature.md`, "Elitism" and "Ranked experiments"):
+  - a shortlist re-test: choose elites by extra games in both colours against a fixed panel for the top 10–50 and the current elites;
+  - ranking an elite on its mean score over every tournament since it was selected, instead of the latest alone;
+  - a margin: an elite replaced only by a clearly better challenger;
   - with `meta_rate` 0.2, a floor on `weight_step`, since an elite with collapsed genes can block exploration;
   - judging elites against the bots instead of within the network tournament.
-- Which network sizes, populations, and approximate runtimes were used before? Do historical results or champions exist elsewhere?
+- Which network sizes, populations, and runtimes were used before, and do historical results or champions exist elsewhere?
 - What hardware, compute budget, and unattended runtime are comfortable for a single experiment?
 - Which board size and first opponent would make a satisfying initial milestone?
-- For the opponent ladder: what promotes a network to the next bot (for example, a win rate over a number of games in both colors, sustained for some generations), whether beaten bots leave the panel, and which bots go above GNU Go level 10?
+- For the opponent ladder: what promotes a network to the next bot, whether beaten bots leave the panel, and which bots go above GNU Go level 10?
