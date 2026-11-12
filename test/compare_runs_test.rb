@@ -488,6 +488,12 @@ class CompareRunsTest < Minitest::Test
 
   # Wins 1, 2, 5, 6 at 0..3: mean 3.5, slope 9 / 5, residuals 0.2, -0.6,
   # 0.6, -0.2, so 0.8 over 2 degrees of freedom.
+  # Slopes near zero are common on real runs; a rounded -0.0 prints as
+  # +0.0, so the sign never claims a direction the figure does not show.
+  def test_signed_figures
+    assert_equal ['+0.0', '+0.0', '-0.1', '+1.3'], [C.signed(-0.04), C.signed(0.0), C.signed(-0.06), C.signed(1.26)]
+  end
+
   def test_least_squares_line
     mean, slope, residual_sd = C.line([[0, 1], [1, 2], [2, 5], [3, 6]])
     assert_in_delta 3.5, mean
