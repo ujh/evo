@@ -84,8 +84,10 @@ class RunGeneration
   # that matches its birth. Its parents are gone, so it cannot be bred again.
   NetworksDamaged = Class.new(Stopped)
 
-  # Raised when evolve or initial-population did not breed the population.
-  # The setup is not saved, so a resume breeds it again with the same seeds.
+  # Raised when evolve or initial-population did not breed the population,
+  # or an elite could not be copied (its file or birth missing). The setup is
+  # not saved, so a resume sets the generation up again with the same seeds;
+  # a missing elite stops it again until the damage is repaired.
   BreedingFailed = Class.new(Stopped)
 
   def setup

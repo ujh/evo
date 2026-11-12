@@ -100,6 +100,8 @@ test: initial-population
 	cd seeded-c && ! ../initial-population 1 9 1 5 0.01 908 0.5 0.02 0.02 none 0.3 0.01 1
 	cd seeded-c && ! ../initial-population 1 9 1 5 0.01 1 nan 0.02 0.02 none 0.3 0.01 1
 	cd seeded-c && ! ../initial-population 1 9 1 5 0.01 1 0.5 0.02x 0.02 none 0.3 0.01 1
+	# A gene's range is checked later, so its parse names no bounds.
+	cd seeded-c && ../initial-population 1 9 1 5 0.01 1 0.5 0.02x 0.02 none 0.3 0.01 1 2>&1 >/dev/null | grep -qx 'activation_rate must be a finite number, got 0.02x'
 	cd seeded-c && ! ../initial-population 1 9 1 5 0.01 1 0.5 0.02 '' none 0.3 0.01 1
 	# copy_chance 0 means never copy; nothing else below 0.0001 is a copy_chance.
 	cd seeded-c && ../initial-population 1 9 0 5 0 1 0.5 0.02 0.02 none 0.3 0.01 1 | grep -qx 'genes layers=0 width=0 act_hidden=sigmoid_cached act_output=sigmoid_cached copy_chance=0 weight_changes=1 weight_step=0.5 activation_rate=0.02 structure_rate=0.02 features=none feature_step=0.01'
