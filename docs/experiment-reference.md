@@ -472,10 +472,10 @@ Mean wins, least-squares slope in wins per 100 generations, and residual SD arou
 | `seed2-rounds20-b` | 113.2, −0.5, 5.6 | 110.1, +1.4, 5.7 |
 | `seed2-meta0-b` | 114.8, +7.5, 13.8 | 104.0, +7.0, 12.2 |
 
-- From checkpoint 600 on, the two no-copy runs' champions won the fewest games at every checkpoint: 71–107, against 97–135 for the other four. Over 500..1000 their mean wins are 75.7 and 90.7, against 111.8–122.7. The outputs hold no one-setting difference past checkpoint 500. Up to checkpoint 500, the pairs' champions differed by up to 23 wins (same seed) and 70 (other seed).
+- From checkpoint 600 on, the two no-copy runs' champions won the fewest games at every checkpoint: 71–107, against 97–135 for the other four. Over 500..1000 their mean wins are 75.7 and 90.7, against 111.8–122.7. The outputs hold no one-setting difference past checkpoint 500. Up to checkpoint 500, the `seed2-meta0` pair's champions differed by up to 23 wins (same seed); the `rounds20` pair's, whose shared checkpoints end at 300, by up to 70 (other seed).
 - Over 500..1000 the slopes run from −0.5 to +7.5 wins per 100 generations, with residual SDs of 3.1–13.8. At those checkpoints one champion's game noise is ±14–16 wins (95 %), an SD of about 7–8 (14 / 1.96 to 16 / 1.96).
 
-**Population against the bots** (C). The share of all networks that scored strictly above the mean of the AmiGo copies in their tournament, per 50-generation window. `seed2-meta0`'s partner is `seed2-meta0-b`. `rounds20`'s partner is `seed2-rounds20`, whose windows up to 500 equal `seed2-rounds20-b`'s.
+**Population against the bots** (C). The share of all networks that scored strictly above the mean of the AmiGo copies in their tournament, in three of the 20 windows of 50 generations (C prints every window, and the step-0.5 paragraph below gives more). `seed2-meta0`'s partner is `seed2-meta0-b`. `rounds20`'s partner is `seed2-rounds20`, whose windows up to 500 equal `seed2-rounds20-b`'s.
 
 | Window | `seed2-elite` | `seed2-elite-meta0` | `seed2-elite-nocopy` | `seed2-elite-meta0-nocopy` | `seed2-rounds20-b` | `seed2-meta0-b` | `seed2-meta0` | `rounds20` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -483,7 +483,7 @@ Mean wins, least-squares slope in wins per 100 generations, and residual SD arou
 | 451–500 | 80.4 % | 55.8 % | 12.2 % | 9.5 % | 40.3 % | 45.0 % | 22.9 % | — |
 | 951–1000 | 80.6 % | 41.4 % | 14.0 % | 27.7 % | 66.3 % | 62.2 % | — | — |
 
-At 951–1000 the shares above MichiWeak, in the same order of the six, are 54.0, 63.1, 8.1, 27.7, 49.5 and 53.8 %. No window of any of the six has more than 0.7 % of its networks above MichiMid.
+At 951–1000 the shares above MichiWeak, in the same order of the six, are 54.0, 63.1, 8.1, 27.7, 49.5 and 53.8 % (no one-setting figure there). No window of any of the six has more than 0.7 % of its networks above MichiMid.
 
 **Elites** (C). These are facts within each of the four elite runs, per 50-generation window over generations 1–1000:
 
@@ -491,7 +491,7 @@ At 951–1000 the shares above MichiWeak, in the same order of the six, are 54.0
 - Few stay: 0.2–3.4 % are carried again into the next generation, and the longest chain is 2–3 generations in a row. No checkpoint champion of any run was an elite; A lists the champions' operators as initial, crossover and mutation.
 - An elite has 0.98–1.85 bred children in the next generation. A non-elite network among its generation's first 10 % has 2.8–3.74.
 - Score retest. In the tournament that chose them (as their parents, the same networks), the elites scored 14.3–14.9 on average a window. In the next tournament they scored 9.86–11.1, a mean change of −3.35 to −4.76. The exact clones (copies, and crossovers with a parent's genome) changed by −1.22 to −2.76 on average a window in all six runs. Their scores before and after correlate at −0.397 to 0.343; in the four runs with copies, whose windows hold 56–1,357 such clones, at −0.0656 to 0.308. The no-copy runs' windows hold 25–66. Both comparisons are against a different field, the next generation's, so neither is a reliability coefficient of one tournament.
-- At 951–1000 a larger share of the elites than of all networks scored above the AmiGo copies' mean: 89.0, 50.8, 14.6 and 32.4 %, against 80.6, 41.4, 14.0 and 27.7 % (the four elite runs in the table's order). At most 2.2 % of them were above MichiMid in any window.
+- A larger share of the elites than of all networks scored above the AmiGo copies' mean in every window of `seed2-elite` and `seed2-elite-meta0`; in `seed2-elite-nocopy` in all but 401–450 (equal, 10.8 %) and 701–750 (10.4 against 11.9 %); in `seed2-elite-meta0-nocopy` in all but 251–300, 751–800 and 901–950 (4.6 against 4.9, 11.0 against 11.4, 25.6 against 25.9 %). At 951–1000 the shares are 89.0, 50.8, 14.6 and 32.4 %, against 80.6, 41.4, 14.0 and 27.7 % (the four elite runs in the table's order). At most 2.2 % of the elites were above MichiMid in any window. No one-setting pair has elites, so there is no one-setting figure for these.
 
 **Genes** (B, all networks, the median of the per-generation medians per window). At `meta_rate` 0 the genes print as generation 0's values in every window (`weight_step` 0.5, `copy_chance` 0.01, to 3 significant figures). So the `seed2-meta0` pair has no gene spread to show. The no-copy runs' `copy_chance` is exactly 0 throughout. At `meta_rate` 0.2:
 
@@ -503,10 +503,10 @@ At 951–1000 the shares above MichiWeak, in the same order of the six, are 54.0
 | 701–750 | 1.26 | 0.00413 | 0.63 | — | 0.00206 | 0.00338 | — |
 | 951–1000 | 0.978 | 0.000591 | 0.034 | — | 0.000598 | 0.00204 | — |
 
-- `seed2-elite`'s `weight_step` median stayed at 0.446–2.55 in every window, with 0.0 % of its networks within 1 % of the 0.0001 clamp. `seed2-elite-nocopy`'s was 0.000591–0.00497 in every window from 351–400 on, with up to 3.3 % of a window's networks within 1 % of the clamp. `seed2-rounds20-b`'s fell to 0.0032 (401–450), rose to 2.65 (751–800), and was 0.034 at 951–1000. At 251–300 the one-setting pair's medians are about 218 times apart (0.0647 / 0.000297); `rounds20`'s partner `seed2-rounds20` equals `seed2-rounds20-b` there.
-- The elites alone: `seed2-elite`'s elites had a `weight_step` median of 0.438–2.65, with 0.0 % of them within 1 % of the clamp. `seed2-elite-nocopy`'s elites had a median of 0.000624 at 951–1000, and up to 4.6 % of them were within 1 % of the clamp (901–950).
+- `seed2-elite`'s `weight_step` median stayed at 0.446–2.55 in every window, with 0.0 % of its networks within 1 % of the 0.0001 clamp. `seed2-elite-nocopy`'s was 0.000591–0.00497 in every window from 351–400 on, with up to 3.3 % of a window's networks within 1 % of the clamp. `seed2-rounds20-b`'s fell to 0.0032 (401–450), rose to 2.65 (751–800), and was 0.034 at 951–1000. The one-setting pair's medians (`rounds20`'s partner `seed2-rounds20` equals `seed2-rounds20-b` up to 500) are 1.3 times apart at 1–50 (0.404 / 0.309) and about 22 to 238 times apart at 51–100 to 251–300 (0.154 / 0.00712 to 0.105 / 0.000441), `seed2-rounds20` the higher there; past 300 there is no one-setting figure.
+- The elites alone: `seed2-elite`'s elites had a `weight_step` median of 0.438–2.65, with 0.0 % of them within 1 % of the clamp. `seed2-elite-nocopy`'s elites had a median of 0.000624–0.00468 in every window from 351–400 on, and up to 4.6 % of them were within 1 % of the clamp (901–950).
 - `feature_step` reached its 0.0001 clamp in all three runs: at most 5.6 %, 8.1 % and 6.3 % of a window's networks were within 1 % of it (`seed2-elite`, `seed2-elite-nocopy`, `seed2-rounds20-b`).
-- Structural changes per window at 451–500 numbered 754, 114 and 5,232 in the same three runs, with 26, 12 and 124 distinct shapes. At 951–1000 they numbered 461, 130 and 1,399, with 44, 12 and 59 shapes. The one-setting pair had 500 and 1,871 changes at 251–300, with 18 and 67 shapes.
+- Structural changes per window in the same three runs numbered 1,874, 1,277 and 1,871 at 251–300 (52, 40 and 67 distinct shapes), 754, 114 and 5,232 at 451–500 (26, 12 and 124 shapes), and 461, 130 and 1,399 at 951–1000 (44, 12 and 59 shapes). The one-setting pair had 500 and 1,871 at 251–300 (18 and 67 shapes); at the later windows there is no one-setting figure.
 
 **Clones** (B; the owner asked for these counts on 19 Oct 2026). Every full 50-generation window of the eight runs (the six, `seed2-meta0` and `rounds20`) bred 19–54 self-crossovers, networks crossed with themselves. In the runs without elitism, per window, self-crossovers and crossovers with no weight from the other parent (differs 0 against the picked parent, self-crossovers included):
 
@@ -530,13 +530,13 @@ The no-copy runs bred no copies, but still 32–66 (`seed2-elite-nocopy`) and 25
 | 1000 | 627 / 589 | 11 / 11 | 465 / 450 | 0 / 0 | 813 | 4 |
 
 - The one-setting pairs: `seed2-meta0` and `seed2-meta0-b` had 0 and 2, 1 and 0, and 32 and 406 clone repeats at 100, 300 and 500. `rounds20` and `seed2-rounds20` had 20 and 29, 66 and 3, and 11 and 258 at 100, 200 and 300. Past 500 there are no one-setting figures.
-- `seed2-elite`'s count rose at every checkpoint listed, from 34 to 627. Leaving out the elites' games lowered it by at most 38 (627 − 589). `seed2-elite-nocopy`'s rose from 5 to 465, with 191 and 176 at 500 and 700. The two elite runs at `meta_rate` 0 had at most 12.
+- `seed2-elite`'s count rose at every checkpoint listed, from 34 to 627. Leaving out the elites' games lowered it by at most 38 (627 − 589). `seed2-elite-nocopy`'s rose from 5 to 465, with 191 and 176 at 500 and 700. The two elite runs at `meta_rate` 0 had at most 12. `seed2-rounds20-b` had 29–1,630 (most at 500) and `seed2-meta0-b` 0–406 (most at 500).
 - Rematches were 42–78 a checkpoint (0.4–0.8 %) in every run.
 
 **The 16 Oct hypothesis** (`docs/literature.md` section 7, experiment 2) says that with elitism, `weight_step` and `copy_chance` shrink less at `meta_rate` 0.2, and the plateau is higher at `meta_rate` 0. With one run per setting, the runs **cannot tell**. Here is what they showed:
 
-- At 0.2, `seed2-elite`'s `weight_step` median stayed at 0.446–2.55 per window. `seed2-elite-nocopy`'s, also with elitism, was 0.000591–0.00497 from window 351–400 on. The baseline's fell to 0.0032 and later rose to 2.65. The `weight_step` medians of two runs of one setting without elitism were about 218 times apart at 251–300.
-- `seed2-elite`'s `copy_chance` median was 0.000598 at 951–1000, against the baseline's 0.00204.
+- At 0.2, `seed2-elite`'s `weight_step` median stayed at 0.446–2.55 per window. `seed2-elite-nocopy`'s, also with elitism, was 0.000591–0.00497 from window 351–400 on. The baseline's fell to 0.0032 (401–450), rose to 2.65 (751–800) and was 0.034 at 951–1000. The medians of two runs of one setting without elitism were about 22 to 238 times apart at 51–100 to 251–300; past 300 there is no one-setting figure.
+- `seed2-elite`'s `copy_chance` median was 0.000338–0.017 per window, the baseline's 0.000144–0.0123. The elite run's was the higher in every window from 101–150 to 551–600 (for example 0.0126 against 0.00033 at 251–300) and the lower in 1–100 and in every window from 601–650 on (0.000598 against 0.00204 at 951–1000). The one-setting pair had 0.000618 (`rounds20`) and 0.00033 (`seed2-rounds20`) at 251–300; it covers windows up to 300 only, so there is none at 951–1000.
 - At 0, `seed2-elite-meta0`'s champions won 122.7 on average over 500..1000 (slope −0.1), `seed2-meta0-b`'s 114.8 (+7.5) and `seed2-elite-meta0-nocopy`'s 90.7 (+5.4). No one-setting figure covers that window.
 
 Telling it would need more seeds of each setting.
