@@ -483,7 +483,7 @@ Mean wins, least-squares slope in wins per 100 generations, and residual SD arou
 | 451–500 | 80.4 % | 55.8 % | 12.2 % | 9.5 % | 40.3 % | 45.0 % | 22.9 % | — |
 | 951–1000 | 80.6 % | 41.4 % | 14.0 % | 27.7 % | 66.3 % | 62.2 % | — | — |
 
-At 951–1000 the shares above MichiWeak, in the same order of the six, are 54.0, 63.1, 8.1, 27.7, 49.5 and 53.8 % (no one-setting figure there). No window of any of the six has more than 0.7 % of its networks above MichiMid.
+At 951–1000 the shares above MichiWeak, in the same order of the six, are 54.0, 63.1, 8.1, 27.7, 49.5 and 53.8 % (no one-setting figure there). Over the full windows each one-setting pair shares, its shares above AmiGo were up to 30.6 % against 5.9 % apart (`rounds20` / `seed2-rounds20`, 101–150) and 22.9 % against 45.0 % (`seed2-meta0` / `seed2-meta0-b`, 451–500). No window of any of the six has more than 0.7 % of its networks above MichiMid.
 
 **Elites** (C). These are facts within each of the four elite runs, per 50-generation window over generations 1–1000:
 
@@ -535,7 +535,7 @@ The no-copy runs bred no copies, but still 32–66 (`seed2-elite-nocopy`) and 25
 
 **The 16 Oct hypothesis** (`docs/literature.md` section 7, experiment 2) says that with elitism, `weight_step` and `copy_chance` shrink less at `meta_rate` 0.2, and the plateau is higher at `meta_rate` 0. With one run per setting, the runs **cannot tell**. Here is what they showed:
 
-- At 0.2, `seed2-elite`'s `weight_step` median stayed at 0.446–2.55 per window. `seed2-elite-nocopy`'s, also with elitism, was 0.000591–0.00497 from window 351–400 on. The baseline's fell to 0.0032 (401–450), rose to 2.65 (751–800) and was 0.034 at 951–1000. The medians of two runs of one setting without elitism were about 22 to 238 times apart at 51–100 to 251–300; past 300 there is no one-setting figure.
+- At 0.2, `seed2-elite`'s `weight_step` median stayed at 0.446–2.55 per window. `seed2-elite-nocopy`'s, also with elitism, was 0.000591–0.00497 from window 351–400 on. The baseline's fell to 0.0032 (401–450), rose to 2.65 (751–800) and was 0.034 at 951–1000. The medians of two runs of one setting without elitism were 1.3 to about 238 times apart over 1–50 to 251–300, `rounds20` the higher at 1–50 and `seed2-rounds20` from 51–100 on; past 300 there is no one-setting figure.
 - `seed2-elite`'s `copy_chance` median was 0.000338–0.017 per window, the baseline's 0.000144–0.0123. The elite run's was the higher in every window from 101–150 to 551–600 (for example 0.0126 against 0.00033 at 251–300) and the lower in 1–100 and in every window from 601–650 on (0.000598 against 0.00204 at 951–1000). The one-setting pair's medians were 1.2 to 10 times apart over 1–50 to 251–300 (0.0117 / 0.00998 at 1–50, 0.00195 / 0.00019 at 151–200, 0.000618 / 0.00033 at 251–300), and crossed too: `seed2-rounds20`'s was the higher through 101–150 and the lower from 151–200 on. The pair covers windows up to 300 only, so there is none at 951–1000.
 - At 0, `seed2-elite-meta0`'s champions won 122.7 on average over 500..1000 (slope −0.1), `seed2-meta0-b`'s 114.8 (+7.5) and `seed2-elite-meta0-nocopy`'s 90.7 (+5.4), with residual SDs around those lines of 9.2, 13.8 and 3.1 wins against one champion's game noise of an SD of about 7–8 (the window table above). No one-setting figure covers that window.
 
@@ -543,7 +543,7 @@ Telling it would need more seeds of each setting.
 
 **Step 0.5's rise and fall** (`PROJECT_NOTES.md` item 3) asks whether elitism changes it. The runs **cannot tell** that either. Above AmiGo (C, all networks):
 
-- Without elitism, both runs of step 0.5 fell after a rise: `seed2-meta0` from 27.3 % (401–450) to 8.5 % (551–600, 26 generations), `seed2-meta0-b` from 45.0 % (451–500) to 13.8 % (551–600). `seed2-meta0-b` then rose to 69.7 % (801–850).
+- Without elitism, both runs of step 0.5 fell after a rise: `seed2-meta0` from 27.3 % (401–450) to 8.5 % (551–600, 26 generations), while its share above MichiWeak went from 34.7 % to 36.8 %; `seed2-meta0-b` from 45.0 % (451–500) to 13.8 % (551–600), while its share above MichiWeak went from 38.7 % to 43.4 %. `seed2-meta0-b` then rose to 69.7 % (801–850).
 - With elitism, `seed2-elite-meta0`'s share fell from 80.7 % (601–650) to 41.4 % (951–1000), while its share above MichiWeak rose from 46.0 % to 63.1 %. `seed2-elite-meta0-nocopy`'s share was 8.0–10.9 % over 501–750 and 27.7 % at 951–1000.
 
 One run of each elitist setting cannot show whether elitism changes the rise and fall.
@@ -552,7 +552,7 @@ One run of each elitist setting cannot show whether elitism changes the rise and
 
 **Interpretation** (each a suggestion from these runs, not a measured effect):
 
-- In all four elite runs, the elites chosen by one tournament ranked at mean percentiles of 0.343–0.503 in the next one, rarely stayed elite, and had fewer children than the other top networks. This suggests that one 20-round Swiss tournament's first 10 are picked largely by luck, so carrying them over unchanged selects little. Part of the fall happens to any unchanged network scored again against a new field: the exact clones' scores fell too, by 1.22–2.76 a window, against the elites' 3.35–4.76. Whether that limits progress is not measured.
+- In all four elite runs, the elites chosen by one tournament ranked at mean percentiles of 0.343–0.503 in the next one, rarely stayed elite, and had fewer children than the other top networks. This suggests that one 20-round Swiss tournament's first 10 are picked largely by luck, so carrying them over unchanged selects little. The exact clones, whose parents were also chosen by score (by size-3 tournament), fell too: from 11.5–12.5 to 9.18–10.9, by 1.22–2.76 a window, against the elites' 3.35–4.76. The outputs do not tell how much of either fall is a stronger field and how much a lucky score the selection picked. Whether that limits progress is not measured.
 - At `meta_rate` 0.2 the gene trajectories differed widely between runs, with and without elitism, and between the two runs of one setting, so a comparison of genes between settings needs several seeds per setting.
 
 ## Benchmark
