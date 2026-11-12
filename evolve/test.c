@@ -458,6 +458,27 @@ void test_mutate_genes_clamps() {
   lok(ann_genes_invalid(&same, 26) == NULL);
 }
 
+// With meta_rate 0 every gene comes back bit for bit, the chances too,
+// although a round trip through the logit would change their last bits
+// (0.01 came back as 0.010000000000000002). The normals are drawn all the
+// same, so what follows draws the same numbers as at any other meta_rate.
+void test_mutate_genes_keeps_fixed_genes_exactly() {
+  ann_genes defaults = {0.01, 229.3128, 0.5, 0.02, 0.01};
+  ann_genes some = middle_genes();
+  ann_genes never_copies = middle_genes();
+  never_copies.copy_chance = 0;
+  ann_genes parents[] = {defaults, some, never_copies};
+  for (int i = 0; i < 3; i++) {
+    pcg32_srandom(11, 54u);
+    ann_genes child = mutate_genes(parents[i], 0, 500000);
+    lok(memcmp(&child, &parents[i], sizeof child) == 0);
+    uint32_t after_fixed = pcg32_random();
+    pcg32_srandom(11, 54u);
+    mutate_genes(parents[i], META_RATE, 500000);
+    lequal((int)after_fixed, (int)pcg32_random());
+  }
+}
+
 // Parents can breed when they have the same inputs and outputs; their
 // shapes and activations may differ. Only the same shape can cross over.
 void test_parents_must_match() {
@@ -1566,6 +1587,7 @@ int main(int argc, char **argv) {
   lrun("mutate_new_genes", test_mutate_uses_the_mutated_genes);
   lrun("mutate_gene_distributions", test_mutate_genes_distributions);
   lrun("mutate_gene_clamps", test_mutate_genes_clamps);
+  lrun("mutate_fixed_genes", test_mutate_genes_keeps_fixed_genes_exactly);
   lrun("mutate_activations", test_mutate_activations_switches_uniformly);
   lrun("mutate_activation_gene", test_mutate_switches_activations_by_the_gene);
   lrun("cross_over_activations", test_cross_over_keeps_the_picked_parents_activations);

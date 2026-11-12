@@ -227,8 +227,13 @@ static double log_normal_step(double gene, double meta_rate) {
   return gene * exp(meta_rate * standard_normal());
 }
 
+// The normal is drawn even at meta_rate 0, so the draws that follow do not
+// depend on it; at 0 the gene comes back exactly, where a round trip
+// through the logit would change its last bits.
 static double logit_normal_step(double p, double meta_rate) {
-  double x = log(p / (1.0 - p)) + meta_rate * standard_normal();
+  double z = standard_normal();
+  if (meta_rate == 0) return p;
+  double x = log(p / (1.0 - p)) + meta_rate * z;
   return 1.0 / (1.0 + exp(-x));
 }
 
