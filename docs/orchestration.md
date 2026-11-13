@@ -106,7 +106,7 @@ Then tick the step with its commit ids and what later steps need to know (an int
 A step that needs the orchestrator's choice halfway (run a calibration, pick levels from its table, build on them) stays with one agent: its brief says where to stop, it reports there, and the orchestrator records the choice in the plan, sends it to the same agent, which goes on with its context, and starts a new heartbeat ([Watching running agents](#watching-running-agents)); if the agent is gone, a fresh one gets the choice and the first part's commits.
 
 **Per-commit review.** After each code commit, a fresh reviewer reviews it under `docs/pull-requests.md`, with the owner's decisions and the declined findings, so a defect is fixed before later steps build on it.
-A docs-only commit gets none, nor does one no later commit of the PR depends on (a single-step PR's, the last step's, a fix later steps do not use): the whole-branch review covers it, mutants included, as the next round of the loop, from scratch.
+A docs-only commit gets none, nor does one no later commit of the PR depends on (a single-step PR's, the last step's, a fix for a per-commit finding that later steps do not use): the whole-branch review covers it, mutants included, and for such a fix it is the next round of the loop, from scratch.
 Fix blockers and important findings before the next step that depends on them:
 
 - Send the fix to the agent that wrote the step, which keeps its context, once no other agent writes to that tree, or to a fresh agent if it is gone.
@@ -133,7 +133,7 @@ The orchestrator runs a short one itself in a worktree at that revision, passing
 A long run goes to the owner as a command, to start at the concurrency they choose, since the machine is theirs, and the plan goes on when it has finished ([While the owner is away](#while-the-owner-is-away) says when the orchestrator may start it).
 Keep the raw outputs, then build the results PR like any other.
 
-**Whole-process review.** The plan's last step before cleanup gives a fresh step agent the learnings log; it reviews the process as one system and edits this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions.
+**Whole-process review.** The plan's last step before cleanup gives a fresh step agent the learnings log; it reviews the process as one system and edits this file, `docs/pull-requests.md`, and `CLAUDE.md`'s working conventions and Docs rules.
 It folds in what generalizes as a rule with its reason, drops one-offs, and restructures where parts no longer fit rather than patching lines, since rules added one at a time drift apart; repository quirks go into the relevant reference doc.
 Useful changes go into a final docs PR (for an analysis, possibly the results PR), reviewed and checked like the others, so it is in the report (owner, 29 Sep 2026: plans now always have a learnings log, so go over the process as a whole at the end of each plan and open a final PR if there are useful changes; this replaced a review every third run).
 
@@ -241,7 +241,7 @@ A measurement whose numbers the plan or docs rely on is marked **[quiet]** in th
   It quotes every figure, the load average included, from what it recorded for that run, never from an earlier command or memory.
 - The step, or a follow-up commit, records the numbers or sets the value.
 
-Measure at the concurrency the owner runs experiments at (3, `docs/performance.md`), not at the core count, since on the M3 the workloads were defined on, 8 jobs oversubscribe its 4 performance cores, and a slowdown seen at 8 vanished at 3.
+Measure at the concurrency the owner runs experiments at (3, `docs/performance.md`), not at the core count, since on the M3 the workloads were defined on, 8 jobs oversubscribe its 4 performance cores, and the same games took 1.7–2.0 times the worker time at 8 as at 3.
 Report the breakdown, not only the headline, since it can show a cheaper fix that makes the measured PR not worth building; for the same reason, re-decide a PR the plan made conditional on a measurement whenever an earlier step changes its payoff.
 
 Builds, test suites, smoke runs, and real runs for correctness need no quiet machine.
@@ -260,7 +260,7 @@ So plan, write scripts, proper PRs with reviews etc, and only then let's run the
   Let's not make the mistake (here and [in] any other analysis) of trying to find things in the data that are not actually there.
   If we cannot tell one thing from another at that point that's also a valid outcome."
   What the outputs cannot tell apart, the results doc reports plainly as "cannot tell".
-  Three practices keep an analysis from finding what is not there (applied in `docs/experiment-reference.md`, "Elitism (`elite_share`)"):
+  Three practices keep an analysis from finding what is not there (applied in `docs/findings.md`, "Elitism (`elite_share`)"):
   - **Design for the runs there are.** Before designing a comparison of settings, count the runs of each.
     With one run per setting, a difference between runs cannot be told from the spread between two runs of one setting, so a test between the settings tests the runs.
     Such an analysis describes each run from the start, attributes nothing to a setting, and names more seeds as the way to tell settings apart; if telling them apart is the point, ask the owner whether to run more seeds first (owner, 12 Nov 2026: "Descriptive only").
@@ -268,7 +268,7 @@ So plan, write scripts, proper PRs with reviews etc, and only then let's run the
   - **Rules fixed before the outputs.** Before the scripts run, the plan fixes the windows and defaults, which windows and checkpoints the results doc covers, and for each question the output it is answered from.
     It names the output, never the statement, since a fact the plan tells the doc to state can turn out contradicted by the data.
     Only an owner decision, recorded as one, changes these rules after the outputs are seen.
-  - **Answers and the command to rerun.** Per analysis, the results doc gives the questions, a plain answer to each ("cannot tell" allowed), the runs, and the command and revision that reproduce the numbers (owner, 12 Nov 2026: "Answers + command", replacing the earlier layout of tables by stated rules).
+  - **Answers and the command to rerun.** Per analysis, the results doc (an entry in `docs/findings.md`) gives the questions, a plain answer to each ("cannot tell" allowed), the runs, and the command and revision that reproduce the numbers (owner, 12 Nov 2026: "Answers + command").
     A table appears only where a question's answer is a table; for more detail, readers rerun the script.
     No sentence sums up over some of the runs, windows or measures, or from a starting point, since the pick leans one way; a statement or range over every run, window or measure the outputs hold, or every one a stated rule names, picks nothing and may stay ("in every window …").
 - **Raw outputs kept.** Run the script from a merged revision and keep its raw output, with that revision, beside the plan (`plans/NAME-results/`), so the results PR's reviewers check each figure against the output, not the writer's notes.
@@ -286,7 +286,7 @@ So plan, write scripts, proper PRs with reviews etc, and only then let's run the
   - An estimate made before the run (its cost, its expected power), labelled as an estimate.
     The run's figures replace it where its outputs give them; a cost stays a labelled estimate unless a [quiet] measurement replaces it, since a timing the docs rely on is one.
   - A caveat a reviewer's own query raised, as its mechanism without the query's figure: the clone-repeat share can grow with the rounds counted, since two clones repeat a game only when they meet the same opponent with the same colour.
-  - Figures a section marks as predating this rule, from one-off queries the owner shipped after review (the "Fixed mutation genes" figures of #119, 14 Oct 2026); later text may cite them, and a change to them goes through a script.
+  - Figures a section marks as predating this rule, from one-off queries the owner shipped after review (the figures of `docs/findings.md`, "Fixed mutation genes", #119, 14 Oct 2026); later text may cite them, and a change to them goes through a script.
   - Interpretation, in its own labelled bullet or paragraph, apart from the results, so a reader can tell what was measured from what is read into it; it is checked as strictly as the figures (above).
 
 ## Worktrees and stacked PRs

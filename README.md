@@ -48,7 +48,7 @@ Each network carries its own settings as genes, which evolve with its weights: i
 
 Networks also get hand-coded Go knowledge (good 3×3 shapes, captures, self-atari, saving a chain from atari, the opponent's last move, and chain liberties), as extra inputs and as feature weights that evolve too.
 The `features` setting picks the groups: `all` (the default), `none` (stones and komi only), or a list such as `tactics,liberties`.
-[Go features](docs/features.md) explains each feature and what a comparison with a stones-only run showed.
+[Go features](docs/features.md) explains each feature; [Findings](docs/findings.md) has what a comparison with a stones-only run showed, and what the other experiments found.
 
 ## Benchmark
 
@@ -71,7 +71,7 @@ A bot row has `kind` `bot` and the `command` that starts it; `initial_champion` 
 
 The first table shows whether evolution is healthy: each generation's games, draws, and time, the share of bred children identical to a parent, the distinct parents and genomes, and the lowest, median, and highest network score.
 The last table shows progress: a Bradley–Terry rating in Elo of every benchmark player, AmiGo at 0, fitted over every checkpoint's benchmark games and the bots' games against each other, with its ± of about 95 %, the games, and the points per game.
-For example, after two generations of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --benchmark-bot-games 2 --seed 3` (trimmed to the first and last table; the times vary):
+For example, after two generations of `mise run new-experiment NAME --board-size 9 --population-size 4 --hidden-layers 1 --layer-size 10 --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 1 --keep-every 1 --benchmark-games 2 --benchmark-bot-games 2 --seed 3` (trimmed to the first and last table; the times vary, and its panel has no `GnuGoLevel10`):
 
 ```text
 Generations

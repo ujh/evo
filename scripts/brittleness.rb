@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # The brittleness test: how a checkpoint champion's play changes when only
-# its dense weights change (docs/experiment-reference.md, "How brittle a
+# its dense weights change (docs/analysis-scripts.md, "How brittle a
 # champion is"). Reads the experiment (read-only) and writes only to --out.
 #
 #   mise exec -- scripts/brittleness.rb EXPERIMENT GEN... --out DIR

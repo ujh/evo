@@ -22,6 +22,7 @@ Body: one short paragraph that starts with why the change is needed, plus a line
 3. List what the change makes newly true, search the whole repository (including files the diff does not touch) for text that still says the old thing, and correct it.
    Before a change that deletes data for good (rows, tables or files, archiving an experiment) or adds to what stored data must hold (a setting every experiment needs), find every reader of that data (its table, its columns, the helpers that read it) and check that each still works on the result (a reader that opens archived experiments read-only skips the migrations, so it lacks a new setting).
    Search a renamed name in every spelling (`game_length`, `--game-length`, `GAME_LENGTH`), since a search for one misses the others.
+   Before a change moves, renames, or cuts doc text, run `mise exec -- ruby scripts/doc-citations.rb` on `origin/BASE` and on the branch: it checks links and anchors, a file followed by a quoted heading name, section numbers and step numbers, lists the code lines that cite the docs, and fails on a citation that no longer resolves; check that each citation on the base is still listed, and check by hand a heading cited without quotes or as the second of a quoted list, which it does not see, since reviews reading lists miss them.
 4. Review the whole branch (`git diff origin/BASE...HEAD`) under the [review rules](#review-rules), and loop until a round is clean.
 5. Check that the commits hold what you meant (`git show --stat`; an amend without `-a` leaves unstaged edits out), then push and open the PR against BASE.
 6. Run `mise run pr-checks <pr>` on a pushed commit (it waits for GitHub to show the local `HEAD`, so on an unpushed one it fails only after about five minutes).
@@ -104,7 +105,7 @@ What such docs may hold besides the outputs' figures is listed in one place, `do
 The loop has no round limit (owner, 28 Sep 2026): go on until only nits are left, without asking, since later rounds still find real defects.
 Ask the owner only when a finding needs a decision only the owner can make, such as changing scope or approach.
 A finding of a kind whose whole class the round before swept (loop step 1) is the sign of such a decision: ask the first time the kind comes back, with the options (sweep once more, or change the approach, and how), not after more sweeps.
-One owner answer can end such a kind where sweeps have not (owner, 12 Nov 2026, on claims stronger than one run per setting allows: "Descriptive only", "Slim it down").
+One owner answer can end such a kind where sweeps have not (owner, 12 Nov 2026: "Descriptive only" on claims stronger than one run per setting allows, "Slim it down" on one-sided summaries).
 
 ### Where the reviewer works
 

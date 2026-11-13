@@ -3,6 +3,7 @@
 Without help, a network sees only the stones and komi and has to discover everything about Go by itself: that capturing is good, that a stone in atari should run, that some shapes are strong.
 Features give it that knowledge from the start.
 [The evolving genome](genes.md) explains the rest of a network's genome.
+What a comparison with a stones-only run showed is in [Findings](findings.md#what-a-comparison-showed).
 
 - [Two ways the network uses them](#two-ways-the-network-uses-them)
 - [The features](#the-features)
@@ -11,7 +12,6 @@ Features give it that knowledge from the start.
 - [How the feature weights evolve](#how-the-feature-weights-evolve)
 - [Reading them in `stats`](#reading-them-in-stats)
 - [What the features cost](#what-the-features-cost)
-- [What a comparison showed](#what-a-comparison-showed)
 
 ## Two ways the network uses them
 
@@ -171,77 +171,3 @@ On 9×9 with a hidden layer of 50:
 The features multiply the arena's move time by about ten, but a game still takes a few milliseconds.
 On 19×19 a network with all groups has 4,334 inputs, and 1×50 is 235,212 weights (1.9 MB).
 With this many inputs, removing a network's only hidden layer makes it bigger, not smaller: a 9×9 `0x0` network connects all 974 inputs to the 82 outputs, 79,950 weights, against 10,652 for `1x10`.
-
-## What a comparison showed
-
-One run with every feature group next to one with `features none`, with
-the same settings and seed otherwise (26 Sep 2026, concurrency 4):
-
-```sh
-mise run new-experiment NAME --board-size 9 --population-size 20 --hidden-layers 1 --layer-size 50 \
-  --cross-over-rate 0.5 --game-seconds 600 --max-moves 200 --tournament-rounds 5 --keep-every 5 \
-  --benchmark-games 10 --features all --seed 2026      # and --features none
-for i in $(seq 20); do mise run run NAME --concurrency 4 --one-generation; done
-```
-
-Benchmark wins of each checkpoint's top network, out of 10 games per
-opponent (5 with each colour):
-
-| Checkpoint | Brown: all | Brown: none | Generation 0's champion: all | none | Previous checkpoint: all | none |
-| --- | --- | --- | --- | --- | --- | --- |
-| 0 | 6 | 0 | | | | |
-| 5 | 6 | 4 | 9 | 10 | | |
-| 10 | 9 | 3 | 9 | 10 | 5 | 1 |
-| 15 | 9 | 5 | 8 | 10 | 5 | 5 |
-
-Against AmiGo and GNU Go level 0, every checkpoint of both runs lost all
-10 games, except one win against AmiGo by `none`'s generation 5. Played
-against each other in the arena (no openings, so one game per colour),
-the `all` run's champion beat the `none` run's in both colours at
-generation 15, and in one of two at generation 19.
-
-What that says:
-
-- **The head start is real.** Generation 0 with features already beats
-  Brown, which plays at random, 6 times out of 10; without features it
-  loses all 10. After 20 generations the feature run still leads (9 to 5).
-- **Neither run gets near AmiGo or GNU Go** in 20 generations. The
-  features do not change that yet.
-- **The feature run improves less on its own start.** Its checkpoints beat
-  generation 0's champion 8–9 times out of 10, the stones-only run's all
-  10 times: the stones-only generation 0 is so weak that beating it is
-  easy. Against the previous checkpoint the feature run wins 5 of 10 at
-  both checkpoints, a sign that it stalls between generations 5 and 15;
-  the stones-only run wins 1 and then 5.
-- **Ten games per opponent are few.** A difference of 9 against 5 wins is
-  suggestive, not proof; one seed is one run. More seeds and more games
-  would tell (see `PROJECT_NOTES.md`).
-
-How the feature weights moved (medians of the `all` run):
-
-| | Generation 0 | Generation 5 | Generation 19 |
-| --- | --- | --- | --- |
-| capture | 0.97 | 0.96 | 0.96 |
-| self_atari | −0.98 | −1.07 | −1.06 |
-| saves_atari | 0.73 | 0.91 | 0.92 |
-| hane | 0.048 | 0.051 | 0.054 |
-| cut | 0.054 | 0.053 | 0.076 |
-| edge | 0.044 | 0.076 | 0.069 |
-| near_last | 0.050 | 0.066 | 0.078 |
-| `feature_step` | 0.01 | 0.0083 | 0.0050 |
-
-The big moves happen in the first generations, faster than mutation could
-make them (at a `feature_step` of 0.01, five generations move a weight by
-at most about 0.05): the population descends from a few generation-0
-networks whose noise happened to give them a high saves_atari, edge, or
-near_last weight. So selection picked among the starting noise, and
-whether it picked for those weights or for the networks that carried them
-cannot be told apart from one run. After that the weights barely move, and
-`feature_step` halves: mutation is not exploring the feature weights much.
-
-Cost in the same runs: a generation took 4.2–4.8 s with features and
-4.0–4.6 s without, a checkpoint with its benchmark 17.5–21.2 s and
-20.2–21.8 s; the whole run 2.5 min either way, since the games with bots,
-then played through GoGui, took nearly all the time. The database ended at
-52 MB with features and 8.8 MB without: each kept generation's 20 networks
-take about 8.5 MB instead of 1.3 MB.

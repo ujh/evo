@@ -110,8 +110,11 @@ class SetupExperiment
     # The arena takes at most 10^6 s of main time.
     'game_seconds' => ['Time per player per game, in seconds', nil, integer(1, 1_000_000)],
     'max_moves' => ['Max moves', nil, integer(1)],
-    # 20 beat 10 at equal compute with two seeds, and 40 beat neither
-    # (docs/experiment-reference.md, "10, 20 and 40 rounds").
+    # Chosen from one run per round count on each of two seeds: the 20-round
+    # runs' champions led the 10-round runs' at equal compute (on the second
+    # seed from about 36 summed hours on), and the one 40-round run's trailed
+    # the 20-round run's; one run per setting cannot tell whether the rounds
+    # caused it (docs/findings.md, "10, 20 and 40 rounds").
     'tournament_rounds' => ['Rounds (tournament)', '20', integer(1)],
     'tournament_size' => ['Tournament size for parent selection', '3', integer(1)],
     # The top Elitism.count(elite_share, population_size) networks of a
