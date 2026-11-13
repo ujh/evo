@@ -240,8 +240,6 @@ Owner, 12 Nov 2026: note all of these (triaged at the end of the elitism analysi
 
 **A fast multi-seed check for `evolve`.** Each `evolve` process start costs about 0.24 s on macOS, so a check that `evolve` gives byte-identical children to `main` over many seeds outruns a foreground command's time limit. A test-only mode that loops over seeds in one process would make it one command (owner, 19 Oct 2026).
 
-**Plans cite method names, not line numbers.** `docs/orchestration.md` step 2 asks a plan to give each fact its `file:line`, but lines drift as the plan's steps land, and the elitism plan had to add that its method names are the reference; say in step 2 to cite the method or symbol, with the line only as a hint (owner, 19 Oct 2026).
-
 ## Proposed sequence
 
 These are candidate milestones for discussion, rather than an implementation commitment.
