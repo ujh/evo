@@ -1,107 +1,47 @@
 # The evolving genome
 
-This page explains what a network passes on to its children, how `evolve`
-makes a child, and how to read the genome tables in `stats`. The settings
-named here are the ones `mise run new-experiment` takes (without arguments
-it lists them all).
+This page explains what a network passes on to its children, how `evolve` makes a child, and how to read the genome tables in `stats`.
+`mise run new-experiment` without arguments lists every setting named here with its range and default.
 
-## Overview
+- [What a network's genome is](#what-a-networks-genome-is)
+- [How `evolve` makes a child](#how-evolve-makes-a-child)
+- [Shape changes](#shape-changes)
+- [Crossover and shapes](#crossover-and-shapes)
+- [Reading a run](#reading-a-run)
+- [The settings, and a run to try](#the-settings-and-a-run-to-try)
 
-Each network carries its own genome, and all of it evolves:
+## What a network's genome is
 
-| Part | How it evolves |
-| --- | --- |
-| Weights | changed by mutation, mixed by crossover |
-| Hidden and output activation | genes, can switch |
-| Shape (hidden layers × width) | genes, can grow and shrink |
-| Mutation settings | five genes per network |
-| Feature weights and `feature_step` | genes, nudged by every mutation of a network with move features |
+A network's `.ann` file holds all of it, and all of it can evolve except the feature groups:
 
-The experiment's settings give generation 0, the limits, and the rates that drive breeding.
-
-## 1. What a network's genome is
-
-A network's `.ann` file holds everything about it:
-
-- **Weights.** One per connection, plus one bias per neuron.
-- **Activations.** One for all hidden layers and one for the output layer.
-  Each is one of GENANN's six: `sigmoid`, `sigmoid_cached`, `threshold`,
-  `linear`, `tanh`, `relu`. Generation 0 uses `sigmoid_cached` for both.
-- **Shape.** The number of hidden layers and their width, written
-  `LAYERSxWIDTH` (for example `1x10`). The inputs and outputs are fixed by
-  the board and the experiment's features: on 9×9 there are 82 outputs (81
-  points plus pass), and 974 inputs with every feature group (komi, 81
-  points, and the features' 892) or 82 with `features none` (komi plus 81
-  points). [Go features](features.md) explains the features.
+- **Weights.** One per connection, plus one bias per neuron; mutation changes them, crossover mixes them.
+- **Activations.** One for all hidden layers and one for the output layer, each one of GENANN's six: `sigmoid`, `sigmoid_cached` (generation 0's), `threshold`, `linear`, `tanh`, `relu`.
+- **Shape.** The number of hidden layers and their width, written `LAYERSxWIDTH` (for example `1x10`).
+  The board and the feature groups fix the inputs and outputs: on 9×9, 82 outputs (81 points plus pass) and 974 inputs with every feature group, 82 with `features none`.
+- **Features.** The experiment's feature groups (one experiment has one set, and `evolve` refuses parents with different groups), the gene `feature_step`, and one weight per move feature; [Go features](features.md) explains them.
 - **Five mutation genes**, which decide how its children are mutated:
 
 | Gene | What it does | Starts at (setting, default) | Limits |
 | --- | --- | --- | --- |
 | `copy_chance` | Chance that a mutated child is an exact copy | `initial_copy_chance`, 0.01 | 0.0001 to 0.1, or exactly 0 |
-| `weight_changes` | Average number of weights a mutated child changes | `initial_weight_changes`, 0.0004 × generation 0's weights, at least 1 | 1 to the network's total weights |
-| `weight_step` | Largest change of one weight (the change is uniform in ±step) | `initial_weight_step`, 0.5 | 0.0001 to 10 |
+| `weight_changes` | Average number of weights a mutated child changes | `initial_weight_changes`, 0.0004 × generation 0's weights (feature inputs included), at least 1 | 1 to the network's total weights |
+| `weight_step` | Largest change of one weight (uniform in ±step) | `initial_weight_step`, 0.5 | 0.0001 to 10 |
 | `activation_rate` | Chance that each activation switches | `initial_activation_rate`, 0.02 | 0.0001 to 0.5 |
 | `structure_rate` | Chance of one change of shape | `initial_structure_rate`, 0.02 | 0.0001 to 0.5 |
 
-The limits are the clamps in `lib/ann.h`: a gene that evolves past one is
-set back to it. The settings accept the same ranges.
+The limits are the clamps in `lib/ann.h`: a gene that evolves past one is set back to it, and the settings accept the same ranges.
+Example: a 9×9 `1x50` network with every feature group has 52,932 weights, so its default `weight_changes` is 0.0004 × 52,932 ≈ 21.2.
 
-`copy_chance` 0 means "never copy": no child is a copy, and every child
-keeps 0, under any `meta_rate`, while crossover hands on the picked
-parent's 0. An experiment created with `initial_copy_chance` 0 never makes
-copies, and nothing between 0 and 0.0001 is accepted. It can still breed
-exact clones another way: both parents are drawn independently, with
-replacement, so a crossover child can have one network as both parents, and
-since crossover does not mutate, that child is the network itself. With a
-size-3 tournament over N networks whose scores all differ, this happens to
-1.8/N of the children drawn for crossover (0.18 % of 1,000; ties among the scores make it
-rarer). Elites (`elite_share`,
-section 2) still carry networks over unchanged: they are no copies, since
-`evolve` never makes them.
+The file is a header (the format version, the sizes, and the two activations), the five genes, the features, then the weights: 86 bytes plus 8 per feature weight plus 8 per weight (`docs/code-reference.md` has the byte layout).
 
-- **Features.** Which feature groups the network sees besides the stones
-  and komi (shapes, tactics, the last move, chain liberties), a gene
-  `feature_step`, and one weight per move feature of its groups (hane, cut,
-  edge, capture, self_atari, saves_atari, near_last; `liberties` has
-  none). The engine plays with them: a network with groups gets their
-  inputs, and each feature weight is added to a point's score where that
-  feature is 1. The groups never change: one experiment has one feature
-  set, and `evolve` refuses parents with different groups. The feature
-  weights and `feature_step` evolve (section 2; [Go features](features.md)
-  has the details):
+`copy_chance` 0 means "never copy": every child keeps 0 under any `meta_rate`, and nothing between 0 and 0.0001 is accepted.
+Such a run can still breed an exact clone: the two parents are drawn independently, with replacement, and a crossover child of one network with itself is that network.
+With a size-3 tournament over N networks whose scores all differ, that happens to 1.8/N of the children drawn for crossover (0.18 % of 1,000; ties make it rarer).
 
-  | Gene | What it does | Starts at | Limits |
-  | --- | --- | --- | --- |
-  | feature weights | Added to a point's score where the feature is 1 | hand-set (capture +1.0, saves_atari +0.8, self_atari −1.0, the others +0.05), times 1 + u per network, u uniform within ±`initial_feature_noise` (0.3) | −10 to 10 |
-  | `feature_step` | Largest change of one feature weight (uniform in ±step) | `initial_feature_step`, 0.01 | 0.0001 to 1 |
+## How `evolve` makes a child
 
-  The experiment's `features` setting (default `all`) gives every network
-  its groups; with `none` a network has no feature weights, and its
-  `feature_step` stays where it started. `initial-population` and `evolve`
-  print them at the end of each network's genes line (`features=none
-  feature_step=0.01`, and with groups also a weight per move feature, such
-  as `fw_capture=1`), and the runner stops when a network's groups are not
-  the experiment's.
-
-The file starts with a header (the format version, the sizes, and the two
-activations), then the five genes, then the features, then the weights:
-86 bytes plus 8 per feature weight plus 8 per weight. Files of the
-earlier format, without the features, are no longer read.
-
-Example: a 9×9 network of `1x50` with every feature group has 52,932
-weights, so its default `weight_changes` is 0.0004 × 52,932 ≈ 21.2. A
-`1x10` network has 10,652 weights, so 4.26. With `features none` the same
-shapes have 8,332 and 1,732 weights: 3.3, and 0.69, which starts at the
-lower limit of 1. (The Weights and Changes columns of `stats` show them;
-see section 5.)
-
-## 2. How `evolve` makes a child
-
-For each child it breeds, the runner picks two parents by tournament
-selection (draw `tournament_size` networks of the previous generation,
-elites included, and keep the best; see `experiment-reference.md`) and
-calls `evolve`. Each bred child comes about by exactly one of three
-operators:
+For each child it breeds, the runner picks two parents by tournament selection (draw `tournament_size` networks of the previous generation, elites included, and keep the best) and calls `evolve`.
+Each bred child comes about by exactly one of three operators:
 
 ```
                     draw: crossover? (cross_over_rate)
@@ -116,192 +56,64 @@ operators:
   (not mutated at all)                  COPY           MUTATION
 ```
 
-A **crossover** child takes the first part of one parent's weights and the
-rest from the other, and nothing else changes (section 4). A **copy** is the
-parent byte for byte: weights, shape, activations, genes, and features. A
-**mutation** is everything below.
+A **crossover** child mixes the parents' weights and nothing else ([Crossover and shapes](#crossover-and-shapes)).
+A **copy** is the parent byte for byte: weights, shape, activations, genes, and features.
+A **mutation** is everything below.
 
-With `elite_share` above 0, the last E places of a generation are not
-bred: they are **elites**, the first E networks of the previous
-generation's final ranking (bots skipped, the champion first), which the
-runner copies byte for byte without running `evolve` (operator `elite` in
-`births`). Like a copy, an elite is its parent byte for byte, but chosen
-by rank, not by chance: a copy's parent was picked by tournament
-selection, and its `copy_chance` decided. The places before them are bred as above, with the
-same seeds and parent draws as without elitism.
-
-```
-  population_size P, E = Elitism.count(elite_share, P)
-
-  places 0 … P−E−1      bred: two parents by tournament selection, evolve
-  places P−E … P−1      elites: the top E non-bots of the previous final ranking, copied
-```
+With `elite_share` above 0, the last E places of a generation are not bred: they are **elites**, the first E networks of the previous generation's final ranking (bots skipped, the champion first), copied byte for byte by the runner without `evolve` (operator `elite` in `births`).
+E is `elite_share` × `population_size`, rounded, at least 1 when the share is above 0 and at most `population_size` − 1 (`Elitism.count`).
+An elite is no copy: rank chose it, not tournament selection and `copy_chance`.
+The places before the elites are bred with the same seeds and parent draws as without elitism.
 
 ### A mutated child, step by step
 
-The parent's genes decide the copy check and are where the nudge starts.
-From then on the child's own, freshly nudged genes drive the rest:
+The parent's genes decide the copy check and are where the nudge starts; from then on the child's own, freshly nudged genes drive the rest:
 
-1. **Copy check.** With the parent's `copy_chance` the child is a copy and
-   evolve stops here. The check draws a number between 0 and 1 even at
-   `copy_chance` 0, which never passes it.
-2. **Nudge the genes.** Each of the five genes moves a little at random
-   (see "meta_rate" below), then is clamped to its limits. A `copy_chance`
-   of 0 stays 0, but its random number is drawn all the same: where the
-   copy check fails, a parent with 0 gets the child it would get with any
-   other `copy_chance`, apart from that gene.
-3. **Nudge the feature weights** (only for a network with move features;
-   otherwise nothing is drawn). `feature_step` moves like `weight_step`,
-   then **every** feature weight moves by a random amount between
-   −`feature_step` and +`feature_step` of the new step, and is clamped to
-   −10 to 10. There are only a few feature weights (7 with every group),
-   so each mutated child changes all of them a little, unlike the
-   network's thousands of weights, of which it changes a few.
-4. **Switch activations.** With the child's `activation_rate`, the hidden
-   activation switches to one of the other five, chosen uniformly. The
-   output activation gets its own independent chance.
-5. **Maybe change shape.** With the child's `structure_rate`, one shape
-   change happens (section 3).
-6. **Change weights.** Each weight changes with probability
-   `weight_changes / total_weights`, by a random amount between
-   −`weight_step` and +`weight_step`.
+1. **Copy check.** With the parent's `copy_chance` the child is a copy, and `evolve` stops.
+2. **Nudge the genes.** Each of the five genes moves a little at random ([What `meta_rate` does](#what-meta_rate-does)) and is clamped to its limits.
+3. **Nudge the feature weights** (only with move features).
+   `feature_step` moves like `weight_step`, then **every** feature weight moves by a random amount within ±the new `feature_step`, clamped to −10 to 10.
+4. **Switch activations.** With the child's `activation_rate`, the hidden activation switches to one of the other five; the output activation gets its own chance.
+5. **Maybe change shape.** With the child's `structure_rate`, one [shape change](#shape-changes) happens.
+6. **Change weights.** Each weight changes with probability `weight_changes / total_weights`, by a random amount within ±`weight_step`.
 
 ### Why good gene values spread
 
-Steps 2 and 3 come before steps 4–6, so a child is made *with the genes
-it carries*. If the new genes happened to produce a good child (say a smaller
-`weight_step` that did not wreck a good network), that child wins games,
-gets picked as a parent, and passes those genes on. Genes that produced a
-bad child die out with it. Nobody sets the mutation settings: they ride
-along with the networks they helped make. This is called self-adaptation.
-
-The catch: selection on genes is indirect and noisy, so a gene can also
-just drift (section 5 shows how to spot it).
+Steps 2 and 3 come before steps 4–6, so a child is made *with the genes it carries*.
+If the new genes happened to produce a good child (say a smaller `weight_step` that did not wreck a good network), that child wins games, gets picked as a parent, and passes those genes on; genes that produced a bad child die out with it.
+Nobody sets the mutation settings: they ride along with the networks they helped make (self-adaptation).
+The catch: selection on genes is indirect and noisy, so a gene can also just drift.
 
 ### What `meta_rate` does
 
-`meta_rate` (default 0.2, range 0 to 10) sets how far a gene moves per
-nudge. The nudge multiplies `weight_changes` and `weight_step` by
-e^(0.2 × a standard normal number), so a typical nudge is about ±22%
-(e^0.2 ≈ 1.22, e^−0.2 ≈ 0.82):
-
-> A parent that changes 7 weights per child might have a child that changes
-> 8 or 6, and rarely 5 or 10.
-
-`feature_step` moves the same way: a parent with 0.01 has children with
-about 0.008 to 0.012.
-
-The three chances move the same way on the log-odds scale, which for small
-values like 0.02 is nearly the same ±22%. `meta_rate` 0 freezes the genes, bit for bit;
-with one seed, that did worse than self-adaptation
-(`experiment-reference.md`, "Fixed mutation genes").
+`meta_rate` (default 0.2) sets how far a gene moves per nudge.
+The nudge multiplies `weight_changes`, `weight_step` and `feature_step` by e^(`meta_rate` × a standard normal number), at 0.2 a typical nudge of about ±22 %: a parent that changes 7 weights per child might have a child that changes 8 or 6, and rarely 5 or 10.
+The three chances move the same way on the log-odds scale, which for small values like 0.02 is nearly the same.
+`meta_rate` 0 freezes the genes, bit for bit (`docs/experiment-reference.md`, "Fixed mutation genes", has the runs).
 
 ### Why `weight_changes` is a count, not a rate
 
-The gene says "change about this many weights per child", not "change this
-share of the weights". That matters once shapes change:
+The gene says "change about this many weights per child", not "change this share", so a network that grows from 52,932 to 100,000 weights keeps its number of changes per child instead of doubling it without selection asking.
+The count never falls below 1, so a mutated child expects at least one weight change.
+It is an average: with `weight_changes` 3.3 a child may change 1, 3, or 6 weights, and with 1, about 37 % of mutated children change no network weight at all.
+Such a child is no copy: with move features (any group but `liberties` alone) its feature weights all moved, and at a `meta_rate` above 0 its genes did too, unless a clamp held them.
+At `meta_rate` 0 without move features, such a child with no activation or shape change equals its parent.
 
-- With a rate, a network that grows from 52,932 to 100,000 weights would get
-  more than twice as many changes per child, without selection asking for
-  it. With a count, it keeps the same number.
-- A count cannot sink below 1, so a mutated child always expects at least
-  one weight change and never quietly turns into a copy.
+## Shape changes
 
-It is an average, not an exact number. With `weight_changes` 3.3 a child may
-change 1, 3, or 6 weights. With 1, about 37% of mutated children change no
-weight at all, and unless an activation or the shape changed, they equal
-their parent. The Copies column in `stats` counts those too. It leaves the
-elites out, which equal their parents but are not bred: its share is of the
-bred children only, so it compares with runs without elitism.
+GENANN networks have one width for all hidden layers, so a shape change acts on every hidden layer at once.
+A mutated child gets at most one of four changes, chosen uniformly among those the limits allow (`max_hidden_layers` defaults to 4, `max_layer_size` to 200):
 
-## 3. Shape changes
+- **Widen** (while width < `max_layer_size`) adds a neuron to every hidden layer, with random incoming weights but weights of 0 into the next layer: it computes something, but nothing listens yet, so the outputs stay the same until later weight mutations connect it.
+- **Narrow** (while width > 1) removes one neuron per hidden layer, picked at random, with its weights, and changes play by as much as those neurons mattered.
+- **Add a layer** (while layers < `max_hidden_layers`) puts a pass-through layer of the same width after the last one: neuron *i* copies neuron *i* of the layer before (weight 1 from it, 0 from the others, bias 0), so the bigger child starts out playing like its parent.
+  That is exact for linear, relu and threshold, close for tanh (about 180 of 200 test moves stay the same), and close for the sigmoids, whose squeeze the output layer compensates (sigmoid(x) ≈ 0.5 + x/4 near 0, so its weights from the new layer are multiplied by 4 and its biases adjusted).
+  From no hidden layers there is nothing to pass through: the new layer of min(`layer_size`, `max_layer_size`) neurons and the output rows get random weights, so the child plays like a fresh random network.
+- **Remove a layer** (while there are any) drops the last hidden layer and folds it into the outputs, treating its activation as a straight line f(x) ≈ c + s·x, so out = V·f(W·x − b) ≈ (s·V·W)·x + V·(c − s·b).
+  That is exact up to rounding for linear and rough for the others, so a drop in play after a removal is expected.
+  Removing the only hidden layer connects the outputs straight to the inputs (shape `0x0`).
 
-GENANN networks have one width for all hidden layers:
-
-```
- inputs (974)      hidden 1         hidden 2          outputs (82)
- komi, A1 … J9 ──▶ ○ ○ ○ ○ ○ ○ ──▶ ○ ○ ○ ○ ○ ○ ──▶ A1 … J9, pass
- + features        6 wide            6 wide
-                         shape: 2x6
-```
-
-So a shape change acts on every hidden layer at once. A mutated child gets
-at most one of four changes, chosen uniformly among those the limits allow
-(`max_hidden_layers`, default 4; `max_layer_size`, default 200; width at
-least 1):
-
-| Change | Allowed when | Play afterwards |
-| --- | --- | --- |
-| widen | there are hidden layers and width < `max_layer_size` | the same as the parent |
-| narrow | there are hidden layers and width > 1 | changed |
-| add a layer | layers < `max_hidden_layers` | the same or close (random from 0 layers) |
-| remove a layer | layers > 0 | exact for linear, rough otherwise |
-
-### Widen: one more neuron in every hidden layer
-
-```
- before 1x3                 after 1x4
- in ──▶ h1 h2 h3 ──▶ out    in ──▶ h1 h2 h3 h4 ──▶ out
-                                            │
-                        random weights in,  weight 0 out
-```
-
-The new neuron gets random incoming weights (GENANN's starting range, −0.5
-to 0.5), but its weights into the next layer are 0. It computes something,
-but nothing listens yet, so the outputs stay the same (exactly with clang;
-GCC may round the last bit differently). Later weight mutations can
-connect it.
-
-### Narrow: one neuron fewer in every hidden layer
-
-Each hidden layer loses one neuron, picked at random per layer, together
-with all its weights in and out. This changes the network's play; how much
-depends on how much the lost neurons mattered.
-
-### Add a layer: a pass-through layer
-
-A new hidden layer of the same width goes in after the last one. Neuron *i*
-of the new layer copies neuron *i* of the layer before (weight 1 from it, 0
-from the others, bias 0). The idea is that the child starts out playing
-like its parent, so a bigger network gets a fair chance instead of starting
-from scratch.
-
-How exact that is depends on the hidden activation, which the new layer
-uses too:
-
-- **linear, relu, threshold:** exact. Passing a value through them again
-  gives the same value (relu and threshold values are already ≥ 0, and
-  threshold's are already 0 or 1).
-- **tanh:** close; about 180 of 200 test moves stay the same.
-- **sigmoid, sigmoid_cached:** a plain pass-through would squeeze every
-  value into 0.5–0.73 and change most moves. Near 0, sigmoid(x) ≈ 0.5 + x/4,
-  so the output layer is compensated: its weights from the new layer are
-  multiplied by 4 and its biases adjusted to cancel the 0.5. The result is
-  close, not exact.
-
-**From no hidden layers**, there is nothing to pass through. The new layer
-gets min(`layer_size`, `max_layer_size`) neurons and random weights, and so
-do the output rows, so the child plays like a fresh random network.
-
-### Remove a layer: fold it into the outputs
-
-The last hidden layer disappears, and the output layer is rewired to take
-its place, treating the removed layer's activation as a straight line
-f(x) ≈ c + s·x:
-
-    out = V·f(W·x − b)  ≈  V·(c + s·(W·x − b))  =  (s·V·W)·x + V·(c − s·b)
-
-(GENANN subtracts biases.) So the output layer's new weights are s·V·W, and
-the constant part goes into its biases. For linear (c = 0, s = 1) this is
-exact up to rounding. relu and tanh use c = 0, s = 1 too, and the sigmoids
-and threshold use c = 0.5, s = 1/4; for all but linear the fold is rough,
-so a drop in play after a removal is expected. Removing the only hidden
-layer connects the outputs straight to the inputs (shape `0x0`).
-
-Adding and then removing a layer gives the parent back exactly for linear,
-relu, and tanh, and up to rounding for the sigmoids.
-
-## 4. Crossover and shapes
+## Crossover and shapes
 
 Crossover cuts both parents' weight lists at one random point:
 
@@ -311,24 +123,14 @@ Crossover cuts both parents' weight lists at one random point:
  child      a a a a a a|b b b b     (activations and genes from A)
 ```
 
-This only makes sense when each position means the same connection in both
-parents, which needs the same shape (same layers and width). So:
+That only makes sense when each position means the same connection in both parents, which needs the same shape.
+So with the same shape the child takes the first part from the parent picked at random (A here), with its activations, genes, feature weights and `feature_step`, and is not mutated.
+With different shapes, a drawn crossover becomes a mutation of the picked parent, so as shapes spread fewer pairs can cross.
 
-- **Same shape:** crossover as above. The child takes the activations,
-  genes, feature weights, and `feature_step` of the parent whose weights
-  come first (A here, chosen at random), and is not mutated. The parents' activations may differ.
-- **Different shapes:** if crossover was drawn, the child becomes a
-  mutation of the picked parent instead.
+## Reading a run
 
-As shapes spread in a population, fewer pairs can cross, and more children
-are mutations.
-
-## 5. Reading a run
-
-`mise run stats NAME` prints, between the Generations and Benchmark tables,
-the genome tables for the latest 10 generations (four, or three without
-move features: `none`, or `liberties` alone). Each row describes the
-networks *of* that generation, from the `births` table.
+`mise run stats NAME` prints, between the Generations and Benchmark tables, the genome tables for the latest 10 generations (four, or three without move features).
+Each row describes the networks *of* that generation, from the `births` table.
 
 ### Genes
 
@@ -339,40 +141,13 @@ networks *of* that generation, from the `births` table.
 | max |  0.0119 |    8.61 |  1.02 | 0.265 |  0.368 |      1 |    11 |   79950 |
 ```
 
-One row of **medians** per generation: Copy (`copy_chance`), Changes
-(`weight_changes`), Step (`weight_step`), Act (`activation_rate`), Struct
-(`structure_rate`), then Layers, Width, and Weights per network (feature
-inputs included). The `min`
-and `max` rows give the range in the latest generation (here from `0x0`
-to `1x11`). Each column has its own minimum and maximum, so a row need not
-be one network: the most weights, 79,950, belong to the `0x0` networks,
-whose 974 inputs all connect straight to the 82 outputs.
-
-Watch for a gene that walks to a limit and stays there, for example Copy at
-0.1 (a tenth of mutated children would be plain copies) or Step at 10. A
-median that wanders and comes back is normal.
+One row of **medians** per generation: the five genes, then Layers, Width, and Weights (feature inputs included).
+The `min` and `max` rows give each column's range in the latest generation, so a row need not be one network: the most weights, 79,950, belong to `0x0` networks, whose 974 inputs connect straight to the 82 outputs.
+Watch for a gene that walks to a limit and stays there, such as Copy at 0.1 (a tenth of mutated children plain copies) or Step at 10; a median that wanders and comes back is normal.
 
 ### Feature weights
 
-```
-| Gen | Step    | Hane   | Cut    | Edge   | Capture | SelfAtari | SavesAtari | NearLast |
-|   1 |    0.01 | 0.0594 | 0.0603 | 0.0505 |    1.29 |     -1.14 |      0.626 |   0.0427 |
-| min | 0.00872 | 0.0528 | 0.0555 | 0.0435 |   0.828 |     -1.14 |      0.619 |   0.0332 |
-| max |  0.0104 | 0.0691 | 0.0631 | 0.0623 |     1.3 |    -0.752 |      0.947 |   0.0483 |
-```
-
-The same rows as Genes for `feature_step` (Step, not `weight_step`) and
-for the weight each move feature adds to a point's score. Only the
-experiment's features have a column; without move features (`none`, or
-`liberties` alone) there is no table, since no network has a feature
-weight and `feature_step` never moves. [Go features](features.md#reading-them-in-stats)
-says what to look for. (From a seeded smoke run, generation 1: `--features all --seed 3`,
-4 networks of `1x10`.)
-
-A sign that flips (Capture or SavesAtari below 0, SelfAtari above 0) or a
-weight that runs to ±10 is selection at work, and worth a look. Small
-shape weights that drift by a few hundredths over generations are
-`feature_step` doing its job.
+The same rows for `feature_step` and each move feature's weight, with move features only; [Go features](features.md#reading-them-in-stats) shows the table and what to look for.
 
 ### Shapes and activations
 
@@ -382,15 +157,9 @@ shape weights that drift by a few hundredths over generations are
 |   4 | 1x10 6, 0x0 5, 3x10 1    | sigc 8, relu 1, sig 1 +2 | thr 7, sigc 3, lin 1 +1 |
 ```
 
-The three most common shapes and activations with their counts; `+1` means
-one more kind exists. Short names: `sig`, `sigc` (sigmoid_cached), `thr`,
-`lin`, `tanh`, `relu`. A new shape or activation that grows from 1–2
-networks to many is selection preferring it (here `0x0`, a network with no
-hidden layer, went from 2 to 5, and threshold outputs from 3 to 7).
-One that appears and vanishes the next generation was tried and lost.
-
-Networks with `threshold` or `relu` outputs often tie, and the engine
-passes on a tie, so they pass a lot: selection's problem, not a bug.
+The three most common shapes and activations with their counts; `+1` means one more kind exists.
+One that grows from 1–2 networks to many is selection preferring it (here `0x0` from 2 to 5, threshold outputs from 3 to 7); one that appears and vanishes was tried and lost.
+Networks with `threshold` or `relu` outputs often tie, and the engine passes on a tie, so they pass a lot: selection's problem, not a bug.
 
 ### Breeding and bots
 
@@ -399,120 +168,55 @@ passes on a tie, so they pass a lot: selection's problem, not a bug.
 |   3 |    5 |         5 |     1 |      0 |   0 |      2 | 1 (0) | 14 (4) | 1 (0) |
 ```
 
-- **Kids:** most children of one parent of the previous generation. A
-  crossover counts for both parents, a mutation or copy for the picked one,
-  an elite for none: Kids and Childless count selection, and rank, not
-  selection, chose the elites.
-- **Childless:** previous-generation networks with no bred child, so an
-  elite's parent without one too. High Kids and
-  many Childless mean strong selection pressure: a few networks take over.
-  Low Kids and few Childless mean weak pressure. `tournament_size` is the
-  knob.
-- **Widen, Narrow, Add, Remove:** shape changes that made this generation's
-  bred children (`structure.none` in the CSV leaves the elites out too).
-- **Bots, Brown, AmiGo:** the rank of the best bot (and of each bot's best
-  copy) by score, with the number of networks above it in brackets. `1 (0)`
-  means the bot tops the ranking. Progress looks like the bracket numbers
-  growing: more networks score above the bots. With many copies of each bot
-  the best copy often tops the ranking anyway, so read the next table too.
+- **Kids** is the most bred children of one previous-generation network (a crossover counts for both parents, an elite for none), **Childless** the networks with no bred child.
+  High Kids and many Childless mean strong selection pressure, a few networks taking over; `tournament_size` is the knob.
+- **Widen, Narrow, Add, Remove** count the shape changes among the bred children.
+- **Bots** and each bot's column give the rank of the best bot copy, with the number of networks above it in brackets; progress is the brackets growing.
+  The best of many bot copies often tops the ranking anyway, so read the next table too.
 
 ### Networks against bots
 
 ```
 | Gen | Brown       | AmiGo       | MichiWeak  | MichiMid  | MichiStrong | GnuGo    |
 |  85 |   44/46 96% |   20/90 22% |  15/48 31% |   2/42 5% |     0/40 0% |  0/18 0% |
-|  86 |   27/28 96% |   15/57 26% |  12/29 41% |   0/28 0% |     0/24 0% |  0/15 0% |
 ```
 
-Per bot, of the tournament games between a network and a copy of the bot,
-how many the network won and the share. A copy belongs to the bot its
-`players.opponent` names. A generation has only some dozens of games per
-bot, so look at the trend over several rows. Progress looks like the
-shares rising, and games against the stronger bots being won at all. The
-tournament pairs players of similar scores, so these are the networks near
-the bot's score, not a random sample: a share is no strength estimate, the
-benchmark is.
+Per bot, the tournament games between a network and a copy of that bot, and the share the network won.
+A generation has some dozens of games per bot, so read the trend over several rows.
+The tournament pairs players of similar scores, so these are the networks near the bot's score: a share is no strength estimate, the benchmark is.
+
+### Copies
+
+The Generations table's Copies column is the share of bred children identical to a parent by network weights and activations (`ExperimentStats#identical?`): every copy, and any mutation or crossover child with a parent's activations and a differs count of 0 against it.
+It compares neither genes nor feature weights, so it counts the mutation children that changed no network weight, whose feature weights and genes may differ from the parent's ([Why `weight_changes` is a count, not a rate](#why-weight_changes-is-a-count-not-a-rate)).
+It leaves out the elites, which are not bred.
+`docs/experiment-reference.md`, "Gene trajectories and clones", tells the exact clones apart.
 
 ### CSV columns
 
-`stats NAME --csv` has one row per generation, with every generation (not
-just the latest 10). The genome columns: `genes.GENE.min|median|max` for
-the five genes, `genes.feature_step.*` (filled for every network), and
-`genes.fw_NAME.*` for all seven feature weights, empty where the
-experiment's feature set lacks that feature, so experiments with different
-feature sets have the same columns;
-`shape.layers|width|weights.min|median|max`, `activation.hidden|output.NAME`
-(counts for all six), `structure.none|widen|narrow|add_layer|remove_layer`,
-`population.operators.initial|crossover|mutation|copy|elite` (`elite` 0
-in a run without elitism),
-`parents.max_children|childless|used` (`used`: parents with a bred child; an elite is no bred child), and
-`bots.best_rank`, `bots.networks_above`, and the same per bot
-(`bots.Brown.best_rank`), and per bot `against_bots.BOT.games|wins|draws`
-(empty where no network played it).
+`stats NAME --csv` has one row per generation, for every generation, with columns named by table and value, such as `genes.weight_step.median`, `activation.hidden.relu`, `structure.add_layer`, `parents.childless` and `against_bots.AmiGo.wins`.
+`genes.feature_step.*` and the seven `genes.fw_NAME.*` columns exist in every experiment, empty where it lacks the feature, so experiments with different feature sets line up.
 
 ### Digging deeper: the births table
 
-Each network has a row in `births` in `experiments/NAME/experiment.sqlite3`:
-`first_parent`, `second_parent` (the same name when selection drew one
-network twice), `operator` (`initial`, `crossover`, `mutation`, `copy`,
-`elite`; an elite has its one parent as `first_parent`),
-`parent` (`first` or `second`: the one mutated or copied, or whose weights
-come first in a crossover), `structure`, `activation_changed`, and the
-genome: `layers`, `width`, `act_hidden`, `act_output`, the five genes, and
-the features: `features` (the groups, or `none`), `feature_step`, and one
-column per feature weight (`fw_hane`, `fw_cut`, `fw_edge`, `fw_capture`,
-`fw_self_atari`, `fw_saves_atari`, `fw_near_last`), empty when the
-network's groups lack that feature.
-`differs_from_first` and `differs_from_second` count the network weights
-that differ from each parent (0 for an identical copy, empty for a parent
-of another shape). They leave the feature weights out, so a mutated child
-of a network with features can show 0 and still differ from its parent:
-its feature weights all moved.
+Each network has a row in `births` in `experiments/NAME/experiment.sqlite3`: `first_parent`, `second_parent` (the same name when selection drew one network twice), `operator` (`initial`, `crossover`, `mutation`, `copy`, `elite`; an elite has its one parent as `first_parent`), `parent` (`first` or `second`: the one mutated or copied, or whose weights come first in a crossover), `structure`, `activation_changed`, and the genome: `layers`, `width`, `act_hidden`, `act_output`, the five genes, `features` (the groups, or `none`), `feature_step`, and one column per feature weight (`fw_hane`, `fw_cut`, `fw_edge`, `fw_capture`, `fw_self_atari`, `fw_saves_atari`, `fw_near_last`), empty when the network's groups lack that feature.
+`differs_from_first` and `differs_from_second` count the network weights that differ from each parent (0 for an identical copy, empty for a parent of another shape); they leave the feature weights out.
 
 Every child whose shape or activations changed:
 
 ```sh
 sqlite3 -header -column experiments/NAME/experiment.sqlite3 "
   SELECT generation AS gen, child, first_parent, second_parent, parent,
-         structure, layers || 'x' || width AS shape, act_hidden, act_output,
-         round(weight_changes, 2) AS changes, round(weight_step, 2) AS step
-  FROM births
-  WHERE structure != 'none' OR activation_changed
+         structure, layers || 'x' || width AS shape, act_hidden, act_output
+  FROM births WHERE structure != 'none' OR activation_changed
   ORDER BY generation, child"
 ```
 
-```
-gen  child   first_parent  second_parent  parent  structure     shape  act_hidden      act_output     ...
-1    0.ann   0011.ann      0011.ann       first   add_layer     2x10   sigmoid_cached  sigmoid_cached
-1    3.ann   0010.ann      0011.ann       second  none          1x10   sigmoid_cached  threshold
-3    1.ann   1.ann         1.ann          first   remove_layer  0x0    sigmoid_cached  threshold
-```
+## The settings, and a run to try
 
-## 6. The settings, and a run to try
-
-| Setting | Default | What it controls |
-| --- | --- | --- |
-| `hidden_layers`, `layer_size` | required | generation 0's shape |
-| `features` | `all` | the feature groups every network sees: `none`, `all`, or a comma-separated list of `shapes`, `tactics`, `last_move`, `liberties` |
-| `max_hidden_layers` | 4 | most hidden layers a network may reach |
-| `max_layer_size` | 200 | widest a hidden layer may get |
-| `cross_over_rate` | required | chance of trying crossover (0 to 1) |
-| `meta_rate` | 0.2 | how fast the genes move |
-| `initial_copy_chance` | 0.01 | generation 0's `copy_chance` (0.0001 to 0.1; 0 = never copy) |
-| `initial_weight_changes` | 0.0004 × generation 0's weights (feature inputs included), at least 1 | generation 0's `weight_changes` (at most its total weights) |
-| `initial_weight_step` | 0.5 | generation 0's `weight_step` |
-| `initial_activation_rate` | 0.02 | generation 0's `activation_rate` |
-| `initial_structure_rate` | 0.02 | generation 0's `structure_rate` |
-| `initial_feature_step` | 0.01 | generation 0's `feature_step` (0.0001 to 1) |
-| `initial_feature_noise` | 0.3 | how far generation 0's feature weights spread around their hand-set values: each is multiplied by 1 + u, u uniform within ±this (0 to 1) |
-| `tournament_size` | 3 | selection pressure when picking parents |
-| `elite_share` | 0 | share of the population carried over unchanged (elitism, 0 to 1): E = the share × `population_size`, rounded, at least 1 above 0 and at most `population_size` − 1 (`Elitism.count`) |
-
-With the defaults, shape changes are rare. In a population of 20 with
-`cross_over_rate` 0.5, about 10 children per generation are mutations, and
-at a `structure_rate` of 0.02 that makes one shape change every five
-generations or so. To see shapes move, start with a much higher rate and
-tight limits:
+`mise run new-experiment` without arguments lists every setting with its range and default.
+With the defaults, shape changes are rare: in a population of 20 with `cross_over_rate` 0.5, about 10 children per generation are mutations, and at a `structure_rate` of 0.02 that is one shape change every five generations or so.
+To see shapes move, start with a much higher rate and tight limits:
 
 ```sh
 mise run new-experiment demo --board-size 9 --population-size 12 --hidden-layers 1 --layer-size 10 \
@@ -523,14 +227,9 @@ for i in 1 2 3 4 5 6; do mise run run demo --concurrency 4 --one-generation; don
 mise run stats demo
 ```
 
-That plays generations 0 to 5 in under a minute (26 Sep 2026); the Genes,
-Shapes and activations, Breeding, and births examples in section 5 come
-from it. It showed all four kinds of shape changes, shapes from `0x0` to
-`3x10`, and networks without a hidden layer spreading to 5 of 12 by
-generation 4. `weight_changes` starts at 4.26 here (0.0004 × 10,652
-weights of a `1x10` network with every feature group). The same seed gives the same run again on the
-same machine; another machine can differ, because the build is tuned to the
-local CPU. Delete `experiments/demo` afterwards.
+The Genes, Shapes and activations, and Breeding examples above come from a run of it on 26 Sep 2026, which showed all four kinds of shape change, shapes from `0x0` to `3x10`, and networks without a hidden layer spreading to 5 of 12 by generation 4.
+The same seed gives the same run again on the same machine and code; another machine can differ, because the build is tuned to the local CPU.
+Delete `experiments/demo` afterwards.
 
 ### What a 20-generation default run showed
 
